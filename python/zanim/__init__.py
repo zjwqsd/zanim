@@ -5,6 +5,7 @@ submodules instead of becoming root-package compatibility commitments.
 """
 
 from .batch import BatchObject2D, CircleSet, LineSet, RectSet
+from .audio import Audio, AudioObject
 from .bounds import Bounds2D
 from .camera import Camera2D
 from .dynamic import DynamicNumber, NumberFormat
@@ -37,14 +38,15 @@ from .geometry import (
 from .interpolation import ObjectInterpolation
 from .object import DOWN, LEFT, ORIGIN, RIGHT, UP
 from .plot import Axes2D, DynamicGeometryObject2D
+from .raster import GIF, Image, RasterObject2D, Video
 from .shapes import Arrow, Dot, NumberLine
 from .scene import Scene
 from .space import Canvas, Linear2D, SE2, Transform2D, Vec2
 from .svg import load_svg
-from .timeline import BatchClip, Easing, InterpolationClip, OpacityClip, PathTrimClip, RevealClip, StyleClip, TimeSpan, Timeline, TransformClip, ValueClip
+from .timeline import BatchClip, Easing, InterpolationClip, OpacityClip, PathTrimClip, PlaybackClip, RevealClip, StyleClip, TimeSpan, Timeline, TransformClip, TransformFunctionClip, ValueClip
 from .typst import Math, Text
 from .value import ScalarValue
-from .vector import VectorContour, VectorDocument, VectorObject2D, VectorPath
+from .vector import DynamicVectorObject2D, VectorContour, VectorDocument, VectorObject2D, VectorPath
 
 __all__ = [
     "Arc",
@@ -61,6 +63,7 @@ __all__ = [
     "CubicBezier",
     "DynamicGeometryObject2D",
     "DynamicNumber",
+    "DynamicVectorObject2D",
     "Dot",
     "Easing",
     "Ellipse",
@@ -106,6 +109,7 @@ __all__ = [
     "Timeline",
     "Transform2D",
     "TransformClip",
+    "TransformFunctionClip",
     "ValueClip",
     "Vec2",
     "VectorContour",
@@ -113,4 +117,14 @@ __all__ = [
     "VectorObject2D",
     "VectorPath",
     "load_svg",
+
+    "AlphaMaskSource",
+    "Audio",
+    "AudioObject",
+    "GIF",
+    "Image",
+    "PlaybackClip",
+    "RasterObject2D",
+    "SceneRasterSource",
+    "Video",
 ]

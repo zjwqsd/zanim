@@ -5,6 +5,7 @@ const batch = @import("batch.zig");
 const geometry = @import("geometry.zig");
 const interpolation = @import("interpolation.zig");
 const math = @import("math.zig");
+const raster = @import("raster.zig");
 const vector = @import("vector.zig");
 
 const Canvas = canvas_mod.Canvas;
@@ -65,6 +66,7 @@ pub const DrawKind = enum(u32) {
     batch = 1,
     vector = 2,
     interpolation = 3,
+    raster = 4,
 };
 
 /// One command in the fully ordered scene draw stream. `index` addresses the
@@ -209,7 +211,9 @@ fn drawScene(
     object_wires: []const WireObject,
     batch_wires: []const batch.WireBatch,
     vector_wires: []const vector.WireVectorObject,
+    raster_wires: []const raster.WireRaster,
     interpolation_wires: []const WireInterpolation,
+    surface: *z2d.Surface,
 ) !void {
     for (draw_items) |item| {
         const index: usize = item.index;
@@ -218,6 +222,7 @@ fn drawScene(
             1 => .batch,
             2 => .vector,
             3 => .interpolation,
+            4 => .raster,
             else => return error.InvalidDrawItem,
         };
         switch (kind) {
@@ -239,6 +244,10 @@ fn drawScene(
                 if (index >= interpolation_wires.len) return error.InvalidDrawItem;
                 try drawInterpolation(ctx, canvas, allocator, interpolation_wires[index]);
             },
+            .raster => {
+                if (index >= raster_wires.len) return error.InvalidDrawItem;
+                try raster.drawWireRaster(surface, canvas, raster_wires[index]);
+            },
         }
     }
 }
@@ -253,6 +262,7 @@ pub fn renderRgb0(
     object_wires: []const WireObject,
     batch_wires: []const batch.WireBatch,
     vector_wires: []const vector.WireVectorObject,
+    raster_wires: []const raster.WireRaster,
     interpolation_wires: []const WireInterpolation,
     pixels: []z2d.pixel.RGB,
 ) !void {
@@ -276,7 +286,43 @@ pub fn renderRgb0(
     ctx.setLineJoinMode(.round);
 
     const canvas = try Canvas.init(width, height, unit_size);
-    try drawScene(&ctx, canvas, allocator, draw_items, object_wires, batch_wires, vector_wires, interpolation_wires);
+    try drawScene(&ctx, canvas, allocator, draw_items, object_wires, batch_wires, vector_wires, raster_wires, interpolation_wires, &surface);
+}
+
+/// Render into caller-owned transparent premultiplied RGBA pixels.
+pub fn renderRgba0(
+    width: i32,
+    height: i32,
+    unit_size: f64,
+    draw_items: []const WireDrawItem,
+    object_wires: []const WireObject,
+    batch_wires: []const batch.WireBatch,
+    vector_wires: []const vector.WireVectorObject,
+    raster_wires: []const raster.WireRaster,
+    interpolation_wires: []const WireInterpolation,
+    pixels: []z2d.pixel.RGBA,
+) !void {
+    const allocator = std.heap.smp_allocator;
+    const expected: usize = @intCast(width * height);
+    if (pixels.len < expected) return error.OutputBufferTooSmall;
+
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    var surface = z2d.Surface.initBuffer(
+        .image_surface_rgba,
+        .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+        pixels[0..expected],
+        width,
+        height,
+    );
+    var ctx = z2d.Context.init(io, allocator, &surface);
+    defer ctx.deinit();
+    ctx.setAntiAliasingMode(.multisample_4x);
+    ctx.setLineJoinMode(.round);
+
+    const canvas = try Canvas.init(width, height, unit_size);
+    try drawScene(&ctx, canvas, allocator, draw_items, object_wires, batch_wires, vector_wires, raster_wires, interpolation_wires, &surface);
+    for (pixels[0..expected]) |*px| px.* = px.demultiply();
 }
 
 pub fn renderFrame(
@@ -288,6 +334,7 @@ pub fn renderFrame(
     object_wires: []const WireObject,
     batch_wires: []const batch.WireBatch,
     vector_wires: []const vector.WireVectorObject,
+    raster_wires: []const raster.WireRaster,
     interpolation_wires: []const WireInterpolation,
 ) !void {
     const allocator = std.heap.smp_allocator;
@@ -309,6 +356,6 @@ pub fn renderFrame(
 
     const canvas = try Canvas.init(width, height, unit_size);
 
-    try drawScene(&ctx, canvas, allocator, draw_items, object_wires, batch_wires, vector_wires, interpolation_wires);
+    try drawScene(&ctx, canvas, allocator, draw_items, object_wires, batch_wires, vector_wires, raster_wires, interpolation_wires, &surface);
     try z2d.png_exporter.writeToPNGFile(io, surface, path, .{});
 }

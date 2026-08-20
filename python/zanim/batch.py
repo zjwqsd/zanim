@@ -12,7 +12,7 @@ def _same_length(name: str, n: int, values: tuple[object, ...]) -> None:
         raise ValueError(f"{name} must contain {n} values, got {len(values)}")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)
 class LineSet:
     """Many independent line segments with per-line stroke data."""
 
@@ -35,7 +35,7 @@ class LineSet:
         return len(self.starts)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)
 class CircleSet:
     """Many circles with per-circle fill and optional stroke data."""
 
@@ -66,7 +66,7 @@ class CircleSet:
         return len(self.centers)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)
 class RectSet:
     """Many axis-aligned local rectangles with per-rectangle visual data."""
 

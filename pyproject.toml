@@ -3,7 +3,7 @@ name = "zanim"
 version = "0.1.0"
 description = "A Manim-style animation engine with a Python frontend and Zig core"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["pillow>=10.2.0"]
 
 [build-system]
 requires = ["hatchling"]

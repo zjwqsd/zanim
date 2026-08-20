@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .batch import BatchObject2D, LineSet
-from .geometry import Color, Line, Object2D, Polygon, Polyline, StrokeStyle, Style
+from .geometry import Color, Geometry, Line, Object2D, Polygon, Polyline, StrokeStyle, Style
 from .space import Transform2D, Vec2
 
 ScalarFunction = Callable[[float], float]
@@ -243,13 +243,13 @@ class DynamicGeometryObject2D(Object2D):
             raise TypeError("dynamic geometry provider must be callable")
         self.provider = provider
         initial = provider(0.0)
-        if not isinstance(initial, (Line, Polyline, Polygon)):
-            raise TypeError("DynamicGeometryObject2D currently supports Line, Polyline, or Polygon")
+        if not isinstance(initial, Geometry):
+            raise TypeError("dynamic geometry provider must return a Zanim Geometry")
         super().__init__(initial, transform=transform, style=style, opacity=opacity, z_index=z_index)
 
     def geometry_at(self, time: float):
         geometry = self.provider(float(time))
-        if not isinstance(geometry, (Line, Polyline, Polygon)):
+        if not isinstance(geometry, Geometry):
             raise TypeError("dynamic geometry provider returned unsupported geometry")
         return geometry
 

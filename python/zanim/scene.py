@@ -3,34 +3,39 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .batch import BatchGeometry, BatchObject2D
+from .audio import AudioObject
 from .camera import Camera2D
 from .geometry import Object2D
 from .group import Group2D
 from .interpolation import ObjectInterpolation
 from .object import SceneObject2D
+from .raster import RasterObject2D
 from .snapshot import (
     BatchSnapshot,
     NodeSnapshot,
     ObjectSnapshot,
     RenderBatch,
     RenderObject,
+    RenderRaster,
     RenderSnapshot,
     RenderVector,
     TransientInterpolation,
+    RasterSnapshot,
+    RasterState,
     VectorSnapshot,
 )
 from .space import Canvas, Transform2D
 from .timeline import (
     BatchClip, Easing, InterpolationClip, OpacityClip, PathTrimClip, RevealClip,
-    StyleClip, Timeline, TransformClip, ValueClip,
+    PlaybackClip, StyleClip, Timeline, TransformClip, TransformFunctionClip, ValueClip,
 )
 from .value import ScalarValue
 from .vector import VectorObject2D
 
-RenderableObject = Object2D | BatchObject2D | VectorObject2D
+RenderableObject = Object2D | BatchObject2D | VectorObject2D | RasterObject2D
 SceneObject = RenderableObject | Group2D | Camera2D
-SceneItem = SceneObject | ScalarValue
-InitialSnapshot = ObjectSnapshot | BatchSnapshot | VectorSnapshot | NodeSnapshot | float
+SceneItem = SceneObject | ScalarValue | AudioObject
+InitialSnapshot = ObjectSnapshot | BatchSnapshot | VectorSnapshot | RasterState | NodeSnapshot | float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +56,7 @@ class Scene:
     camera: Camera2D = field(default_factory=Camera2D)
     _registry: list[_RegisteredItem] = field(default_factory=list, init=False, repr=False)
     _by_id: dict[int, _RegisteredItem] = field(default_factory=dict, init=False, repr=False)
+    _by_identity: dict[int, _RegisteredItem] = field(default_factory=dict, init=False, repr=False)
     _next_object_id: int = field(default=1, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -59,6 +65,7 @@ class Scene:
         registered = _RegisteredItem(0, self.camera, initial)
         self._registry.append(registered)
         self._by_id[0] = registered
+        self._by_identity[id(self.camera)] = registered
 
     @property
     def width(self) -> int:
@@ -73,7 +80,7 @@ class Scene:
         """Renderable leaves in stable insertion order (compatibility view)."""
         return tuple(
             item.object_ref for item in self._registry
-            if isinstance(item.object_ref, (Object2D, BatchObject2D, VectorObject2D))
+            if isinstance(item.object_ref, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D))
         )
 
     @property
@@ -83,7 +90,7 @@ class Scene:
 
     def add(self, *objects: SceneItem) -> "Scene":
         for obj in objects:
-            if isinstance(obj, Camera2D) or not isinstance(obj, (SceneObject2D, ScalarValue)):
+            if isinstance(obj, Camera2D) or not isinstance(obj, (SceneObject2D, ScalarValue, AudioObject)):
                 raise TypeError(f"unsupported scene item: {type(obj).__name__}")
             self._register(obj, (), set())
         return self
@@ -103,18 +110,25 @@ class Scene:
             initial = BatchSnapshot.from_object(obj)
         elif isinstance(obj, VectorObject2D):
             initial = VectorSnapshot.from_object(obj)
+        elif isinstance(obj, RasterObject2D):
+            initial = RasterState.from_object(obj)
         elif isinstance(obj, Group2D):
             initial = NodeSnapshot(obj.transform, obj.opacity, obj.z_index)
         elif isinstance(obj, ScalarValue):
             if parents:
                 raise TypeError("ScalarValue cannot be a Group2D child")
             initial = obj._initial
+        elif isinstance(obj, AudioObject):
+            if parents:
+                raise TypeError("AudioObject cannot be a Group2D child")
+            initial = None
         else:
             raise TypeError(f"unsupported scene item: {type(obj).__name__}")
 
         registered = _RegisteredItem(object_id, obj, initial, parents)
         self._registry.append(registered)
         self._by_id[object_id] = registered
+        self._by_identity[identity] = registered
 
         if isinstance(obj, Group2D):
             next_ancestry = set(ancestry)
@@ -139,6 +153,24 @@ class Scene:
             registered.object_id, obj.transform, target, duration, easing, at
         )
         obj.transform = target
+        return clip
+
+    def play_transform_function(
+        self,
+        obj: SceneObject,
+        provider,
+        duration: float = 1.0,
+        easing: Easing = Easing.SMOOTHSTEP,
+        at: float = 0.0,
+    ) -> TransformFunctionClip:
+        """Animate a complete transform as a pure function of normalized time."""
+        if isinstance(obj, Camera2D) and obj.is_dynamic:
+            raise TypeError("dynamic Camera2D cannot also use transform clips")
+        registered = self._require_registered(obj)
+        clip = self.timeline.add_transform_function(
+            registered.object_id, provider, obj.transform, duration, easing, at
+        )
+        obj.transform = clip.after
         return clip
 
     def play_opacity(
@@ -210,6 +242,21 @@ class Scene:
         value.value = float(target)
         return clip
 
+    def play_media(
+        self, obj: RasterObject2D | AudioObject, duration: float | None = None, *,
+        source_start: float = 0.0, speed: float = 1.0, loop: bool = False, at: float = 0.0,
+    ) -> PlaybackClip:
+        registered = self._require_registered(obj)
+        source_duration = obj.source.duration
+        if duration is None:
+            if source_duration is None:
+                raise ValueError("static media playback requires an explicit duration")
+            duration = (source_duration - float(source_start)) / float(speed)
+        return self.timeline.add_playback(
+            registered.object_id, duration, source_start=source_start, speed=speed,
+            loop=loop, source_duration=source_duration, at=at,
+        )
+
     def play_batch(
         self,
         obj: BatchObject2D,
@@ -276,6 +323,7 @@ class Scene:
         objects: list[RenderObject] = []
         batches: list[RenderBatch] = []
         vectors: list[RenderVector] = []
+        rasters: list[RenderRaster] = []
         for registered in self._registry:
             obj = registered.object_ref
             if isinstance(obj, Object2D):
@@ -284,13 +332,17 @@ class Scene:
                 batches.append(self._evaluate_batch(registered, obj, time))
             elif isinstance(obj, VectorObject2D):
                 vectors.append(self._evaluate_vector(registered, obj, time))
+            elif isinstance(obj, RasterObject2D):
+                rendered = self._evaluate_raster(registered, obj, time)
+                if rendered is not None:
+                    rasters.append(rendered)
 
         transients = tuple(
             TransientInterpolation(clip.interpolation, clip.alpha(time))
             for clip in self.timeline.clips
             if isinstance(clip, InterpolationClip) and clip.span.contains(time)
         )
-        return RenderSnapshot(time, tuple(objects), tuple(batches), tuple(vectors), transients)
+        return RenderSnapshot(time, tuple(objects), tuple(batches), tuple(vectors), tuple(rasters), transients)
 
     def _context_at(self, registered: _RegisteredItem, time: float) -> tuple[Transform2D, float, int]:
         camera_registered = self._by_id[0]
@@ -299,7 +351,7 @@ class Scene:
         camera = camera_registered.object_ref
         assert isinstance(camera, Camera2D)
         if camera.is_dynamic:
-            if any(isinstance(clip, TransformClip) and clip.object_id == 0 for clip in self.timeline.clips):
+            if self.timeline._channel_clips(TransformClip, 0):
                 raise RuntimeError("dynamic Camera2D cannot also have TransformClip entries")
             transform = camera.transform_at(time, camera_initial.transform)
         else:
@@ -369,11 +421,45 @@ class Scene:
             ),
         )
 
+    def _evaluate_raster(
+        self, registered: _RegisteredItem, obj: RasterObject2D, time: float
+    ) -> RenderRaster | None:
+        initial = registered.initial
+        assert isinstance(initial, RasterState)
+        source_time = self._playback_time_at(registered.object_id, obj.source.duration, time)
+        if source_time is None:
+            return None
+        parent_transform, parent_opacity, parent_z = self._context_at(registered, time)
+        return RenderRaster(
+            registered.object_id,
+            RasterSnapshot(
+                frame=obj.frame_at(source_time), width=initial.width, height=initial.height,
+                transform=parent_transform @ self._transform_at(registered.object_id, initial.transform, time),
+                opacity=parent_opacity * self._opacity_at(registered.object_id, initial.opacity, time),
+                z_index=parent_z + initial.z_index,
+            ),
+        )
+
+    def _playback_time_at(self, object_id: int, source_duration: float | None, time: float) -> float | None:
+        clips = self.timeline._channel_clips(PlaybackClip, object_id)
+        if not clips:
+            return 0.0
+        for clip in clips:
+            if clip.span.contains(time):
+                return clip.source_time(time)
+        return None
+
+    def _audio_playbacks(self):
+        for registered in self._registry:
+            obj = registered.object_ref
+            if not isinstance(obj, AudioObject):
+                continue
+            for clip in self.timeline._channel_clips(PlaybackClip, registered.object_id):
+                yield obj, clip
+
     def _transform_at(self, object_id: int, initial: Transform2D, time: float) -> Transform2D:
         value = initial
-        for clip in self.timeline.clips:
-            if not isinstance(clip, TransformClip) or clip.object_id != object_id:
-                continue
+        for clip in self.timeline._channel_clips(TransformClip, object_id):
             if time < clip.span.start:
                 break
             if time >= clip.span.end:
@@ -389,7 +475,7 @@ class Scene:
         return self._scalar_object_channel_at(PathTrimClip, object_id, initial, time)
 
     def _scalar_object_channel_at(self, clip_type, object_id: int, initial: float, time: float) -> float:
-        clips = [c for c in self.timeline.clips if isinstance(c, clip_type) and c.object_id == object_id]
+        clips = self.timeline._channel_clips(clip_type, object_id)
         if not clips:
             return initial
         if time < clips[0].span.start:
@@ -405,7 +491,7 @@ class Scene:
         return value
 
     def _style_at(self, object_id: int, initial, time: float):
-        clips = [c for c in self.timeline.clips if isinstance(c, StyleClip) and c.object_id == object_id]
+        clips = self.timeline._channel_clips(StyleClip, object_id)
         if not clips:
             return initial
         if time < clips[0].span.start:
@@ -422,9 +508,7 @@ class Scene:
 
     def _batch_at(self, object_id: int, initial: BatchGeometry, time: float) -> tuple[BatchGeometry, BatchClip | None]:
         value = initial
-        for clip in self.timeline.clips:
-            if not isinstance(clip, BatchClip) or clip.object_id != object_id:
-                continue
+        for clip in self.timeline._channel_clips(BatchClip, object_id):
             if time < clip.span.start:
                 break
             if time >= clip.span.end:
@@ -434,7 +518,7 @@ class Scene:
         return value, None
 
     def _reveal_at(self, object_id: int, initial: float, time: float) -> float:
-        clips = [c for c in self.timeline.clips if isinstance(c, RevealClip) and c.object_id == object_id]
+        clips = self.timeline._channel_clips(RevealClip, object_id)
         if not clips:
             return initial
         if time < clips[0].span.start:
@@ -449,11 +533,24 @@ class Scene:
             return clip.sample(time)
         return value
 
-    def _find_registered(self, obj) -> _RegisteredItem | None:
+
+    def _close_media_sources(self) -> None:
+        """Release transient decoder processes held by raster sources."""
+        seen: set[int] = set()
         for registered in self._registry:
-            if registered.object_ref is obj:
-                return registered
-        return None
+            obj = registered.object_ref
+            if not isinstance(obj, RasterObject2D):
+                continue
+            source = obj.source
+            identity = id(source)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            source.close()
+
+    def _find_registered(self, obj) -> _RegisteredItem | None:
+        registered = self._by_identity.get(id(obj))
+        return registered if registered is not None and registered.object_ref is obj else None
 
     def _require_registered(self, obj) -> _RegisteredItem:
         registered = self._find_registered(obj)

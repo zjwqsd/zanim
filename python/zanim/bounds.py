@@ -166,6 +166,7 @@ def bounds_of(obj, extra_transform: Transform2D = Transform2D()) -> Bounds2D:
     from .batch import BatchObject2D
     from .geometry import Object2D
     from .group import Group2D
+    from .raster import RasterObject2D
     from .vector import VectorObject2D
 
     if isinstance(obj, Group2D):
@@ -181,4 +182,9 @@ def bounds_of(obj, extra_transform: Transform2D = Transform2D()) -> Bounds2D:
         return _batch_bounds(obj.batch, transform)
     if isinstance(obj, VectorObject2D):
         return _vector_bounds(obj.document, transform)
+    if isinstance(obj, RasterObject2D):
+        hx, hy = obj.width * 0.5, obj.height * 0.5
+        return _points_bounds(
+            transform.apply(Vec2(x, y)) for x in (-hx, hx) for y in (-hy, hy)
+        )
     raise TypeError(f"object has no 2D bounds: {type(obj).__name__}")

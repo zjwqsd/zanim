@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 
 from .geometry import Color, CubicBezier, StrokeStyle
 from .object import SceneObject2D
-from .space import Linear2D, SE2, Transform2D
+from .space import Linear2D, SE2, Transform2D, Vec2
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +40,7 @@ class VectorPath:
             raise ValueError("vector path group must be >= 0")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)
 class VectorDocument:
     """Immutable vector resource, typically imported from SVG/Typst."""
 
@@ -95,6 +96,85 @@ class VectorObject2D(SceneObject2D):
         self.transform = rigid.as_affine() @ self.transform
         return self
 
+
+
+class DynamicVectorObject2D(VectorObject2D):
+    """VectorObject2D whose immutable document is a pure function of time."""
+
+    def __init__(
+        self,
+        provider: Callable[[float], VectorDocument],
+        *,
+        transform: Transform2D = Transform2D(),
+        reveal: float = 1.0,
+        opacity: float = 1.0,
+        z_index: int = 0,
+    ) -> None:
+        if not callable(provider):
+            raise TypeError("dynamic vector provider must be callable")
+        self.provider = provider
+        initial = provider(0.0)
+        if not isinstance(initial, VectorDocument):
+            raise TypeError("dynamic vector provider must return VectorDocument")
+        super().__init__(document=initial, transform=transform, reveal=reveal, opacity=opacity, z_index=z_index)
+
+    def document_at(self, time: float) -> VectorDocument:
+        value = self.provider(float(time))
+        if not isinstance(value, VectorDocument):
+            raise TypeError("dynamic vector provider returned non-VectorDocument")
+        return value
+
+    def _document_at(self, time: float, initial: VectorDocument) -> VectorDocument:
+        _ = initial
+        return self.document_at(time)
+
+
+def map_vector_document(
+    document: VectorDocument,
+    point_fn: Callable[[Vec2], Vec2],
+    *,
+    update_size: bool = False,
+) -> VectorDocument:
+    """Apply a pure point mapping to every cubic control point.
+
+    ``VectorDocument.width/height`` are authoring metadata and are not used by
+    the vector rasterizer.  Dynamic point maps therefore preserve them by
+    default, avoiding a second full cubic-bounds pass every frame.  Callers
+    that need updated intrinsic dimensions can opt into ``update_size``.
+    """
+
+    def mapped(point: Vec2) -> Vec2:
+        result = point_fn(point)
+        if not isinstance(result, Vec2):
+            raise TypeError("vector point mapping must return Vec2")
+        return result
+
+    paths = tuple(
+        VectorPath(
+            tuple(
+                VectorContour(
+                    tuple(
+                        CubicBezier(mapped(seg.p0), mapped(seg.p1), mapped(seg.p2), mapped(seg.p3))
+                        for seg in contour.segments
+                    ),
+                    contour.closed,
+                )
+                for contour in path.contours
+            ),
+            fill=path.fill, stroke=path.stroke, group=path.group,
+        )
+        for path in document.paths
+    )
+    if not update_size or not paths:
+        return VectorDocument(paths, document.width, document.height, document.group_count)
+    bounds = tuple(vector_path_bounds(path) for path in paths)
+    left = min(b[0] for b in bounds)
+    right = max(b[2] for b in bounds)
+    bottom = min(b[1] for b in bounds)
+    top = max(b[3] for b in bounds)
+    return VectorDocument(
+        paths, max(1e-9, right-left), max(1e-9, top-bottom), document.group_count
+    )
 
 
 def _cubic_axis_bounds(p0: float, p1: float, p2: float, p3: float) -> tuple[float, float]:

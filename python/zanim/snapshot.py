@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from .batch import BatchGeometry, BatchObject2D
 from .geometry import Geometry, Object2D, Style
 from .space import Transform2D
+from .raster import RasterFrame, RasterObject2D
 from .vector import VectorDocument, VectorObject2D
 
 if TYPE_CHECKING:
@@ -59,6 +60,33 @@ class VectorSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class RasterState:
+    """Frozen authoring state; intentionally contains no decoded frame."""
+
+    width: float
+    height: float
+    transform: Transform2D
+    opacity: float = 1.0
+    z_index: int = 0
+
+    @staticmethod
+    def from_object(obj: RasterObject2D) -> "RasterState":
+        return RasterState(obj.width, obj.height, obj.transform, obj.opacity, obj.z_index)
+
+
+@dataclass(frozen=True, slots=True)
+class RasterSnapshot:
+    """Complete per-frame raster render value."""
+
+    frame: RasterFrame
+    width: float
+    height: float
+    transform: Transform2D
+    opacity: float = 1.0
+    z_index: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class RenderObject:
     object_id: int
     snapshot: ObjectSnapshot
@@ -79,6 +107,12 @@ class RenderVector:
 
 
 @dataclass(frozen=True, slots=True)
+class RenderRaster:
+    object_id: int
+    snapshot: RasterSnapshot
+
+
+@dataclass(frozen=True, slots=True)
 class TransientInterpolation:
     interpolation: "ObjectInterpolation"
     alpha: float
@@ -90,4 +124,5 @@ class RenderSnapshot:
     objects: tuple[RenderObject, ...]
     batches: tuple[RenderBatch, ...]
     vectors: tuple[RenderVector, ...]
+    rasters: tuple[RenderRaster, ...]
     transients: tuple[TransientInterpolation, ...]

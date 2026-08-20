@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Iterator
+from typing import Callable, Iterator
 
 from .batch import BatchGeometry
 from .geometry import Color, StrokeStyle, Style
@@ -61,6 +61,29 @@ class TransformClip:
 
     def sample(self, time: float) -> Transform2D:
         return lerp_transform(self.before, self.after, self.span.alpha(time, self.easing))
+
+
+@dataclass(frozen=True, slots=True)
+class TransformFunctionClip:
+    """Random-access transform animation driven by eased normalized time.
+
+    The provider receives alpha in [0, 1] and returns the complete object
+    transform for that instant.  Unlike a stateful updater, sampling does not
+    depend on earlier frames.
+    """
+
+    object_id: int
+    span: TimeSpan
+    provider: Callable[[float], Transform2D]
+    before: Transform2D
+    after: Transform2D
+    easing: Easing = Easing.SMOOTHSTEP
+
+    def sample(self, time: float) -> Transform2D:
+        value = self.provider(self.span.alpha(time, self.easing))
+        if not isinstance(value, Transform2D):
+            raise TypeError("transform function must return Transform2D")
+        return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +159,29 @@ class ValueClip:
 
 
 @dataclass(frozen=True, slots=True)
+class PlaybackClip:
+    object_id: int
+    span: TimeSpan
+    source_start: float
+    speed: float
+    loop: bool
+    source_duration: float | None
+
+    def source_time(self, time: float) -> float:
+        if not self.span.contains(time):
+            raise ValueError("time is outside PlaybackClip span")
+        if self.source_duration is None:
+            return 0.0
+        elapsed = max(0.0, float(time) - self.span.start) * self.speed
+        if self.loop:
+            loop_length = self.source_duration - self.source_start
+            if loop_length <= 0:
+                return self.source_start
+            return self.source_start + (elapsed % loop_length)
+        return min(self.source_duration, self.source_start + elapsed)
+
+
+@dataclass(frozen=True, slots=True)
 class InterpolationClip:
     interpolation: ObjectInterpolation
     span: TimeSpan
@@ -146,8 +192,8 @@ class InterpolationClip:
 
 
 Clip = (
-    TransformClip | OpacityClip | StyleClip | PathTrimClip | BatchClip |
-    RevealClip | ValueClip | InterpolationClip
+    TransformClip | TransformFunctionClip | OpacityClip | StyleClip | PathTrimClip | BatchClip |
+    RevealClip | ValueClip | PlaybackClip | InterpolationClip
 )
 
 
@@ -200,19 +246,46 @@ class Timeline:
     clips: list[Clip] = field(default_factory=list)
     _parallel_base: float | None = field(default=None, init=False, repr=False)
     _parallel_end: float | None = field(default=None, init=False, repr=False)
+    _channels: dict[tuple[object, int], list[Clip]] = field(default_factory=dict, init=False, repr=False)
+
+    @staticmethod
+    def _channel_token(clip_or_type) -> object:
+        transform_types = (TransformClip, TransformFunctionClip)
+        if isinstance(clip_or_type, type):
+            return "transform" if clip_or_type in transform_types else clip_or_type
+        return "transform" if isinstance(clip_or_type, transform_types) else type(clip_or_type)
+
+    def _channel_clips(self, clip_type, key: int):
+        """Return one object's clips for a logical channel in start-time order."""
+        return self._channels.get((self._channel_token(clip_type), int(key)), ())
 
     def _span(self, duration: float, at: float) -> TimeSpan:
         return TimeSpan(self._schedule_base() + at, duration)
 
     def _append(self, clip, *, key_name: str | None = "object_id"):
         if key_name is not None:
-            self._check_channel_conflict(clip, key_name)
+            key = int(getattr(clip, key_name))
+            channel_key = (self._channel_token(clip), key)
+            entries = self._channels.setdefault(channel_key, [])
+            self._check_channel_conflict(clip, key_name, entries)
+            if entries and clip.span.start < entries[-1].span.start:
+                raise ValueError(
+                    "clips on the same channel must be authored in chronological order"
+                )
+            entries.append(clip)
         self.clips.append(clip)
         self._advance_after_schedule(clip.span.end)
         return clip
 
     def add_transform(self, object_id, before, after, duration=1.0, easing=Easing.SMOOTHSTEP, at=0.0):
         return self._append(TransformClip(object_id, self._span(duration, at), before, after, easing))
+
+    def add_transform_function(self, object_id, provider, before, duration=1.0, easing=Easing.SMOOTHSTEP, at=0.0):
+        span = self._span(duration, at)
+        after = provider(1.0)
+        if not isinstance(after, Transform2D):
+            raise TypeError("transform function must return Transform2D")
+        return self._append(TransformFunctionClip(object_id, span, provider, before, after, easing))
 
     def add_opacity(self, object_id, before, after, duration=1.0, easing=Easing.SMOOTHSTEP, at=0.0):
         if not (0 <= before <= 1 and 0 <= after <= 1):
@@ -239,6 +312,34 @@ class Timeline:
 
     def add_value(self, value_id, before, after, duration=1.0, easing=Easing.SMOOTHSTEP, at=0.0):
         return self._append(ValueClip(value_id, self._span(duration, at), float(before), float(after), easing), key_name="value_id")
+
+    def add_playback(
+        self, object_id, duration, *, source_start=0.0, speed=1.0,
+        loop=False, source_duration=None, at=0.0,
+    ):
+        duration = float(duration)
+        source_start = float(source_start)
+        speed = float(speed)
+        if duration <= 0:
+            raise ValueError("playback duration must be positive")
+        if speed <= 0:
+            raise ValueError("playback speed must be positive")
+        if source_start < 0:
+            raise ValueError("source_start must be >= 0")
+        if source_duration is not None:
+            source_duration = float(source_duration)
+            if source_duration <= 0 or source_start >= source_duration:
+                raise ValueError("source_start must lie inside source duration")
+            if not loop and source_start + duration * speed > source_duration + 1e-9:
+                raise ValueError("non-looping playback exceeds source duration")
+        elif source_start != 0.0 or speed != 1.0 or loop:
+            raise ValueError("static media playback does not use source offsets, speed, or looping")
+        span = self._span(duration, at)
+        if span.start < 0:
+            raise ValueError("media playback cannot start before scene time 0")
+        return self._append(PlaybackClip(
+            object_id, span, source_start, speed, bool(loop), source_duration
+        ))
 
     def add_interpolation(self, interpolation, duration=1.0, easing=Easing.SMOOTHSTEP, at=0.0):
         return self._append(InterpolationClip(interpolation, self._span(duration, at), easing), key_name=None)
@@ -274,16 +375,16 @@ class Timeline:
             assert self._parallel_end is not None
             self._parallel_end = max(self._parallel_end, end)
 
-    def _check_channel_conflict(self, candidate, key_name: str) -> None:
+    def _check_channel_conflict(self, candidate, key_name: str, entries) -> None:
         key = getattr(candidate, key_name)
         clip_type = type(candidate)
-        for clip in self.clips:
-            if (
-                isinstance(clip, clip_type)
-                and getattr(clip, key_name) == key
-                and clip.span.overlaps(candidate.span)
-            ):
-                channel = clip_type.__name__.removesuffix("Clip").lower()
+        for clip in entries:
+            if clip.span.overlaps(candidate.span):
+                channel = (
+                    "transform"
+                    if self._channel_token(candidate) == "transform"
+                    else clip_type.__name__.removesuffix("Clip").lower()
+                )
                 raise ValueError(
                     f"overlapping {channel} clips for {key_name} {key}: "
                     f"[{clip.span.start}, {clip.span.end}) and "

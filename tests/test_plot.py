@@ -49,3 +49,12 @@ class AxesTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class DynamicGeometryCoverageTests(unittest.TestCase):
+    def test_dynamic_geometry_accepts_all_core_geometry_types(self):
+        from zanim import Circle, Rectangle
+        from zanim.plot import DynamicGeometryObject2D
+        c = DynamicGeometryObject2D(lambda t: Circle(1 + t))
+        r = DynamicGeometryObject2D(lambda t: Rectangle(1 + t, 2))
+        self.assertIsInstance(c.geometry_at(0.5), Circle)
+        self.assertIsInstance(r.geometry_at(0.5), Rectangle)

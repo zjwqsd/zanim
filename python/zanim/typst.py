@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 
 from .geometry import Color
 from .space import Transform2D
@@ -44,20 +45,28 @@ def compile_typst_svg(source: str) -> Path:
     """Compile Typst once and return a persistent cached SVG path."""
     digest = hashlib.sha256((_CACHE_SCHEMA + '\0' + source).encode('utf-8')).hexdigest()
     cache = _cache_dir()
-    typ_path = cache / f'{digest}.typ'
     svg_path = cache / f'{digest}.svg'
     if svg_path.is_file():
         return svg_path
 
-    typ_path.write_text(source, encoding='utf-8')
-    proc = subprocess.run(
-        [str(_typst_executable()), 'compile', str(typ_path), str(svg_path)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(f'Typst compilation failed:\n{proc.stderr}')
+    # Source/intermediate files are transactional and stay inside the Zanim
+    # cache rather than leaking .typ files or using global /tmp.
+    with tempfile.TemporaryDirectory(prefix='.typst-', dir=cache) as td:
+        temp = Path(td)
+        typ_path = temp / 'source.typ'
+        compiled = temp / 'result.svg'
+        typ_path.write_text(source, encoding='utf-8')
+        proc = subprocess.run(
+            [str(_typst_executable()), 'compile', str(typ_path), str(compiled)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f'Typst compilation failed:\n{proc.stderr}')
+        # Atomic on the same cache filesystem; concurrent equal compiles can
+        # safely replace the same content-addressed result.
+        compiled.replace(svg_path)
     return svg_path
 
 

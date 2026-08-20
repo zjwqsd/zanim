@@ -78,6 +78,20 @@ class WireVectorObject(ctypes.Structure):
     ]
 
 
+class WireRaster(ctypes.Structure):
+    _fields_ = [
+        ("pixels", ctypes.POINTER(ctypes.c_uint8)),
+        ("pixel_width", ctypes.c_uint32),
+        ("pixel_height", ctypes.c_uint32),
+        ("logical_width", ctypes.c_double),
+        ("logical_height", ctypes.c_double),
+        ("xx", ctypes.c_double), ("xy", ctypes.c_double),
+        ("yx", ctypes.c_double), ("yy", ctypes.c_double),
+        ("tx", ctypes.c_double), ("ty", ctypes.c_double),
+        ("opacity", ctypes.c_double),
+    ]
+
+
 class WireInterpolation(ctypes.Structure):
     _fields_ = [
         ("source", WireObject),
@@ -119,6 +133,7 @@ def load_library() -> ctypes.CDLL:
         ctypes.POINTER(WireObject), ctypes.c_uint32,
         ctypes.POINTER(WireBatch), ctypes.c_uint32,
         ctypes.POINTER(WireVectorObject), ctypes.c_uint32,
+        ctypes.POINTER(WireRaster), ctypes.c_uint32,
         ctypes.POINTER(WireInterpolation), ctypes.c_uint32,
     ]
     lib.zanim_render_scene_frame.restype = ctypes.c_int32
@@ -128,8 +143,20 @@ def load_library() -> ctypes.CDLL:
         ctypes.POINTER(WireObject), ctypes.c_uint32,
         ctypes.POINTER(WireBatch), ctypes.c_uint32,
         ctypes.POINTER(WireVectorObject), ctypes.c_uint32,
+        ctypes.POINTER(WireRaster), ctypes.c_uint32,
         ctypes.POINTER(WireInterpolation), ctypes.c_uint32,
         ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
     ]
     lib.zanim_render_scene_rgb0.restype = ctypes.c_int32
+    lib.zanim_render_scene_rgba0.argtypes = [
+        ctypes.c_uint32, ctypes.c_uint32, ctypes.c_double,
+        ctypes.POINTER(WireDrawItem), ctypes.c_uint32,
+        ctypes.POINTER(WireObject), ctypes.c_uint32,
+        ctypes.POINTER(WireBatch), ctypes.c_uint32,
+        ctypes.POINTER(WireVectorObject), ctypes.c_uint32,
+        ctypes.POINTER(WireRaster), ctypes.c_uint32,
+        ctypes.POINTER(WireInterpolation), ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
+    ]
+    lib.zanim_render_scene_rgba0.restype = ctypes.c_int32
     return lib

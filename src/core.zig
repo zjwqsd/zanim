@@ -6,6 +6,7 @@ const canvas = @import("canvas.zig");
 const geometry = @import("geometry.zig");
 const interpolation = @import("interpolation.zig");
 const math = @import("math.zig");
+const raster = @import("raster.zig");
 const scene_wire = @import("scene_wire.zig");
 const se2 = @import("se2.zig");
 const vector = @import("vector.zig");
@@ -30,6 +31,8 @@ export fn zanim_render_scene_frame(
     batch_count: u32,
     vectors: ?[*]const vector.WireVectorObject,
     vector_count: u32,
+    rasters: ?[*]const raster.WireRaster,
+    raster_count: u32,
     interpolations: ?[*]const scene_wire.WireInterpolation,
     interpolation_count: u32,
 ) i32 {
@@ -38,12 +41,14 @@ export fn zanim_render_scene_frame(
     if (object_count > 0 and objects == null) return 2;
     if (batch_count > 0 and batches == null) return 2;
     if (vector_count > 0 and vectors == null) return 2;
+    if (raster_count > 0 and rasters == null) return 2;
     if (interpolation_count > 0 and interpolations == null) return 2;
 
     const draw_slice = if (draw_item_count == 0) &.{} else draw_items.?[0..draw_item_count];
     const object_slice = if (object_count == 0) &.{} else objects.?[0..object_count];
     const batch_slice = if (batch_count == 0) &.{} else batches.?[0..batch_count];
     const vector_slice = if (vector_count == 0) &.{} else vectors.?[0..vector_count];
+    const raster_slice = if (raster_count == 0) &.{} else rasters.?[0..raster_count];
     const interpolation_slice = if (interpolation_count == 0) &.{} else interpolations.?[0..interpolation_count];
 
     scene_wire.renderFrame(
@@ -55,6 +60,7 @@ export fn zanim_render_scene_frame(
         object_slice,
         batch_slice,
         vector_slice,
+        raster_slice,
         interpolation_slice,
     ) catch |err| {
         std.debug.print("zanim scene render error: {s}\n", .{@errorName(err)});
@@ -76,6 +82,8 @@ export fn zanim_render_scene_rgb0(
     batch_count: u32,
     vectors: ?[*]const vector.WireVectorObject,
     vector_count: u32,
+    rasters: ?[*]const raster.WireRaster,
+    raster_count: u32,
     interpolations: ?[*]const scene_wire.WireInterpolation,
     interpolation_count: u32,
     out_pixels: ?[*]u32,
@@ -86,6 +94,7 @@ export fn zanim_render_scene_rgb0(
     if (object_count > 0 and objects == null) return 2;
     if (batch_count > 0 and batches == null) return 2;
     if (vector_count > 0 and vectors == null) return 2;
+    if (raster_count > 0 and rasters == null) return 2;
     if (interpolation_count > 0 and interpolations == null) return 2;
     if (out_pixels == null) return 2;
 
@@ -96,6 +105,7 @@ export fn zanim_render_scene_rgb0(
     const object_slice = if (object_count == 0) &.{} else objects.?[0..object_count];
     const batch_slice = if (batch_count == 0) &.{} else batches.?[0..batch_count];
     const vector_slice = if (vector_count == 0) &.{} else vectors.?[0..vector_count];
+    const raster_slice = if (raster_count == 0) &.{} else rasters.?[0..raster_count];
     const interpolation_slice = if (interpolation_count == 0) &.{} else interpolations.?[0..interpolation_count];
     const rgb_ptr: [*]z2d.pixel.RGB = @ptrCast(out_pixels.?);
 
@@ -107,10 +117,62 @@ export fn zanim_render_scene_rgb0(
         object_slice,
         batch_slice,
         vector_slice,
+        raster_slice,
         interpolation_slice,
         rgb_ptr[0..pixel_count],
     ) catch |err| {
         std.debug.print("zanim scene rgb0 render error: {s}\n", .{@errorName(err)});
+        return 1;
+    };
+    return 0;
+}
+
+/// Render one evaluated Scene snapshot into caller-owned transparent RGBA pixels.
+export fn zanim_render_scene_rgba0(
+    width: u32,
+    height: u32,
+    unit_size: f64,
+    draw_items: ?[*]const scene_wire.WireDrawItem,
+    draw_item_count: u32,
+    objects: ?[*]const scene_wire.WireObject,
+    object_count: u32,
+    batches: ?[*]const batch.WireBatch,
+    batch_count: u32,
+    vectors: ?[*]const vector.WireVectorObject,
+    vector_count: u32,
+    rasters: ?[*]const raster.WireRaster,
+    raster_count: u32,
+    interpolations: ?[*]const scene_wire.WireInterpolation,
+    interpolation_count: u32,
+    out_pixels: ?[*]u32,
+    out_pixel_count: usize,
+) i32 {
+    if (!validSurface(width, height, unit_size)) return 2;
+    if (draw_item_count > 0 and draw_items == null) return 2;
+    if (object_count > 0 and objects == null) return 2;
+    if (batch_count > 0 and batches == null) return 2;
+    if (vector_count > 0 and vectors == null) return 2;
+    if (raster_count > 0 and rasters == null) return 2;
+    if (interpolation_count > 0 and interpolations == null) return 2;
+    if (out_pixels == null) return 2;
+
+    const pixel_count: usize = @as(usize, width) * @as(usize, height);
+    if (out_pixel_count < pixel_count) return 2;
+
+    const draw_slice = if (draw_item_count == 0) &.{} else draw_items.?[0..draw_item_count];
+    const object_slice = if (object_count == 0) &.{} else objects.?[0..object_count];
+    const batch_slice = if (batch_count == 0) &.{} else batches.?[0..batch_count];
+    const vector_slice = if (vector_count == 0) &.{} else vectors.?[0..vector_count];
+    const raster_slice = if (raster_count == 0) &.{} else rasters.?[0..raster_count];
+    const interpolation_slice = if (interpolation_count == 0) &.{} else interpolations.?[0..interpolation_count];
+    const rgba_ptr: [*]z2d.pixel.RGBA = @ptrCast(out_pixels.?);
+
+    scene_wire.renderRgba0(
+        @intCast(width), @intCast(height), unit_size,
+        draw_slice, object_slice, batch_slice, vector_slice, raster_slice,
+        interpolation_slice, rgba_ptr[0..pixel_count],
+    ) catch |err| {
+        std.debug.print("zanim scene rgba0 render error: {s}\n", .{@errorName(err)});
         return 1;
     };
     return 0;
@@ -124,5 +186,6 @@ test {
     std.testing.refAllDecls(canvas);
     std.testing.refAllDecls(batch);
     std.testing.refAllDecls(vector);
+    std.testing.refAllDecls(raster);
     std.testing.refAllDecls(scene_wire);
 }

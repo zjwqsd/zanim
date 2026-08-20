@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import ctypes
 from dataclasses import dataclass
+import weakref
 
 from .abi import (
     WireBatch,
     WireDrawItem,
     WireInterpolation,
     WireObject,
+    WireRaster,
     WireVectorObject,
     WireVectorPath,
 )
@@ -16,6 +18,7 @@ DRAW_OBJECT = 0
 DRAW_BATCH = 1
 DRAW_VECTOR = 2
 DRAW_INTERPOLATION = 3
+DRAW_RASTER = 4
 
 
 def _pack_rgba(color) -> int:
@@ -95,16 +98,50 @@ def _wire_object(snapshot):
     return wire, points_array
 
 
-_BATCH_STORAGE: dict[int, tuple[object, object, object, object, object, int]] = {}
+class _WeakIdentityCache:
+    """Cache ctypes encodings without extending source-object lifetime.
+
+    ``id(obj)`` keeps lookup O(1) without hashing large immutable geometry.
+    The weakref callback removes the entry when the source value dies, which is
+    essential for per-frame DynamicVectorObject2D documents.
+    """
+
+    def __init__(self) -> None:
+        self._values: dict[int, tuple[weakref.ReferenceType, object]] = {}
+
+    def get(self, obj):
+        entry = self._values.get(id(obj))
+        if entry is None or entry[0]() is not obj:
+            return None
+        return entry[1]
+
+    def set(self, obj, value) -> None:
+        key = id(obj)
+        values = self._values
+
+        def discard(ref, *, key=key, values=values):
+            current = values.get(key)
+            if current is not None and current[0] is ref:
+                values.pop(key, None)
+
+        values[key] = (weakref.ref(obj, discard), value)
+
+    def clear(self) -> None:
+        self._values.clear()
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+
+_BATCH_STORAGE = _WeakIdentityCache()
 
 
 def _batch_storage(batch_geometry):
     from ..batch import CircleSet, LineSet, RectSet
 
-    key = id(batch_geometry)
-    cached = _BATCH_STORAGE.get(key)
-    if cached is not None and cached[0] is batch_geometry:
-        return cached[1:]
+    cached = _BATCH_STORAGE.get(batch_geometry)
+    if cached is not None:
+        return cached
 
     if isinstance(batch_geometry, LineSet):
         kind = 0
@@ -150,7 +187,7 @@ def _batch_storage(batch_geometry):
     stroke_array = (ctypes.c_uint32 * len(strokes))(*strokes) if strokes is not None else None
     width_array = (ctypes.c_double * len(widths))(*widths) if widths is not None else None
     value = (data_array, fill_array, stroke_array, width_array, kind)
-    _BATCH_STORAGE[key] = (batch_geometry, *value)
+    _BATCH_STORAGE.set(batch_geometry, value)
     return value
 
 
@@ -181,14 +218,13 @@ def _wire_batch(snapshot, target=None, alpha: float = 0.0):
     )
 
 
-_VECTOR_STORAGE: dict[int, tuple[object, object, tuple[object, ...]]] = {}
+_VECTOR_STORAGE = _WeakIdentityCache()
 
 
 def _vector_storage(document):
-    key = id(document)
-    cached = _VECTOR_STORAGE.get(key)
-    if cached is not None and cached[0] is document:
-        return cached[1], cached[2]
+    cached = _VECTOR_STORAGE.get(document)
+    if cached is not None:
+        return cached
 
     wires = []
     keepalive: list[object] = []
@@ -229,9 +265,9 @@ def _vector_storage(document):
     path_array = (WireVectorPath * len(wires))(*wires) if wires else None
     if path_array is not None:
         keepalive.append(path_array)
-    value = (document, path_array, tuple(keepalive))
-    _VECTOR_STORAGE[key] = value
-    return path_array, value[2]
+    value = (path_array, tuple(keepalive))
+    _VECTOR_STORAGE.set(document, value)
+    return value
 
 
 def _wire_vector(snapshot):
@@ -249,17 +285,32 @@ def _wire_vector(snapshot):
     ), keepalive
 
 
+def _wire_raster(snapshot):
+    frame = snapshot.frame
+    pixel_array = (ctypes.c_uint8 * len(frame.rgba)).from_buffer(frame.rgba)
+    transform = snapshot.transform
+    wire = WireRaster(
+        ctypes.cast(pixel_array, ctypes.POINTER(ctypes.c_uint8)),
+        frame.width, frame.height, snapshot.width, snapshot.height,
+        transform.xx, transform.xy, transform.yx, transform.yy,
+        transform.tx, transform.ty, float(snapshot.opacity),
+    )
+    return wire, pixel_array
+
+
 @dataclass(slots=True)
 class EncodedScene:
     draw_items: list[WireDrawItem]
     objects: list[WireObject]
     batches: list[WireBatch]
     vectors: list[WireVectorObject]
+    rasters: list[WireRaster]
     interpolations: list[WireInterpolation]
     draw_array: object | None
     object_array: object | None
     batch_array: object | None
     vector_array: object | None
+    raster_array: object | None
     interpolation_array: object | None
     keepalive: list[object]
 
@@ -268,6 +319,7 @@ def encode_snapshot(snapshot) -> EncodedScene:
     objects: list[WireObject] = []
     batches: list[WireBatch] = []
     vectors: list[WireVectorObject] = []
+    rasters: list[WireRaster] = []
     interpolations: list[WireInterpolation] = []
     ordered: list[tuple[int, int, int, int]] = []
     keepalive: list[object] = []
@@ -292,6 +344,13 @@ def encode_snapshot(snapshot) -> EncodedScene:
         ordered.append((item.snapshot.z_index, item.object_id, DRAW_VECTOR, index))
         keepalive.extend(owned)
 
+    for item in snapshot.rasters:
+        wire, owned = _wire_raster(item.snapshot)
+        index = len(rasters)
+        rasters.append(wire)
+        ordered.append((item.snapshot.z_index, item.object_id, DRAW_RASTER, index))
+        keepalive.extend((owned, item.snapshot.frame.rgba))
+
     # Interpolations are transient relations rather than persistent scene
     # objects. Preserve their historical behavior: draw them after persistent
     # content, but express that order through the same draw-command stream.
@@ -314,16 +373,17 @@ def encode_snapshot(snapshot) -> EncodedScene:
     object_array = (WireObject * len(objects))(*objects) if objects else None
     batch_array = (WireBatch * len(batches))(*batches) if batches else None
     vector_array = (WireVectorObject * len(vectors))(*vectors) if vectors else None
+    raster_array = (WireRaster * len(rasters))(*rasters) if rasters else None
     interpolation_array = (
         (WireInterpolation * len(interpolations))(*interpolations)
         if interpolations else None
     )
     keepalive.extend(
-        item for item in (draw_array, object_array, batch_array, vector_array, interpolation_array)
+        item for item in (draw_array, object_array, batch_array, vector_array, raster_array, interpolation_array)
         if item is not None
     )
     return EncodedScene(
-        draw_items, objects, batches, vectors, interpolations,
-        draw_array, object_array, batch_array, vector_array, interpolation_array,
+        draw_items, objects, batches, vectors, rasters, interpolations,
+        draw_array, object_array, batch_array, vector_array, raster_array, interpolation_array,
         keepalive,
     )
