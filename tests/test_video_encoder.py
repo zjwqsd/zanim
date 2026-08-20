@@ -18,6 +18,7 @@ class VideoEncoderTests(unittest.TestCase):
         self.assertIn("-threads", x264)
         self.assertIn("-cq", nvenc)
         self.assertIn("22", nvenc)
+        self.assertIn("p5", nvenc)
         self.assertNotIn("-threads", nvenc)
 
 
