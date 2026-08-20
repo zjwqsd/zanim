@@ -1,0 +1,11 @@
+.zig-cache/
+zig-out/
+zig-pkg/
+.venv/
+__pycache__/
+*.py[cod]
+media/
+.DS_Store
+.tools/
+
+assets/MNIST/
