@@ -9,6 +9,7 @@ from .batch import BatchGeometry
 from .geometry import Color, StrokeStyle, Style
 from .interpolation import ObjectInterpolation
 from .space import Transform2D
+from .space3d import Transform3D
 
 
 class Easing(str, Enum):
@@ -83,6 +84,34 @@ class TransformFunctionClip:
         value = self.provider(self.span.alpha(time, self.easing))
         if not isinstance(value, Transform2D):
             raise TypeError("transform function must return Transform2D")
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class Transform3DClip:
+    object_id: int
+    span: TimeSpan
+    before: Transform3D
+    after: Transform3D
+    easing: Easing = Easing.SMOOTHSTEP
+
+    def sample(self, time: float) -> Transform3D:
+        return lerp_transform3d(self.before, self.after, self.span.alpha(time, self.easing))
+
+
+@dataclass(frozen=True, slots=True)
+class Transform3DFunctionClip:
+    object_id: int
+    span: TimeSpan
+    provider: Callable[[float], Transform3D]
+    before: Transform3D
+    after: Transform3D
+    easing: Easing = Easing.SMOOTHSTEP
+
+    def sample(self, time: float) -> Transform3D:
+        value = self.provider(self.span.alpha(time, self.easing))
+        if not isinstance(value, Transform3D):
+            raise TypeError("3D transform function must return Transform3D")
         return value
 
 
@@ -192,7 +221,8 @@ class InterpolationClip:
 
 
 Clip = (
-    TransformClip | TransformFunctionClip | OpacityClip | StyleClip | PathTrimClip | BatchClip |
+    TransformClip | TransformFunctionClip | Transform3DClip | Transform3DFunctionClip |
+    OpacityClip | StyleClip | PathTrimClip | BatchClip |
     RevealClip | ValueClip | PlaybackClip | InterpolationClip
 )
 
@@ -207,6 +237,10 @@ def lerp_transform(a: Transform2D, b: Transform2D, t: float) -> Transform2D:
         yx=_lerp(a.yx, b.yx, t), yy=_lerp(a.yy, b.yy, t),
         tx=_lerp(a.tx, b.tx, t), ty=_lerp(a.ty, b.ty, t),
     )
+
+
+def lerp_transform3d(a: Transform3D, b: Transform3D, t: float) -> Transform3D:
+    return Transform3D(*(_lerp(x, y, t) for x, y in zip(a.as_tuple(), b.as_tuple())))
 
 
 def _transparent(color: Color) -> Color:
@@ -250,7 +284,7 @@ class Timeline:
 
     @staticmethod
     def _channel_token(clip_or_type) -> object:
-        transform_types = (TransformClip, TransformFunctionClip)
+        transform_types = (TransformClip, TransformFunctionClip, Transform3DClip, Transform3DFunctionClip)
         if isinstance(clip_or_type, type):
             return "transform" if clip_or_type in transform_types else clip_or_type
         return "transform" if isinstance(clip_or_type, transform_types) else type(clip_or_type)
@@ -286,6 +320,16 @@ class Timeline:
         if not isinstance(after, Transform2D):
             raise TypeError("transform function must return Transform2D")
         return self._append(TransformFunctionClip(object_id, span, provider, before, after, easing))
+
+    def add_transform3d(self, object_id, before, after, duration=1.0, easing=Easing.SMOOTHSTEP, at=0.0):
+        return self._append(Transform3DClip(object_id, self._span(duration, at), before, after, easing))
+
+    def add_transform3d_function(self, object_id, provider, before, duration=1.0, easing=Easing.SMOOTHSTEP, at=0.0):
+        span = self._span(duration, at)
+        after = provider(1.0)
+        if not isinstance(after, Transform3D):
+            raise TypeError("3D transform function must return Transform3D")
+        return self._append(Transform3DFunctionClip(object_id, span, provider, before, after, easing))
 
     def add_opacity(self, object_id, before, after, duration=1.0, easing=Easing.SMOOTHSTEP, at=0.0):
         if not (0 <= before <= 1 and 0 <= after <= 1):

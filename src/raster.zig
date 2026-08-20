@@ -99,6 +99,57 @@ fn blendRgba(dst: z2d.pixel.RGBA, src: Premul, opacity_raw: f64) z2d.pixel.RGBA 
     };
 }
 
+fn alphaWithOpacity(alpha: u8, opacity_raw: f64) u16 {
+    const opacity = @max(0.0, @min(1.0, opacity_raw));
+    const op: u16 = @intFromFloat(@round(opacity * 255.0));
+    return (@as(u16, alpha) * op + 127) / 255;
+}
+
+fn blendRawRgb(dst: z2d.pixel.RGB, raw: [*]const u8, base: usize, opacity: f64) z2d.pixel.RGB {
+    const a = alphaWithOpacity(raw[base + 3], opacity);
+    if (a == 0) return dst;
+    if (a == 255) return .{ .r = raw[base], .g = raw[base + 1], .b = raw[base + 2] };
+    const inv = 255 - a;
+    return .{
+        .r = @intCast((@as(u32, raw[base]) * a + @as(u32, dst.r) * inv + 127) / 255),
+        .g = @intCast((@as(u32, raw[base + 1]) * a + @as(u32, dst.g) * inv + 127) / 255),
+        .b = @intCast((@as(u32, raw[base + 2]) * a + @as(u32, dst.b) * inv + 127) / 255),
+    };
+}
+
+fn blendRawRgba(dst: z2d.pixel.RGBA, raw: [*]const u8, base: usize, opacity: f64) z2d.pixel.RGBA {
+    const a = alphaWithOpacity(raw[base + 3], opacity);
+    if (a == 0) return dst;
+    if (a == 255) return .{ .r = raw[base], .g = raw[base + 1], .b = raw[base + 2], .a = 255 };
+    const inv = 255 - a;
+    return .{
+        .r = @intCast((@as(u32, raw[base]) * a + @as(u32, dst.r) * inv + 127) / 255),
+        .g = @intCast((@as(u32, raw[base + 1]) * a + @as(u32, dst.g) * inv + 127) / 255),
+        .b = @intCast((@as(u32, raw[base + 2]) * a + @as(u32, dst.b) * inv + 127) / 255),
+        .a = @intCast(@as(u32, a) + (@as(u32, dst.a) * inv + 127) / 255),
+    };
+}
+
+fn isPixelIdentity(t: Transform2D) bool {
+    const eps = 1e-9;
+    return @abs(t.xx - 1.0) <= eps and @abs(t.yy - 1.0) <= eps and
+        @abs(t.xy) <= eps and @abs(t.yx) <= eps and @abs(t.tx) <= eps and @abs(t.ty) <= eps;
+}
+
+fn drawIdentityRaster(surface: *z2d.Surface, canvas: Canvas, wire: WireRaster) !void {
+    if (wire.pixel_width != canvas.width or wire.pixel_height != canvas.height) return error.InvalidRaster;
+    const raw = wire.pixels.?;
+    const count: usize = @as(usize, wire.pixel_width) * @as(usize, wire.pixel_height);
+    switch (surface.*) {
+        .image_surface_rgb => |*rgb| for (0..count) |i| {
+            rgb.buf[i] = blendRawRgb(rgb.buf[i], raw, i * 4, wire.opacity);
+        },
+        .image_surface_rgba => |*rgba| for (0..count) |i| {
+            rgba.buf[i] = blendRawRgba(rgba.buf[i], raw, i * 4, wire.opacity);
+        },
+        else => return error.UnsupportedRasterSurface,
+    }
+}
 
 fn min4(a: f64, b: f64, c: f64, d: f64) f64 {
     return @min(@min(a, b), @min(c, d));
@@ -120,6 +171,9 @@ pub fn drawWireRaster(surface: *z2d.Surface, canvas: Canvas, wire: WireRaster) !
         -wire.logical_height / @as(f64, @floatFromInt(wire.pixel_height)),
     );
     const source_to_device = canvas.basis().mul(model).mul(source_to_local);
+    if (wire.pixel_width == canvas.width and wire.pixel_height == canvas.height and isPixelIdentity(source_to_device)) {
+        return drawIdentityRaster(surface, canvas, wire);
+    }
     const device_to_source = source_to_device.inverse() catch return; // zero-area raster
 
     const w: f64 = @floatFromInt(wire.pixel_width);

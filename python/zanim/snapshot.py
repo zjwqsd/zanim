@@ -4,10 +4,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .batch import BatchGeometry, BatchObject2D
-from .geometry import Geometry, Object2D, Style
+from .geometry import Color, Geometry, Object2D, Style
 from .space import Transform2D
 from .raster import RasterFrame, RasterObject2D
 from .vector import VectorDocument, VectorObject2D
+from .camera3d import Camera3D
+from .mesh3d import MeshObject3D, TriangleMesh
+from .space3d import Transform3D, Vec3
 
 if TYPE_CHECKING:
     from .interpolation import ObjectInterpolation
@@ -87,6 +90,40 @@ class RasterSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class Camera3DSnapshot:
+    position: Vec3
+    target: Vec3
+    up: Vec3
+    fov_y_degrees: float
+    near: float
+    far: float
+    orthographic_height: float | None
+    layer_z_index: int
+
+    @staticmethod
+    def from_camera(camera: Camera3D) -> "Camera3DSnapshot":
+        return Camera3DSnapshot(
+            camera.position, camera.target, camera.up, camera.fov_y_degrees,
+            camera.near, camera.far, camera.orthographic_height, camera.layer_z_index,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Mesh3DSnapshot:
+    mesh: TriangleMesh
+    transform: Transform3D
+    color: Color
+    opacity: float = 1.0
+    geometry_transform: Transform3D = Transform3D()
+
+    @staticmethod
+    def from_object(obj: MeshObject3D) -> "Mesh3DSnapshot":
+        return Mesh3DSnapshot(
+            obj.mesh, obj.transform, obj.color, obj.opacity, obj.geometry_transform
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class RenderObject:
     object_id: int
     snapshot: ObjectSnapshot
@@ -113,6 +150,12 @@ class RenderRaster:
 
 
 @dataclass(frozen=True, slots=True)
+class RenderMesh3D:
+    object_id: int
+    snapshot: Mesh3DSnapshot
+
+
+@dataclass(frozen=True, slots=True)
 class TransientInterpolation:
     interpolation: "ObjectInterpolation"
     alpha: float
@@ -126,3 +169,5 @@ class RenderSnapshot:
     vectors: tuple[RenderVector, ...]
     rasters: tuple[RenderRaster, ...]
     transients: tuple[TransientInterpolation, ...]
+    meshes3d: tuple[RenderMesh3D, ...] = ()
+    camera3d: Camera3DSnapshot | None = None

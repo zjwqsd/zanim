@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 from dataclasses import dataclass
+import threading
 import weakref
 
 from .abi import (
@@ -10,6 +11,9 @@ from .abi import (
     WireInterpolation,
     WireObject,
     WireRaster,
+    WireCamera3D,
+    WireMesh3D,
+    WireScene3DLayer,
     WireVectorObject,
     WireVectorPath,
 )
@@ -19,6 +23,7 @@ DRAW_BATCH = 1
 DRAW_VECTOR = 2
 DRAW_INTERPOLATION = 3
 DRAW_RASTER = 4
+DRAW_SCENE3D = 5
 
 
 def _pack_rgba(color) -> int:
@@ -298,6 +303,93 @@ def _wire_raster(snapshot):
     return wire, pixel_array
 
 
+class _Mesh3DStorage:
+    """Thread-safe weak identity cache for immutable mesh arrays."""
+
+    def __init__(self) -> None:
+        self._values: dict[int, tuple[weakref.ReferenceType, tuple[object, object, object]]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, mesh):
+        with self._lock:
+            entry = self._values.get(id(mesh))
+            if entry is not None and entry[0]() is mesh:
+                return entry[1]
+
+            positions = (ctypes.c_float * (len(mesh.vertices) * 3))(*(
+                value for vertex in mesh.vertices for value in (vertex.x, vertex.y, vertex.z)
+            ))
+            normals = (ctypes.c_float * (len(mesh.normals) * 3))(*(
+                value for normal in mesh.normals for value in (normal.x, normal.y, normal.z)
+            ))
+            indices = (ctypes.c_uint32 * len(mesh.indices))(*mesh.indices)
+            value = (positions, normals, indices)
+            key = id(mesh)
+            values = self._values
+            lock = self._lock
+
+            def discard(ref, *, key=key, values=values, lock=lock):
+                with lock:
+                    current = values.get(key)
+                    if current is not None and current[0] is ref:
+                        values.pop(key, None)
+
+            self._values[key] = (weakref.ref(mesh, discard), value)
+            return value
+
+
+_MESH3D_STORAGE = _Mesh3DStorage()
+
+
+def _wire_camera3d(camera) -> WireCamera3D:
+    return WireCamera3D(
+        camera.position.x, camera.position.y, camera.position.z,
+        camera.target.x, camera.target.y, camera.target.z,
+        camera.up.x, camera.up.y, camera.up.z,
+        camera.fov_y_degrees, camera.near, camera.far,
+        0.0 if camera.orthographic_height is None else camera.orthographic_height,
+        0 if camera.orthographic_height is None else 1,
+    )
+
+
+def _wire_mesh3d(render_mesh):
+    snapshot = render_mesh.snapshot
+    mesh = snapshot.mesh
+    positions, normals, indices = _MESH3D_STORAGE.get(mesh)
+    model = snapshot.transform @ snapshot.geometry_transform
+    matrix = (ctypes.c_float * 16)(*model.as_tuple())
+    wire = WireMesh3D(
+        len(mesh.vertices),
+        ctypes.cast(positions, ctypes.POINTER(ctypes.c_float)),
+        ctypes.cast(normals, ctypes.POINTER(ctypes.c_float)),
+        len(mesh.indices), ctypes.cast(indices, ctypes.POINTER(ctypes.c_uint32)),
+        matrix, _pack_rgba(snapshot.color), float(snapshot.opacity),
+    )
+    return wire, (positions, normals, indices, matrix)
+
+
+def _wire_scene3d(snapshot):
+    camera = snapshot.camera3d
+    if camera is None:
+        raise RuntimeError("3D snapshot is missing Camera3D state")
+    meshes: list[WireMesh3D] = []
+    keepalive: list[object] = []
+    for render_mesh in snapshot.meshes3d:
+        mesh_wire, owned = _wire_mesh3d(render_mesh)
+        meshes.append(mesh_wire)
+        keepalive.extend(owned)
+    mesh_array = (WireMesh3D * len(meshes))(*meshes) if meshes else None
+    if mesh_array is not None:
+        keepalive.append(mesh_array)
+    layer = WireScene3DLayer(
+        _wire_camera3d(camera),
+        ctypes.cast(mesh_array, ctypes.POINTER(WireMesh3D))
+        if mesh_array is not None else ctypes.POINTER(WireMesh3D)(),
+        len(meshes),
+    )
+    return layer, tuple(keepalive)
+
+
 @dataclass(slots=True)
 class EncodedScene:
     draw_items: list[WireDrawItem]
@@ -305,12 +397,14 @@ class EncodedScene:
     batches: list[WireBatch]
     vectors: list[WireVectorObject]
     rasters: list[WireRaster]
+    scene3d_layers: list[WireScene3DLayer]
     interpolations: list[WireInterpolation]
     draw_array: object | None
     object_array: object | None
     batch_array: object | None
     vector_array: object | None
     raster_array: object | None
+    scene3d_array: object | None
     interpolation_array: object | None
     keepalive: list[object]
 
@@ -320,6 +414,7 @@ def encode_snapshot(snapshot) -> EncodedScene:
     batches: list[WireBatch] = []
     vectors: list[WireVectorObject] = []
     rasters: list[WireRaster] = []
+    scene3d_layers: list[WireScene3DLayer] = []
     interpolations: list[WireInterpolation] = []
     ordered: list[tuple[int, int, int, int]] = []
     keepalive: list[object] = []
@@ -351,6 +446,15 @@ def encode_snapshot(snapshot) -> EncodedScene:
         ordered.append((item.snapshot.z_index, item.object_id, DRAW_RASTER, index))
         keepalive.extend((owned, item.snapshot.frame.rgba))
 
+    if snapshot.meshes3d:
+        layer, owned = _wire_scene3d(snapshot)
+        index = len(scene3d_layers)
+        scene3d_layers.append(layer)
+        # Camera3D owns one compositing layer. id=0 preserves the historical
+        # behavior where a 3D layer sorts before ordinary objects at equal z.
+        ordered.append((snapshot.camera3d.layer_z_index, 0, DRAW_SCENE3D, index))
+        keepalive.extend(owned)
+
     # Interpolations are transient relations rather than persistent scene
     # objects. Preserve their historical behavior: draw them after persistent
     # content, but express that order through the same draw-command stream.
@@ -374,16 +478,17 @@ def encode_snapshot(snapshot) -> EncodedScene:
     batch_array = (WireBatch * len(batches))(*batches) if batches else None
     vector_array = (WireVectorObject * len(vectors))(*vectors) if vectors else None
     raster_array = (WireRaster * len(rasters))(*rasters) if rasters else None
+    scene3d_array = (WireScene3DLayer * len(scene3d_layers))(*scene3d_layers) if scene3d_layers else None
     interpolation_array = (
         (WireInterpolation * len(interpolations))(*interpolations)
         if interpolations else None
     )
     keepalive.extend(
-        item for item in (draw_array, object_array, batch_array, vector_array, raster_array, interpolation_array)
+        item for item in (draw_array, object_array, batch_array, vector_array, raster_array, scene3d_array, interpolation_array)
         if item is not None
     )
     return EncodedScene(
-        draw_items, objects, batches, vectors, rasters, interpolations,
-        draw_array, object_array, batch_array, vector_array, raster_array, interpolation_array,
+        draw_items, objects, batches, vectors, rasters, scene3d_layers, interpolations,
+        draw_array, object_array, batch_array, vector_array, raster_array, scene3d_array, interpolation_array,
         keepalive,
     )

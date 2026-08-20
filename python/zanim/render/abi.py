@@ -92,6 +92,39 @@ class WireRaster(ctypes.Structure):
     ]
 
 
+class WireCamera3D(ctypes.Structure):
+    _fields_ = [
+        ("px", ctypes.c_float), ("py", ctypes.c_float), ("pz", ctypes.c_float),
+        ("tx", ctypes.c_float), ("ty", ctypes.c_float), ("tz", ctypes.c_float),
+        ("ux", ctypes.c_float), ("uy", ctypes.c_float), ("uz", ctypes.c_float),
+        ("fov_y_degrees", ctypes.c_float),
+        ("near_plane", ctypes.c_float), ("far_plane", ctypes.c_float),
+        ("orthographic_height", ctypes.c_float),
+        ("projection_kind", ctypes.c_uint32),
+    ]
+
+
+class WireMesh3D(ctypes.Structure):
+    _fields_ = [
+        ("vertex_count", ctypes.c_uint32),
+        ("positions", ctypes.POINTER(ctypes.c_float)),
+        ("normals", ctypes.POINTER(ctypes.c_float)),
+        ("index_count", ctypes.c_uint32),
+        ("indices", ctypes.POINTER(ctypes.c_uint32)),
+        ("model", ctypes.c_float * 16),
+        ("color_rgba", ctypes.c_uint32),
+        ("opacity", ctypes.c_float),
+    ]
+
+
+class WireScene3DLayer(ctypes.Structure):
+    _fields_ = [
+        ("camera", WireCamera3D),
+        ("meshes", ctypes.POINTER(WireMesh3D)),
+        ("mesh_count", ctypes.c_uint32),
+    ]
+
+
 class WireInterpolation(ctypes.Structure):
     _fields_ = [
         ("source", WireObject),
@@ -134,6 +167,7 @@ def load_library() -> ctypes.CDLL:
         ctypes.POINTER(WireBatch), ctypes.c_uint32,
         ctypes.POINTER(WireVectorObject), ctypes.c_uint32,
         ctypes.POINTER(WireRaster), ctypes.c_uint32,
+        ctypes.POINTER(WireScene3DLayer), ctypes.c_uint32,
         ctypes.POINTER(WireInterpolation), ctypes.c_uint32,
     ]
     lib.zanim_render_scene_frame.restype = ctypes.c_int32
@@ -144,6 +178,7 @@ def load_library() -> ctypes.CDLL:
         ctypes.POINTER(WireBatch), ctypes.c_uint32,
         ctypes.POINTER(WireVectorObject), ctypes.c_uint32,
         ctypes.POINTER(WireRaster), ctypes.c_uint32,
+        ctypes.POINTER(WireScene3DLayer), ctypes.c_uint32,
         ctypes.POINTER(WireInterpolation), ctypes.c_uint32,
         ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
     ]
@@ -155,6 +190,7 @@ def load_library() -> ctypes.CDLL:
         ctypes.POINTER(WireBatch), ctypes.c_uint32,
         ctypes.POINTER(WireVectorObject), ctypes.c_uint32,
         ctypes.POINTER(WireRaster), ctypes.c_uint32,
+        ctypes.POINTER(WireScene3DLayer), ctypes.c_uint32,
         ctypes.POINTER(WireInterpolation), ctypes.c_uint32,
         ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
     ]

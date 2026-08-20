@@ -5,10 +5,12 @@ from dataclasses import dataclass, field
 from .batch import BatchGeometry, BatchObject2D
 from .audio import AudioObject
 from .camera import Camera2D
+from .camera3d import Camera3D
 from .geometry import Object2D
 from .group import Group2D
 from .interpolation import ObjectInterpolation
 from .object import SceneObject2D
+from .mesh3d import MeshObject3D
 from .raster import RasterObject2D
 from .snapshot import (
     BatchSnapshot,
@@ -23,19 +25,23 @@ from .snapshot import (
     RasterSnapshot,
     RasterState,
     VectorSnapshot,
+    Camera3DSnapshot, Mesh3DSnapshot, RenderMesh3D,
 )
 from .space import Canvas, Transform2D
+from .space3d import Transform3D
 from .timeline import (
     BatchClip, Easing, InterpolationClip, OpacityClip, PathTrimClip, RevealClip,
-    PlaybackClip, StyleClip, Timeline, TransformClip, TransformFunctionClip, ValueClip,
+    PlaybackClip, StyleClip, Timeline, TransformClip, TransformFunctionClip,
+    Transform3DClip, Transform3DFunctionClip, ValueClip,
 )
 from .value import ScalarValue
 from .vector import VectorObject2D
 
 RenderableObject = Object2D | BatchObject2D | VectorObject2D | RasterObject2D
+RenderableObject3D = MeshObject3D
 SceneObject = RenderableObject | Group2D | Camera2D
-SceneItem = SceneObject | ScalarValue | AudioObject
-InitialSnapshot = ObjectSnapshot | BatchSnapshot | VectorSnapshot | RasterState | NodeSnapshot | float | None
+SceneItem = SceneObject | MeshObject3D | ScalarValue | AudioObject
+InitialSnapshot = ObjectSnapshot | BatchSnapshot | VectorSnapshot | RasterState | Mesh3DSnapshot | NodeSnapshot | float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +60,7 @@ class Scene:
     fps: int = 60
     timeline: Timeline = field(default_factory=Timeline)
     camera: Camera2D = field(default_factory=Camera2D)
+    camera3d: Camera3D = field(default_factory=Camera3D)
     _registry: list[_RegisteredItem] = field(default_factory=list, init=False, repr=False)
     _by_id: dict[int, _RegisteredItem] = field(default_factory=dict, init=False, repr=False)
     _by_identity: dict[int, _RegisteredItem] = field(default_factory=dict, init=False, repr=False)
@@ -84,13 +91,24 @@ class Scene:
         )
 
     @property
+    def objects3d(self) -> tuple[MeshObject3D, ...]:
+        return tuple(
+            item.object_ref for item in self._registry
+            if isinstance(item.object_ref, MeshObject3D)
+        )
+
+    @property
+    def has_3d(self) -> bool:
+        return any(isinstance(item.object_ref, MeshObject3D) for item in self._registry)
+
+    @property
     def items(self) -> tuple[SceneItem, ...]:
         """All registered authoring objects except the implicit camera."""
         return tuple(item.object_ref for item in self._registry if item.object_id != 0)
 
     def add(self, *objects: SceneItem) -> "Scene":
         for obj in objects:
-            if isinstance(obj, Camera2D) or not isinstance(obj, (SceneObject2D, ScalarValue, AudioObject)):
+            if isinstance(obj, Camera2D) or not isinstance(obj, (SceneObject2D, MeshObject3D, ScalarValue, AudioObject)):
                 raise TypeError(f"unsupported scene item: {type(obj).__name__}")
             self._register(obj, (), set())
         return self
@@ -112,6 +130,10 @@ class Scene:
             initial = VectorSnapshot.from_object(obj)
         elif isinstance(obj, RasterObject2D):
             initial = RasterState.from_object(obj)
+        elif isinstance(obj, MeshObject3D):
+            if parents:
+                raise TypeError("MeshObject3D cannot be a Group2D child")
+            initial = Mesh3DSnapshot.from_object(obj)
         elif isinstance(obj, Group2D):
             initial = NodeSnapshot(obj.transform, obj.opacity, obj.z_index)
         elif isinstance(obj, ScalarValue):
@@ -140,15 +162,25 @@ class Scene:
 
     def play_transform(
         self,
-        obj: SceneObject,
-        target: Transform2D,
+        obj: SceneObject | MeshObject3D,
+        target: Transform2D | Transform3D,
         duration: float = 1.0,
         easing: Easing = Easing.SMOOTHSTEP,
         at: float = 0.0,
-    ) -> TransformClip:
+    ):
+        registered = self._require_registered(obj)
+        if isinstance(obj, MeshObject3D):
+            if not isinstance(target, Transform3D):
+                raise TypeError("MeshObject3D transform target must be Transform3D")
+            clip = self.timeline.add_transform3d(
+                registered.object_id, obj.transform, target, duration, easing, at
+            )
+            obj.transform = target
+            return clip
+        if not isinstance(target, Transform2D):
+            raise TypeError("2D transform target must be Transform2D")
         if isinstance(obj, Camera2D) and obj.is_dynamic:
             raise TypeError("dynamic Camera2D cannot also use TransformClip")
-        registered = self._require_registered(obj)
         clip = self.timeline.add_transform(
             registered.object_id, obj.transform, target, duration, easing, at
         )
@@ -157,16 +189,21 @@ class Scene:
 
     def play_transform_function(
         self,
-        obj: SceneObject,
+        obj: SceneObject | MeshObject3D,
         provider,
         duration: float = 1.0,
         easing: Easing = Easing.SMOOTHSTEP,
         at: float = 0.0,
-    ) -> TransformFunctionClip:
-        """Animate a complete transform as a pure function of normalized time."""
+    ):
+        registered = self._require_registered(obj)
+        if isinstance(obj, MeshObject3D):
+            clip = self.timeline.add_transform3d_function(
+                registered.object_id, provider, obj.transform, duration, easing, at
+            )
+            obj.transform = clip.after
+            return clip
         if isinstance(obj, Camera2D) and obj.is_dynamic:
             raise TypeError("dynamic Camera2D cannot also use transform clips")
-        registered = self._require_registered(obj)
         clip = self.timeline.add_transform_function(
             registered.object_id, provider, obj.transform, duration, easing, at
         )
@@ -174,7 +211,7 @@ class Scene:
         return clip
 
     def play_opacity(
-        self, obj: SceneObject2D, target: float, duration: float = 1.0,
+        self, obj: SceneObject2D | MeshObject3D, target: float, duration: float = 1.0,
         easing: Easing = Easing.SMOOTHSTEP, at: float = 0.0,
     ) -> OpacityClip:
         if isinstance(obj, Camera2D):
@@ -185,7 +222,7 @@ class Scene:
         return clip
 
     def fade_in(
-        self, obj: SceneObject2D, duration: float = 1.0,
+        self, obj: SceneObject2D | MeshObject3D, duration: float = 1.0,
         easing: Easing = Easing.SMOOTHSTEP, at: float = 0.0, target: float = 1.0,
     ) -> OpacityClip:
         if isinstance(obj, Camera2D):
@@ -195,7 +232,7 @@ class Scene:
         obj.opacity = float(target)
         return clip
 
-    def fade_out(self, obj: SceneObject2D, duration: float = 1.0, easing: Easing = Easing.SMOOTHSTEP, at: float = 0.0) -> OpacityClip:
+    def fade_out(self, obj: SceneObject2D | MeshObject3D, duration: float = 1.0, easing: Easing = Easing.SMOOTHSTEP, at: float = 0.0) -> OpacityClip:
         if isinstance(obj, Camera2D):
             raise TypeError("Camera2D only participates in the transform channel")
         registered = self._require_registered(obj)
@@ -324,6 +361,7 @@ class Scene:
         batches: list[RenderBatch] = []
         vectors: list[RenderVector] = []
         rasters: list[RenderRaster] = []
+        meshes3d: list[RenderMesh3D] = []
         for registered in self._registry:
             obj = registered.object_ref
             if isinstance(obj, Object2D):
@@ -336,13 +374,18 @@ class Scene:
                 rendered = self._evaluate_raster(registered, obj, time)
                 if rendered is not None:
                     rasters.append(rendered)
+            elif isinstance(obj, MeshObject3D):
+                meshes3d.append(self._evaluate_mesh3d(registered, obj, time))
 
         transients = tuple(
             TransientInterpolation(clip.interpolation, clip.alpha(time))
             for clip in self.timeline.clips
             if isinstance(clip, InterpolationClip) and clip.span.contains(time)
         )
-        return RenderSnapshot(time, tuple(objects), tuple(batches), tuple(vectors), tuple(rasters), transients)
+        return RenderSnapshot(
+            time, tuple(objects), tuple(batches), tuple(vectors), tuple(rasters), transients,
+            tuple(meshes3d), Camera3DSnapshot.from_camera(self.camera3d) if meshes3d else None,
+        )
 
     def _context_at(self, registered: _RegisteredItem, time: float) -> tuple[Transform2D, float, int]:
         camera_registered = self._by_id[0]
@@ -440,6 +483,22 @@ class Scene:
             ),
         )
 
+    def _evaluate_mesh3d(
+        self, registered: _RegisteredItem, obj: MeshObject3D, time: float
+    ) -> RenderMesh3D:
+        initial = registered.initial
+        assert isinstance(initial, Mesh3DSnapshot)
+        return RenderMesh3D(
+            registered.object_id,
+            Mesh3DSnapshot(
+                initial.mesh,
+                self._transform3d_at(registered.object_id, initial.transform, time),
+                initial.color,
+                self._opacity_at(registered.object_id, initial.opacity, time),
+                initial.geometry_transform,
+            ),
+        )
+
     def _playback_time_at(self, object_id: int, source_duration: float | None, time: float) -> float | None:
         clips = self.timeline._channel_clips(PlaybackClip, object_id)
         if not clips:
@@ -460,6 +519,17 @@ class Scene:
     def _transform_at(self, object_id: int, initial: Transform2D, time: float) -> Transform2D:
         value = initial
         for clip in self.timeline._channel_clips(TransformClip, object_id):
+            if time < clip.span.start:
+                break
+            if time >= clip.span.end:
+                value = clip.after
+                continue
+            return clip.sample(time)
+        return value
+
+    def _transform3d_at(self, object_id: int, initial: Transform3D, time: float) -> Transform3D:
+        value = initial
+        for clip in self.timeline._channel_clips(Transform3DClip, object_id):
             if time < clip.span.start:
                 break
             if time >= clip.span.end:

@@ -8,7 +8,7 @@ from .wire import encode_snapshot
 
 
 def render_snapshot_rgb0(buffer: bytearray, snapshot, canvas) -> None:
-    """Render into a caller-owned RGB0 buffer for direct video piping."""
+    """Render one snapshot into a caller-owned RGB0 buffer."""
     pixel_count = int(canvas.width) * int(canvas.height)
     expected_bytes = pixel_count * 4
     if len(buffer) != expected_bytes:
@@ -23,6 +23,7 @@ def render_snapshot_rgb0(buffer: bytearray, snapshot, canvas) -> None:
         encoded.batch_array, len(encoded.batches),
         encoded.vector_array, len(encoded.vectors),
         encoded.raster_array, len(encoded.rasters),
+        encoded.scene3d_array, len(encoded.scene3d_layers),
         encoded.interpolation_array, len(encoded.interpolations),
         pixels, pixel_count,
     )
@@ -31,11 +32,12 @@ def render_snapshot_rgb0(buffer: bytearray, snapshot, canvas) -> None:
 
 
 def render_snapshot_rgba(buffer: bytearray, snapshot, canvas) -> None:
-    """Render into caller-owned transparent straight-alpha RGBA bytes."""
+    """Render one snapshot into caller-owned transparent straight-alpha RGBA."""
     pixel_count = int(canvas.width) * int(canvas.height)
     expected_bytes = pixel_count * 4
     if len(buffer) != expected_bytes:
         raise ValueError(f"RGBA buffer must be exactly {expected_bytes} bytes")
+
     encoded = encode_snapshot(snapshot)
     pixels = (ctypes.c_uint32 * pixel_count).from_buffer(buffer)
     result = load_library().zanim_render_scene_rgba0(
@@ -45,6 +47,7 @@ def render_snapshot_rgba(buffer: bytearray, snapshot, canvas) -> None:
         encoded.batch_array, len(encoded.batches),
         encoded.vector_array, len(encoded.vectors),
         encoded.raster_array, len(encoded.rasters),
+        encoded.scene3d_array, len(encoded.scene3d_layers),
         encoded.interpolation_array, len(encoded.interpolations),
         pixels, pixel_count,
     )
@@ -65,6 +68,7 @@ def render_snapshot(path: str | Path, snapshot, canvas) -> Path:
         encoded.batch_array, len(encoded.batches),
         encoded.vector_array, len(encoded.vectors),
         encoded.raster_array, len(encoded.rasters),
+        encoded.scene3d_array, len(encoded.scene3d_layers),
         encoded.interpolation_array, len(encoded.interpolations),
     )
     if result != 0:

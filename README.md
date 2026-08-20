@@ -1,6 +1,6 @@
 # Zanim
 
-A compact Manim-style 2D animation engine with Python authoring, a Zig 0.16 render core, and z2d as the raster backend.
+A compact Manim-style 2D/3D animation engine with Python authoring and a Zig 0.16 render core. z2d handles 2D vector drawing; Zanim owns a deterministic CPU 3D rasterizer.
 
 Zanim keeps the renderer small and explicit while providing the authoring conveniences needed for real mathematical animation: geometry, groups/layout, timeline animation, camera motion, Typst text/math, dynamic formulas, plotting, batched visualization, and random-access video rendering.
 
@@ -167,3 +167,13 @@ uv run python examples/svg_fourier_draw.py --svg assets/fourier_heart.svg --term
 ```
 
 The example selects one closed contour, computes its DFT, builds a head-to-tail epicycle chain, and draws the moving endpoint trace. The Fourier policy itself is not part of `Scene`, `Timeline`, or the Zig renderer.
+
+## 3D rendering
+
+Zanim uses one deterministic CPU render architecture for both 2D and 3D scene composition. `MeshObject3D` participates in the same `Scene`, timeline, absolute-time evaluation and ordered draw stream as 2D objects. A 3D camera contributes one `3d_layer` draw item; when that item is reached, the Zig software rasterizer draws triangles directly into the current RGB/RGBA scene framebuffer. There is no GPU context, framebuffer readback, temporary full-screen 3D `RasterFrame`, or second compositing pass.
+
+The CPU 3D pipeline implements homogeneous frustum clipping, perspective/orthographic projection, back-face culling, a layer-local z-buffer, indexed vertex processing, perspective-correct smooth-normal interpolation, Lambert shading, and deterministic transparent-mesh sorting/source-over blending. Indexed meshes transform each unique vertex once per frame before triangle assembly. Because the renderer is stateless, video frames use the same worker-parallel pipeline as 2D scenes on Linux and Windows.
+
+Public building blocks include `Vec3`, `SO3`, `Transform3D`, `Camera3D`, `TriangleMesh`, `MeshObject3D`, `Box3D`, `Cube3D`, and `Surface3D`. The renderer stays below these semantics: authoring code never depends on rasterizer-specific types.
+
+Regression examples live in `examples/three_d/`: a rotating cube, a smooth bivariate terrain, and an SO(3) local-frame/unit-cube visualization with a live matrix overlay. Use `--draft` for 960x540 / 30 fps previews.

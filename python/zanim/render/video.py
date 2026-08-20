@@ -7,7 +7,53 @@ import random
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
+import shutil
 from pathlib import Path
+
+@lru_cache(maxsize=1)
+def _nvenc_available() -> bool:
+    if shutil.which("nvidia-smi") is None:
+        return False
+    try:
+        gpu = subprocess.run(
+            ["nvidia-smi", "-L"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        if gpu.returncode != 0:
+            return False
+        encoders = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            check=True, capture_output=True, text=True,
+        )
+        return "h264_nvenc" in encoders.stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _resolve_video_encoder(video_encoder: str) -> str:
+    if video_encoder == "auto":
+        return "h264_nvenc" if _nvenc_available() else "libx264"
+    if video_encoder not in {"libx264", "h264_nvenc"}:
+        raise ValueError("video_encoder must be 'libx264', 'h264_nvenc', or 'auto'")
+    return video_encoder
+
+
+def _video_encoder_args(
+    video_encoder: str, *, crf: int, preset: str, encoder_threads: int
+) -> list[str]:
+    if video_encoder == "libx264":
+        return [
+            "-c:v", "libx264", "-crf", str(crf), "-preset", preset,
+            "-threads", str(encoder_threads),
+        ]
+    # NVENC uses CQ rather than x264 CRF. Keep the same quality-scale input so
+    # callers can switch encoders without learning a second quality parameter.
+    nvenc_preset = preset if preset in {f"p{i}" for i in range(1, 8)} else "p4"
+    return [
+        "-c:v", "h264_nvenc", "-preset", nvenc_preset, "-tune", "hq",
+        "-rc", "vbr", "-cq", str(crf), "-b:v", "0",
+    ]
+
 
 
 def _render_visual(
@@ -20,6 +66,7 @@ def _render_visual(
     preset: str,
     verify_random_access: bool,
     encoder_threads: int,
+    video_encoder: str,
 ) -> None:
     from .frame import render_snapshot_rgb0
 
@@ -40,14 +87,16 @@ def _render_visual(
     selected = {0, frame_count // 4, frame_count // 2, frame_count * 3 // 4, frame_count - 1}
     expected: dict[int, str] = {}
 
+    encoder_args = _video_encoder_args(
+        video_encoder, crf=crf, preset=preset, encoder_threads=encoder_threads
+    )
     proc = subprocess.Popen(
         [
             "ffmpeg", "-y", "-loglevel", "error",
             "-f", "rawvideo", "-pixel_format", "rgb0",
             "-video_size", f"{width}x{height}", "-framerate", str(fps),
             "-i", "-",
-            "-c:v", "libx264", "-crf", str(crf), "-preset", preset,
-            "-threads", str(encoder_threads),
+            *encoder_args,
             "-pix_fmt", "yuv420p", "-movflags", "+faststart",
             str(output),
         ],
@@ -98,6 +147,7 @@ def render_video(
     verify_random_access: bool = False,
     audio_bitrate: str = "192k",
     encoder_threads: int = 4,
+    video_encoder: str = "libx264",
 ) -> Path:
     """Render visual snapshots and Timeline audio into a final MP4."""
     if fps is None:
@@ -106,6 +156,7 @@ def render_video(
         raise ValueError("fps must be positive")
     if encoder_threads <= 0:
         raise ValueError("encoder_threads must be positive")
+    video_encoder = _resolve_video_encoder(video_encoder)
     duration = float(scene.timeline.cursor)
     if duration <= 0:
         raise ValueError("scene duration must be positive")
@@ -135,6 +186,7 @@ def render_video(
             _render_visual(
                 scene, visual, fps=fps, workers=workers, crf=crf, preset=preset,
                 verify_random_access=verify_random_access, encoder_threads=encoder_threads,
+                video_encoder=video_encoder,
             )
             if not has_audio:
                 visual.replace(output)
