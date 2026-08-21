@@ -8,7 +8,7 @@ Zanim keeps the renderer small and explicit while providing the authoring conven
 
 ```text
 Authoring objects
-Object2D / BatchObject2D / VectorObject2D / RasterObject2D / Group2D / Camera2D / ScalarValue / AudioObject
+Object2D / BatchObject2D / DynamicBatchObject2D / VectorObject2D / RasterObject2D / Group2D / Camera2D / ScalarValue / AudioObject
         |
         | Scene + Timeline, evaluate(t)
         v
@@ -408,6 +408,7 @@ The timeline deliberately uses explicit channels rather than a generic component
 - `StyleClip` — ordinary geometry style
 - `PathTrimClip` — geometry path creation/trimming
 - `BatchClip` — retained batch values
+- `DynamicBatchObject2D` — pure absolute-time `LineSet` / `CircleSet` / `RectSet` providers for dense random-access batch animation
 - `RevealClip` — vector/text/math reveal
 - `ValueClip` — `ScalarValue`
 - `PlaybackClip` — one scene-time → source-time mapping shared by images, GIF/video playback, and audio
@@ -521,6 +522,7 @@ uv run python examples/showcase/kinematics.py
 
 uv run python examples/fun/fourier_draw.py --terms 36
 uv run python examples/fun/neural_network.py
+uv run python examples/fun/mnist_training.py
 ```
 
 Videos are written under matching subdirectories in `media/`.

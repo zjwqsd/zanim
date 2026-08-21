@@ -33,11 +33,13 @@ These are complete animations rather than API checklists.
 
 - `fourier_draw.py` reconstructs an SVG contour with Fourier epicycles and optionally follows the drawing tip with a dynamic camera.
 - `neural_network.py` visualizes signal propagation through a self-contained neural network using batch geometry.
+- `mnist_training.py` trains the real NumPy 784→8→10 MNIST MLP in-process and explains all eight epochs. W1 is shown as eight complete 28×28 learned-weight maps, W2 keeps all 80 connections, and each backward phase uses the exact epoch-accumulated gradient `G_e = (W_e - W_{e+1}) / eta` before animating the update.
 
 ```bash
 uv run python examples/fun/fourier_draw.py --terms 36
 uv run python examples/fun/fourier_draw.py --terms 36 --follow
 uv run python examples/fun/neural_network.py
+uv run python examples/fun/mnist_training.py
 ```
 
 ## Reference suites

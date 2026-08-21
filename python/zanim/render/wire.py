@@ -420,6 +420,8 @@ def encode_snapshot(snapshot) -> EncodedScene:
     keepalive: list[object] = []
 
     for item in snapshot.objects:
+        if item.snapshot.opacity <= 0.0:
+            continue
         wire, owned = _wire_object(item.snapshot)
         index = len(objects)
         objects.append(wire)
@@ -428,11 +430,15 @@ def encode_snapshot(snapshot) -> EncodedScene:
             keepalive.append(owned)
 
     for item in snapshot.batches:
+        if item.snapshot.opacity <= 0.0:
+            continue
         index = len(batches)
         batches.append(_wire_batch(item.snapshot, item.target, item.alpha))
         ordered.append((item.snapshot.z_index, item.object_id, DRAW_BATCH, index))
 
     for item in snapshot.vectors:
+        if item.snapshot.opacity <= 0.0 or item.snapshot.reveal <= 0.0:
+            continue
         wire, owned = _wire_vector(item.snapshot)
         index = len(vectors)
         vectors.append(wire)
@@ -440,6 +446,8 @@ def encode_snapshot(snapshot) -> EncodedScene:
         keepalive.extend(owned)
 
     for item in snapshot.rasters:
+        if item.snapshot.opacity <= 0.0:
+            continue
         wire, owned = _wire_raster(item.snapshot)
         index = len(rasters)
         rasters.append(wire)

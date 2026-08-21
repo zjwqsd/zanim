@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 
 from .geometry import Color
 from .object import SceneObject2D
@@ -131,3 +132,44 @@ class BatchObject2D(SceneObject2D):
     def apply_se2_world(self, rigid: SE2) -> "BatchObject2D":
         self.transform = rigid.as_affine() @ self.transform
         return self
+
+class DynamicBatchObject2D(BatchObject2D):
+    """Persistent batch whose complete geometry is a pure function of absolute time.
+
+    This is the batch analogue of ``DynamicGeometryObject2D``: the provider is
+    stateless and may be evaluated in any order. Timeline ``BatchClip`` writes
+    are intentionally disallowed because a dynamic provider already owns the
+    complete batch channel.
+    """
+
+    __slots__ = ("provider",)
+
+    def __init__(
+        self,
+        provider: Callable[[float], BatchGeometry],
+        *,
+        transform: Transform2D | SE2 = Transform2D(),
+        opacity: float = 1.0,
+        z_index: int = 0,
+    ) -> None:
+        if not callable(provider):
+            raise TypeError("dynamic batch provider must be callable")
+        self.provider = provider
+        initial = provider(0.0)
+        if not isinstance(initial, (LineSet, CircleSet, RectSet)):
+            raise TypeError("dynamic batch provider must return LineSet, CircleSet, or RectSet")
+        super().__init__(initial, transform=transform, opacity=opacity, z_index=z_index)
+
+    @property
+    def is_dynamic(self) -> bool:
+        return True
+
+    def batch_at(self, time: float) -> BatchGeometry:
+        value = self.provider(float(time))
+        if not isinstance(value, (LineSet, CircleSet, RectSet)):
+            raise TypeError("dynamic batch provider returned unsupported batch geometry")
+        return value
+
+    def _batch_at(self, time: float, initial: BatchGeometry) -> BatchGeometry:
+        _ = initial
+        return self.batch_at(time)

@@ -1,0 +1,54 @@
+{
+  "benchmark": "examples/fun/mnist_training.py",
+  "purpose": "Stable end-to-end Zanim performance baseline for a real in-process MNIST training visualization.",
+  "environment": {
+    "cpu": "Intel Core i9-14900HX",
+    "resolution": "1920x1080",
+    "fps": 60,
+    "duration_seconds": 52.5,
+    "frames": 3150,
+    "encoder": "libx264",
+    "encoder_preset": "veryfast",
+    "encoder_threads": 4,
+    "render_workers": 8
+  },
+  "training": {
+    "dataset": "MNIST 60000/10000",
+    "architecture": [784, 8, 10],
+    "epochs": 8,
+    "batches_per_epoch": 938,
+    "final_train_accuracy": 0.9146333333333333,
+    "final_test_accuracy": 0.9123
+  },
+  "baseline": {
+    "description": "Same scene design, timing, training data, and animation semantics before the retained-batch/dead-draw/RectSet performance pass.",
+    "render_seconds": 105.92576093500247,
+    "effective_fps": 29.73780855756971
+  },
+  "optimized": {
+    "description": "Retained BatchClip endpoints, retained gradient tiles, zero-opacity draw elimination, and axis-aligned filled RectSet fast path.",
+    "render_seconds": 22.604246971000975,
+    "effective_fps": 139.35434363467803,
+    "speedup_vs_baseline": 4.686099964793996,
+    "time_reduction_percent": 78.66029304724914,
+    "random_access_verification": "ok"
+  },
+  "worker_scaling_without_random_access_recheck": {
+    "1": {"render_seconds": 56.28102707200014, "effective_fps": 55.96912785493795},
+    "2": {"render_seconds": 33.690634863000014, "effective_fps": 93.49779286763804},
+    "4": {"render_seconds": 22.975370928998018, "effective_fps": 137.1033359911624},
+    "8": {"render_seconds": 21.630294586000673, "effective_fps": 145.62908459132632},
+    "12": {"render_seconds": 21.56258723400242, "effective_fps": 146.08636550964115},
+    "16": {"render_seconds": 21.35216809100166, "effective_fps": 147.52600235137197}
+  },
+  "decision": {
+    "default_render_workers": 8,
+    "reason": "8 workers is the practical saturation point; 16 workers improved this benchmark by only about 1.3%.",
+    "deferred": [
+      "packed NumPy batch buffers",
+      "multiprocessing renderer",
+      "free-threaded Python specialization"
+    ],
+    "deferred_reason": "After retained-state cleanup, Scene.evaluate plus wire encoding is only about 1-2 ms/frame; native rasterization and encoding dominate."
+  }
+}

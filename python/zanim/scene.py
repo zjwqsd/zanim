@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .batch import BatchGeometry, BatchObject2D
+from .batch import BatchGeometry, BatchObject2D, DynamicBatchObject2D
 from .audio import AudioObject
 from .camera import Camera2D
 from .camera3d import Camera3D
@@ -33,8 +33,8 @@ from .space import (
 from .space3d import Transform3D
 from .timeline import (
     BatchClip, Easing, InterpolationClip, OpacityClip, PathTrimClip, RevealClip,
-    PlaybackClip, SE2TransformClip, StyleClip, Timeline, TransformClip, TransformFunctionClip,
-    Transform3DClip, Transform3DFunctionClip, ValueClip,
+    PlaybackClip, SE2TransformClip, StyleClip, Timeline, TransformClip,
+    Transform3DClip, ValueClip,
 )
 from .value import ScalarValue
 from .vector import VectorObject2D
@@ -869,6 +869,8 @@ class Scene:
         registered = self._require_alive_for_span(obj, duration, at)
         if not isinstance(obj, BatchObject2D):
             raise TypeError("batch() requires a BatchObject2D")
+        if isinstance(obj, DynamicBatchObject2D):
+            raise TypeError("DynamicBatchObject2D owns its batch channel and cannot use BatchClip")
         clip = self.timeline.add_batch(
             registered.object_id, obj.batch, target, duration, easing, at
         )
@@ -1146,6 +1148,11 @@ class Scene:
         transform = parent_transform @ self._transform_at(registered.object_id, initial.transform, time)
         opacity = parent_opacity * self._opacity_at(registered.object_id, initial.opacity, time)
         z_index = parent_z + initial.z_index
+        if isinstance(obj, DynamicBatchObject2D):
+            if self.timeline._channel_clips(BatchClip, registered.object_id):
+                raise RuntimeError("DynamicBatchObject2D cannot also have BatchClip entries")
+            batch = obj._batch_at(time, initial.batch)
+            return RenderBatch(registered.object_id, BatchSnapshot(batch, transform, opacity, z_index))
         batch, active = self._batch_at(registered.object_id, initial.batch, time)
         if active is None:
             return RenderBatch(registered.object_id, BatchSnapshot(batch, transform, opacity, z_index))

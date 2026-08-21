@@ -1,5 +1,5 @@
 import unittest
-from zanim import BatchObject2D, CircleSet, Color, RectSet, Scene, Vec2
+from zanim import BatchObject2D, CircleSet, Color, DynamicBatchObject2D, RectSet, Scene, Vec2
 
 
 class BatchTimelineTests(unittest.TestCase):
@@ -27,6 +27,31 @@ class BatchTimelineTests(unittest.TestCase):
         scene.add(obj)
         with self.assertRaises(ValueError):
             scene.batch(obj, to=target)
+
+    def test_dynamic_batch_is_absolute_time_and_random_access(self):
+        def provider(time):
+            return RectSet(
+                (Vec2(float(time), 0),),
+                (Vec2(1, 1),),
+                (Color(round(10 + 20 * float(time)), 20, 30),),
+            )
+
+        obj = DynamicBatchObject2D(provider)
+        scene = Scene()
+        scene.add(obj)
+        a = scene.evaluate(2.0).batches[0].snapshot.batch
+        _ = scene.evaluate(0.25)
+        b = scene.evaluate(2.0).batches[0].snapshot.batch
+        self.assertEqual(a, b)
+        self.assertEqual(a.centers[0], Vec2(2.0, 0))
+
+    def test_dynamic_batch_rejects_batch_clips(self):
+        initial = RectSet((Vec2(),), (Vec2(1, 1),), (Color(0, 0, 0),))
+        obj = DynamicBatchObject2D(lambda _t: initial)
+        scene = Scene()
+        scene.add(obj)
+        with self.assertRaises(TypeError):
+            scene.batch(obj, to=initial)
 
 
 if __name__ == '__main__': unittest.main()

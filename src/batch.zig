@@ -88,7 +88,8 @@ fn fillAt(wire: WireBatch, index: usize) geometry.Color {
     const source = decodeColor(wire.fill_rgba.?[index]);
     const color = if (wire.target_fill_rgba) |target|
         mixColor(source, decodeColor(target[index]), alpha(wire))
-    else source;
+    else
+        source;
     return withOpacity(color, wire.opacity);
 }
 
@@ -260,6 +261,73 @@ fn drawThinLineSetFast(
     return true;
 }
 
+fn drawAxisAlignedRectSetFast(
+    ctx: *z2d.Context,
+    canvas: Canvas,
+    wire: WireBatch,
+    transform: Transform2D,
+) !bool {
+    if (wire.fill_rgba == null or wire.data == null) return error.InvalidBatch;
+    // Stroked rectangles and rotated/sheared transforms keep the general z2d
+    // path. This fast path is deliberately narrow: dense filled heatmaps/grids.
+    if (wire.stroke_rgba != null or wire.target_stroke_rgba != null) return false;
+    const rgb_surface = switch (ctx.surface.*) {
+        .image_surface_rgb => |*surface| surface,
+        else => return false,
+    };
+
+    const device = canvas.basis().mul(transform);
+    if (@abs(device.xy) > 1e-12 or @abs(device.yx) > 1e-12) return false;
+
+    const surface_w = rgb_surface.width;
+    const surface_h = rgb_surface.height;
+    for (0..wire.count) |i| {
+        const base = i * 4;
+        const color = fillAt(wire, i);
+        if (color.a == 0) continue;
+
+        const cx = device.xx * dataAt(wire, base) + device.tx;
+        const cy = device.yy * dataAt(wire, base + 1) + device.ty;
+        const half_w = @abs(device.xx) * dataAt(wire, base + 2) * 0.5;
+        const half_h = @abs(device.yy) * dataAt(wire, base + 3) * 0.5;
+        const x0 = cx - half_w;
+        const x1 = cx + half_w;
+        const y0 = cy - half_h;
+        const y1 = cy + half_h;
+
+        // z2d fill coordinates use integer device positions as pixel-cell
+        // boundaries: pixel (x,y) covers [x,x+1] × [y,y+1].
+        if (x1 <= 0.0 or y1 <= 0.0 or
+            x0 >= @as(f64, @floatFromInt(surface_w)) or
+            y0 >= @as(f64, @floatFromInt(surface_h))) continue;
+
+        var ix0: i32 = @intFromFloat(@floor(x0));
+        var ix1: i32 = @intFromFloat(@ceil(x1) - 1.0);
+        var iy0: i32 = @intFromFloat(@floor(y0));
+        var iy1: i32 = @intFromFloat(@ceil(y1) - 1.0);
+        ix0 = @max(0, ix0);
+        iy0 = @max(0, iy0);
+        ix1 = @min(surface_w - 1, ix1);
+        iy1 = @min(surface_h - 1, iy1);
+        if (ix0 > ix1 or iy0 > iy1) continue;
+
+        var y = iy0;
+        while (y <= iy1) : (y += 1) {
+            const fy: f64 = @floatFromInt(y);
+            const y_coverage = @max(0.0, @min(y1, fy + 1.0) - @max(y0, fy));
+            if (y_coverage <= 0.0) continue;
+            var x = ix0;
+            while (x <= ix1) : (x += 1) {
+                const fx: f64 = @floatFromInt(x);
+                const x_coverage = @max(0.0, @min(x1, fx + 1.0) - @max(x0, fx));
+                if (x_coverage <= 0.0) continue;
+                blendRgb(rgb_surface, x, y, color, x_coverage * y_coverage);
+            }
+        }
+    }
+    return true;
+}
+
 pub fn drawWireBatch(ctx: *z2d.Context, canvas: Canvas, wire: WireBatch) !void {
     if (wire.count == 0 or wire.data == null) return error.InvalidBatch;
     const kind: Kind = switch (wire.kind) {
@@ -301,7 +369,8 @@ pub fn drawWireBatch(ctx: *z2d.Context, canvas: Canvas, wire: WireBatch) !void {
                 const center = Vec2{ .x = dataAt(wire, base), .y = dataAt(wire, base + 1) };
                 const stroke: ?geometry.StrokeStyle = if (wire.stroke_rgba != null or wire.target_stroke_rgba != null)
                     .{ .color = strokeColorAt(wire, i), .width = strokeWidthAt(wire, i) }
-                else null;
+                else
+                    null;
                 const object = geometry.Object2D{
                     .geometry = .{ .circle = try geometry.Circle.init(dataAt(wire, base + 2)) },
                     .transform = transform.mul(Transform2D.identity.translate(center.x, center.y)),
@@ -311,13 +380,15 @@ pub fn drawWireBatch(ctx: *z2d.Context, canvas: Canvas, wire: WireBatch) !void {
             }
         },
         .rect_set => {
+            if (try drawAxisAlignedRectSetFast(ctx, canvas, wire, transform)) return;
             if (wire.fill_rgba == null) return error.InvalidBatch;
             for (0..n) |i| {
                 const base = i * 4;
                 const center = Vec2{ .x = dataAt(wire, base), .y = dataAt(wire, base + 1) };
                 const stroke: ?geometry.StrokeStyle = if (wire.stroke_rgba != null or wire.target_stroke_rgba != null)
                     .{ .color = strokeColorAt(wire, i), .width = strokeWidthAt(wire, i) }
-                else null;
+                else
+                    null;
                 const object = geometry.Object2D{
                     .geometry = .{ .rectangle = try geometry.Rectangle.init(dataAt(wire, base + 2), dataAt(wire, base + 3)) },
                     .transform = transform.mul(Transform2D.identity.translate(center.x, center.y)),

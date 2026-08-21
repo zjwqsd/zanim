@@ -4,7 +4,7 @@ Internal render snapshots, wire formats and parser helpers intentionally live in
 submodules instead of becoming root-package compatibility commitments.
 """
 
-from .batch import BatchObject2D, CircleSet, LineSet, RectSet
+from .batch import BatchObject2D, CircleSet, DynamicBatchObject2D, LineSet, RectSet
 from .audio import Audio, AudioObject
 from .bounds import Bounds2D
 from .bound import (
@@ -102,6 +102,7 @@ __all__ = [
     "Color",
     "CubicBezier",
     "Cube3D",
+    "DynamicBatchObject2D",
     "DynamicGeometryObject2D",
     "DynamicNumber",
     "DynamicVectorObject2D",
