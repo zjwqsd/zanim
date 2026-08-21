@@ -1,25 +1,27 @@
+import inspect
 import unittest
 
-from zanim.render.video import _resolve_video_encoder, _video_encoder_args
+from zanim.render.video import _x264_encoder_args, render_video
 
 
 class VideoEncoderTests(unittest.TestCase):
-    def test_explicit_software_encoder_is_stable(self):
-        self.assertEqual(_resolve_video_encoder("libx264"), "libx264")
+    def test_x264_encoder_args(self):
+        args = _x264_encoder_args(crf=18, preset="veryfast", encoder_threads=4)
+        self.assertEqual(
+            args,
+            [
+                "-c:v", "libx264",
+                "-crf", "18",
+                "-preset", "veryfast",
+                "-threads", "4",
+            ],
+        )
 
-    def test_invalid_encoder_is_rejected(self):
-        with self.assertRaises(ValueError):
-            _resolve_video_encoder("not-an-encoder")
-
-    def test_nvenc_and_x264_use_backend_specific_quality_args(self):
-        x264 = _video_encoder_args("libx264", crf=18, preset="veryfast", encoder_threads=4)
-        nvenc = _video_encoder_args("h264_nvenc", crf=22, preset="veryfast", encoder_threads=4)
-        self.assertIn("-crf", x264)
-        self.assertIn("-threads", x264)
-        self.assertIn("-cq", nvenc)
-        self.assertIn("22", nvenc)
-        self.assertIn("p5", nvenc)
-        self.assertNotIn("-threads", nvenc)
+    def test_fast_portable_defaults(self):
+        params = inspect.signature(render_video).parameters
+        self.assertEqual(params["preset"].default, "veryfast")
+        self.assertEqual(params["encoder_threads"].default, 4)
+        self.assertNotIn("video_encoder", params)
 
 
 if __name__ == "__main__":

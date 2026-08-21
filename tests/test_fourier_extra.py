@@ -36,7 +36,7 @@ class FourierSvgInputTests(unittest.TestCase):
 class FourierFollowCameraTests(unittest.TestCase):
     def test_follow_scene_camera_is_dynamic_and_seekable(self):
         from pathlib import Path
-        from examples.svg_fourier_draw import build_scene
+        from examples.fun.fourier_draw import build_scene
         root = Path(__file__).resolve().parents[1]
         scene, info = build_scene(root / "assets/fourier_heart.svg", sample_count=64, term_count=10, draw_duration=2.0, follow=True)
         self.assertTrue(scene.camera.is_dynamic)

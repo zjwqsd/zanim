@@ -15,6 +15,7 @@ from zanim import (
 
 from .frame_effect_example import build_frame_effect_example
 from .mask_example import build_mask_example
+from .three_d_shapes_example import build_three_d_shapes_example
 from zanim.vector import map_vector_document
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -499,6 +500,7 @@ BUILDERS: dict[str, Callable[[], Scene]] = {
     'MarkedItemExample': marked_item,
     'FrameEffectExample': build_frame_effect_example,
     'MaskExample': build_mask_example,
+    'ThreeDShapesExample': build_three_d_shapes_example,
 }
 
 

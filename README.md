@@ -96,7 +96,7 @@ with scene.parallel():
 
 PNG/JPEG and GIF are decoded through Pillow. Video and audio use ffmpeg/ffprobe; `ffmpeg` must be available on `PATH`. Video uses a streaming raw-RGBA ffmpeg decoder with a bounded in-memory LRU, so decoded frame sequences are not written to disk. Rendering evaluates snapshots inside worker threads, so large raster frames are retained only for active workers rather than for the whole movie. Final audio mixing is sample-based at 48 kHz and muxed into the output MP4 as AAC.
 
-Video output keeps the renderer itself RGB-native. With `h264_nvenc` (including `video_encoder="auto"` on a usable NVIDIA system), each render worker converts its finished RGB0 frame to NV12 in Zig and hands it to a bounded 16-slot producer/consumer pipeline; a dedicated writer thread feeds raw NV12 to ffmpeg/NVENC. This avoids ffmpeg's serial RGB-to-YUV `swscale` stage and reduces raw pipe traffic from 4 to 1.5 bytes per pixel while preserving frame-level render parallelism. `libx264` remains the portable RGB0 fallback and defaults to four encoder threads to avoid its large automatic high-core-count frame-buffer footprint; `encoder_threads` can be overridden explicitly.
+Video output stays RGB-native through the renderer and streams finished RGB0 frames directly to ffmpeg/libx264. The default `veryfast` preset with four encoder threads is the measured throughput/memory sweet spot for the current frame-parallel renderer; `crf`, `preset`, and `encoder_threads` remain explicit tuning knobs. This single software path avoids GPU-specific startup, capability detection, and platform branches while producing standard H.264/yuv420p MP4 output.
 
 Raster objects share the normal `transform`, `opacity`, `z_index`, bounds/layout helpers, camera transform, fade, and transform animation channels. The Zig backend performs inverse-affine bilinear sampling with source-over alpha compositing, so rotated/scaled raster media participates in the same ordered draw stream as vector and geometry content.
 
@@ -132,40 +132,43 @@ zig build
 
 ## Examples
 
+Examples are curated rather than accumulated. `examples/showcase/` is the shortest tour of the public authoring API; `examples/fun/` contains complete playful animations. JAnim API parity and Manim/3Blue1Brown reproductions remain separate reference suites. See [`examples/README.md`](examples/README.md) for the map.
+
 ```bash
-uv run python examples/foundation_showcase.py
-uv run python examples/timeline_scene.py
-uv run python examples/grid_linear_transform.py
-uv run python examples/square_to_circle.py
-uv run python examples/text_reveal.py
-uv run python examples/formula_reveal.py
-uv run python examples/dynamic_matrix_formula.py
-uv run python examples/dynamic_integral_scene.py
-uv run python examples/mlp_inference_scene.py
-uv run python examples/media_timeline_scene.py
+uv run python examples/showcase/basics.py
+uv run python examples/showcase/timeline.py
+uv run python examples/showcase/math.py
+uv run python examples/showcase/batches.py
+uv run python examples/showcase/media.py
+uv run python examples/showcase/three_d.py
+
+uv run python examples/fun/fourier_draw.py --terms 36
+uv run python examples/fun/neural_network.py
 ```
 
-Videos are written to `media/`.
+Videos are written under matching subdirectories in `media/`.
 
 ### JAnim API-demonstration parity suite
 
-`examples/janim_api/` reimplements the visual effects from JAnim's public API demonstration, excluding the explicit 3D example. It is intentionally an effect-parity/regression suite rather than an API translation:
+`examples/janim_api/` reimplements the visible effects from JAnim's public API demonstration, including the four-panel 3D shapes example. It is intentionally an effect-parity/regression suite rather than an API translation:
 
 ```bash
 PYTHONPATH=python uv run python -m examples.janim_api.suite all
-PYTHONPATH=python uv run python -m examples.janim_api.suite MaskExample
+PYTHONPATH=python uv run python -m examples.janim_api.suite ThreeDShapesExample
 ```
 
-The suite covers geometry creation/morphing, rich text and Typst, complex-plane deformation, number planes, procedural dependent motion, marked points, pixel frame effects, and alpha masks. Task-specific shader-like pixel transforms stay in the example layer; only reusable random-access transform and compositing primitives are promoted into the engine.
+The suite covers geometry creation/morphing, rich text and Typst, complex-plane deformation, number planes, procedural dependent motion, marked points, pixel frame effects, alpha masks and representative 3D surface styles.
 
-The project intentionally does **not** introduce ECS, a renderer-side scene graph, a generic updater DAG, or a universal templated track system. New abstractions should continue to be justified by concrete animation workloads.
+### Manim / 3Blue1Brown reproductions
+
+`examples/manim_2026/` is kept as a separate reference suite for effect-oriented reproductions from the 3Blue1Brown video repository. It is useful for finding capability gaps without turning compatibility-specific ideas into core abstractions.
 
 ## Optional extras
 
 Task-specific features live outside the core authoring model when they do not justify a renderer or timeline primitive. Fourier SVG drawing is implemented in `zanim.extras.fourier` on top of the generic cubic-contour arc-length sampler in `zanim.path`:
 
 ```bash
-uv run python examples/svg_fourier_draw.py --svg assets/fourier_heart.svg --terms 36
+uv run python examples/fun/fourier_draw.py --svg assets/fourier_heart.svg --terms 36
 ```
 
 The example selects one closed contour, computes its DFT, builds a head-to-tail epicycle chain, and draws the moving endpoint trace. The Fourier policy itself is not part of `Scene`, `Timeline`, or the Zig renderer.
@@ -178,4 +181,4 @@ The CPU 3D pipeline implements homogeneous frustum clipping, perspective/orthogr
 
 Public building blocks include `Vec3`, `SO3`, `Transform3D`, `Camera3D`, `TriangleMesh`, `MeshObject3D`, `Box3D`, `Cube3D`, and `Surface3D`. The renderer stays below these semantics: authoring code never depends on rasterizer-specific types.
 
-Regression examples live in `examples/three_d/`: a rotating cube, a smooth bivariate terrain, and an SO(3) local-frame/unit-cube visualization with a live matrix overlay. Use `--draft` for 960x540 / 30 fps previews.
+The curated syntax example is `examples/showcase/three_d.py`; the JAnim parity suite also contains a four-panel 3D shapes scene. Both use the same CPU renderer and ordinary Scene/Timeline semantics.

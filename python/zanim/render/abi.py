@@ -195,10 +195,4 @@ def load_library() -> ctypes.CDLL:
         ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
     ]
     lib.zanim_render_scene_rgba0.restype = ctypes.c_int32
-    lib.zanim_rgb0_to_nv12.argtypes = [
-        ctypes.c_uint32, ctypes.c_uint32,
-        ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t,
-        ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t,
-    ]
-    lib.zanim_rgb0_to_nv12.restype = ctypes.c_int32
     return lib

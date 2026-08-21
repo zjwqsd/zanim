@@ -15,10 +15,10 @@ from zanim.extras.fourier import (
     select_closed_contour,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SVG = ROOT / "assets/fourier_heart.svg"
-OUTPUT = ROOT / "media/svg_fourier_draw.mp4"
-FOLLOW_OUTPUT = ROOT / "media/svg_fourier_draw_follow.mp4"
+OUTPUT = ROOT / "media/fun/fourier_draw.mp4"
+FOLLOW_OUTPUT = ROOT / "media/fun/fourier_draw_follow.mp4"
 
 SAMPLE_COUNT = 768
 TERM_COUNT = 36

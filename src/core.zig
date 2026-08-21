@@ -11,7 +11,6 @@ const render3d = @import("render3d.zig");
 const scene_wire = @import("scene_wire.zig");
 const se2 = @import("se2.zig");
 const vector = @import("vector.zig");
-const video_color = @import("video_color.zig");
 
 fn validSurface(width: u32, height: u32, unit_size: f64) bool {
     return width > 0 and height > 0 and
@@ -139,25 +138,6 @@ export fn zanim_render_scene_rgb0(
     return 0;
 }
 
-export fn zanim_rgb0_to_nv12(
-    width: u32,
-    height: u32,
-    rgb0: ?[*]const u8,
-    rgb0_byte_count: usize,
-    nv12: ?[*]u8,
-    nv12_byte_count: usize,
-) i32 {
-    if (width == 0 or height == 0 or rgb0 == null or nv12 == null) return 2;
-    const pixel_count = @as(usize, width) * @as(usize, height);
-    const required_rgb = pixel_count * 4;
-    const required_nv12 = pixel_count + pixel_count / 2;
-    if (rgb0_byte_count < required_rgb or nv12_byte_count < required_nv12) return 2;
-    video_color.rgb0ToNv12(
-        width, height, rgb0.?[0..required_rgb], nv12.?[0..required_nv12],
-    ) catch return 2;
-    return 0;
-}
-
 /// Render one evaluated Scene snapshot into caller-owned transparent RGBA pixels.
 export fn zanim_render_scene_rgba0(
     width: u32,
@@ -232,5 +212,4 @@ test {
     std.testing.refAllDecls(raster);
     std.testing.refAllDecls(render3d);
     std.testing.refAllDecls(scene_wire);
-    std.testing.refAllDecls(video_color);
 }
