@@ -5,8 +5,8 @@ from math import pi, sin
 from pathlib import Path
 
 from zanim import (
-    Canvas, Circle, Color, Easing, Object2D, ObjectInterpolation, Scene, Square,
-    StrokeStyle, Style, Text, Transform2D, Vec2,
+    Canvas, Circle, Color, DOWN, Easing, Object2D, Row, Scene,
+    Square, Style, TOP, Text, Vec2, affine2d,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -18,49 +18,52 @@ GREEN = Color(84, 215, 155)
 
 
 def outlined(color: Color) -> Style:
-    return Style(fill=Color(color.r, color.g, color.b, 80), stroke=StrokeStyle(color, 0.045))
+    return Style.paint(color.with_alpha(80), color, 0.045)
 
 
 def build_scene() -> Scene:
     scene = Scene(canvas=Canvas(1280, 720, 95), fps=60)
-    title = Text("One timeline, independent channels", font_size=32, transform=Transform2D.translation(0, 2.7))
-
-    left = Object2D(Circle(0.72), style=outlined(BLUE), transform=Transform2D.translation(-3.2, 0))
+    title = Text("One timeline, independent channels", font_size=32, opacity=0)
+    left = Object2D(Circle(0.72), style=outlined(BLUE))
     middle = Object2D(Square(1.35), style=outlined(PINK))
-    source = Object2D(Circle(0.75), style=outlined(GREEN), transform=Transform2D.translation(3.2, 0))
-    target = Object2D(Square(1.45), style=outlined(BLUE), transform=Transform2D.translation(3.2, 0))
-    relation = ObjectInterpolation.from_objects(source, target)
-    source.opacity = 0.0
-    target.opacity = 0.0
+    source = Object2D(Circle(0.75), style=outlined(GREEN))
+    target = Object2D(Square(1.45), style=outlined(BLUE))
 
-    scene.add(title, left, middle, source, target)
-    scene.fade_in(title, duration=0.7)
+    header = scene.frame.top_region(height=1.2)
+    title.place(anchor=TOP, at=header.top + 0.25 * DOWN)
+    Row(gap=0.85, at=Vec2()).place(left, middle, source, target)
+    left_origin = left.center
+
+    title, left, middle, source, target = scene.add(title, left, middle, source, target)
+    title.fade_in(duration=0.7)
 
     # One block schedules several clips from the same cursor. ``at`` adds a
     # relative offset without making the author manually manage timestamps.
     with scene.parallel():
-        scene.play_transform_function(
-            left,
-            lambda a: Transform2D.translation(-3.2, 0.55 * sin(4 * pi * a)).rotate(2 * pi * a),
+        left.transform_function(
+            lambda a: affine2d(
+                to=(left_origin.x, left_origin.y + 0.55 * sin(4 * pi * a)),
+                rotation=2 * pi * a,
+            ),
             duration=3.0,
             easing=Easing.LINEAR,
         )
-        scene.play_transform(
-            middle,
-            Transform2D.rotation(pi).scale(1.35),
-            duration=1.1,
-            easing=Easing.SMOOTHSTEP,
-            at=0.35,
+        middle.affine(
+            to=middle.center, rotation=pi, scale=1.35, duration=1.1, at=0.35
         )
-        scene.play_style(middle, outlined(GREEN), duration=1.0, at=1.45)
+        middle.style(to=outlined(GREEN), duration=1.0, at=1.45)
 
-        scene.timeline.add_interpolation(relation, duration=2.2, at=0.5)
+        # Pure relation: source and target remain visible and unchanged while
+        # a third transient interpolation is rendered between them.
+        scene.interpolate(source, target, duration=2.2, at=0.5)
 
     scene.wait(0.35)
-    with scene.parallel():
-        scene.fade_out(left, duration=0.7)
-        scene.fade_out(middle, duration=0.7, at=0.1)
-        scene.fade_out(title, duration=0.7, at=0.2)
+    with scene.parallel(duration=0.7):
+        left.fade_out()
+        middle.fade_out(at=0.1)
+        title.fade_out(at=0.2)
+        source.fade_out(at=0.2)
+        target.fade_out(at=0.2)
     return scene
 
 

@@ -65,7 +65,7 @@ class VectorObject2D(SceneObject2D):
     """Persistent scene object backed by an immutable VectorDocument."""
 
     document: VectorDocument
-    transform: Transform2D = Transform2D()
+    transform: Transform2D | SE2 = Transform2D()
     reveal: float = 1.0
     opacity: float = 1.0
     z_index: int = 0
@@ -105,7 +105,7 @@ class DynamicVectorObject2D(VectorObject2D):
         self,
         provider: Callable[[float], VectorDocument],
         *,
-        transform: Transform2D = Transform2D(),
+        transform: Transform2D | SE2 = Transform2D(),
         reveal: float = 1.0,
         opacity: float = 1.0,
         z_index: int = 0,

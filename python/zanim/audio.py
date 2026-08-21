@@ -33,6 +33,16 @@ class AudioSource:
 class AudioObject:
     """Non-visual scene item whose playback is scheduled on Timeline."""
 
+    def __setattr__(self, name: str, value) -> None:
+        if not name.startswith("_") and getattr(self, "_zanim_scene_registered", False):
+            raise RuntimeError(
+                f"cannot assign {name!r} after Scene.add(); audio state is frozen"
+            )
+        object.__setattr__(self, name, value)
+
+    def _mark_scene_registered(self) -> None:
+        object.__setattr__(self, "_zanim_scene_registered", True)
+
     def __init__(self, source: AudioSource, *, gain: float = 1.0) -> None:
         if not isinstance(source, AudioSource):
             raise TypeError("AudioObject source must be AudioSource")

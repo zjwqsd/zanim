@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from .space import Transform2D, Vec2
+from .space import SE2, Transform2D, Vec2
 
 ORIGIN = Vec2(0, 0)
 RIGHT = Vec2(1, 0)
@@ -25,16 +25,82 @@ class SceneObject2D:
     opacity: float
     z_index: int
 
+    def __setattr__(self, name: str, value) -> None:
+        if not name.startswith("_") and getattr(self, "_zanim_scene_registered", False):
+            raise RuntimeError(
+                f"cannot assign {name!r} after Scene.add(); "
+                "use a Scene timeline operation"
+            )
+        object.__setattr__(self, name, value)
+
+    def _set_scene_state(self, name: str, value) -> None:
+        """Update authored target state after Scene has recorded the change."""
+        object.__setattr__(self, name, value)
+
     def _validate_scene_state(self) -> None:
+        # Constructors may use SE2 as an exact rigid-pose shorthand. Runtime
+        # storage remains Transform2D so every renderer sees one representation.
+        if isinstance(self.transform, SE2):
+            self.transform = self.transform.as_affine()
+        elif not isinstance(self.transform, Transform2D):
+            raise TypeError("2D object transform must be Transform2D or SE2")
         if not 0.0 <= float(self.opacity) <= 1.0:
             raise ValueError("opacity must be in [0, 1]")
         self.z_index = int(self.z_index)
+
+    def _mark_scene_registered(self) -> None:
+        self._zanim_scene_registered = True
+
+    def _require_layout_mutable(self) -> None:
+        if getattr(self, "_zanim_scene_registered", False):
+            raise RuntimeError(
+                "object is already registered in a Scene; "
+                "use Scene timeline operations for state changes"
+            )
 
     def bounds(self) -> "Bounds2D":
         from .bounds import bounds_of
         return bounds_of(self)
 
+    @property
+    def center(self) -> Vec2:
+        """Center of the object's current authored 2D bounds.
+
+        This is authoring state, not a hidden timeline sample.  Before adding an
+        object to a Scene it is useful for layout; after timeline operations it
+        reflects the explicit target state stored on the object.
+        """
+        return self.bounds().center
+
+    @property
+    def origin(self) -> Vec2:
+        """Current authored world position of the object's local origin."""
+        return self.transform.apply(Vec2())
+
+    def anchor(self, anchor) -> Vec2:
+        """Return a visual-bounds anchor in the object's authored parent space."""
+        from .layout import _anchor
+        a = _anchor(anchor)
+        bounds = self.bounds()
+        return Vec2(
+            bounds.center.x + a.x * bounds.width * 0.5,
+            bounds.center.y + a.y * bounds.height * 0.5,
+        )
+
+    def place(self, *, anchor, at: Vec2):
+        """Place one bounds anchor at an explicit point in its parent layout space.
+
+        Before ``Scene.add()`` hierarchy has no Scene world context, so layout
+        is intentionally parent-relative. Top-level objects therefore use world
+        coordinates. The operation changes no geometry, opacity, or timeline.
+        """
+        self._require_layout_mutable()
+        if not isinstance(at, Vec2):
+            raise TypeError("place(at=...) requires Vec2")
+        return self.shift(at - self.anchor(anchor))
+
     def shift(self, x: float | Vec2, y: float | None = None):
+        self._require_layout_mutable()
         if isinstance(x, Vec2):
             if y is not None:
                 raise TypeError("y must be omitted when shifting by Vec2")
@@ -91,6 +157,7 @@ class SceneObject2D:
         return self.shift(dx, dy)
 
     def scale_about(self, factor: float, about: Vec2 | None = None):
+        self._require_layout_mutable()
         if factor < 0:
             raise ValueError("scale factor must be >= 0")
         center = self.bounds().center if about is None else about
@@ -103,6 +170,7 @@ class SceneObject2D:
         return self
 
     def rotate_about(self, radians: float, about: Vec2 | None = None):
+        self._require_layout_mutable()
         center = self.bounds().center if about is None else about
         op = (
             Transform2D.translation(center.x, center.y)
@@ -113,11 +181,13 @@ class SceneObject2D:
         return self
 
     def set_opacity(self, opacity: float):
+        self._require_layout_mutable()
         if not 0.0 <= opacity <= 1.0:
             raise ValueError("opacity must be in [0, 1]")
         self.opacity = float(opacity)
         return self
 
     def set_z_index(self, z_index: int):
+        self._require_layout_mutable()
         self.z_index = int(z_index)
         return self

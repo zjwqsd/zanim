@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from math import isfinite
 from typing import Callable
@@ -38,6 +38,20 @@ class MeshObject3D:
     # so authoring ``transform`` keeps its original pose-only semantics while
     # canonical meshes remain shareable by the renderer and wire cache.
     geometry_transform: Transform3D = Transform3D()
+    _zanim_scene_registered: bool = field(default=False, init=False, repr=False)
+
+    def __setattr__(self, name: str, value) -> None:
+        if not name.startswith("_") and getattr(self, "_zanim_scene_registered", False):
+            raise RuntimeError(
+                f"cannot assign {name!r} after Scene.add(); use a Scene timeline operation"
+            )
+        object.__setattr__(self, name, value)
+
+    def _mark_scene_registered(self) -> None:
+        object.__setattr__(self, "_zanim_scene_registered", True)
+
+    def _set_scene_state(self, name: str, value) -> None:
+        object.__setattr__(self, name, value)
 
     def __post_init__(self) -> None:
         if not 0.0 <= float(self.opacity) <= 1.0:

@@ -30,7 +30,8 @@ class DynamicVectorTests(unittest.TestCase):
         obj = DynamicVectorObject2D(
             lambda t: map_vector_document(self.doc, lambda p: Vec2(p.x + t, p.y))
         )
-        scene = Scene().add(obj)
+        scene = Scene()
+        scene.add(obj)
         a = scene.evaluate(0.75).vectors[0].snapshot.document
         scene.evaluate(0.1)
         b = scene.evaluate(0.75).vectors[0].snapshot.document

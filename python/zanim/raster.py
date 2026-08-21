@@ -11,7 +11,7 @@ import threading
 from PIL import Image as PILImage, ImageChops, ImageFilter
 
 from .object import SceneObject2D
-from .space import Transform2D
+from .space import SE2, Transform2D
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,7 +337,7 @@ class RasterObject2D(SceneObject2D):
         *,
         width: float | None = None,
         height: float | None = None,
-        transform: Transform2D = Transform2D(),
+        transform: Transform2D | SE2 = Transform2D(),
         opacity: float = 1.0,
         z_index: int = 0,
     ) -> None:

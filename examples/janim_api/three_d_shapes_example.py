@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from math import cos, pi, sin, tau
+from math import cos, sin, tau
 from typing import Callable
 
 from zanim import (
@@ -12,8 +12,6 @@ from zanim import (
     Object2D,
     Rectangle,
     Scene,
-    Style,
-    Transform2D,
     Transform3D,
     TriangleMesh,
     Vec3,
@@ -259,39 +257,40 @@ def build_three_d_shapes_example() -> Scene:
     for center, color in zip(centers, backgrounds):
         scene.add(Object2D(
             Rectangle(panel_w + 0.01, panel_h + 0.01),
-            style=Style(fill=color),
-            transform=Transform2D.translation(center.x, center.y),
-            z_index=-10,
+            position=(center.x, center.y), fill=color, z_index=-10,
         ))
 
     styles = ("checker", "wire", "smooth", "dots")
     grids = (_torus_grid(), _cylinder_grid(), _cone_grid())
 
+    scheduled = []
+    for shape_index, grid in enumerate(grids):
+        start = shape_index * DURATION_PER_SHAPE
+        for style_name, center in zip(styles, centers):
+            base = (
+                Transform3D.translation(center.x, center.y, 0)
+                @ Transform3D.rotation_x(-0.38)
+                @ Transform3D.rotation_y(0.45)
+            )
+            for obj in _style_objects(grid, style_name, base):
+                obj.opacity = 0.0
+                obj = scene.add(obj)
+                scheduled.append((obj, center, start))
+
     with scene.parallel():
-        for shape_index, grid in enumerate(grids):
-            start = shape_index * DURATION_PER_SHAPE
-            for style_name, center in zip(styles, centers):
-                base = (
-                    Transform3D.translation(center.x, center.y, 0)
-                    @ Transform3D.rotation_x(-0.38)
+        for obj, center, start in scheduled:
+            obj.fade_in(duration=0.12, at=start)
+            obj.transform_function(
+                lambda a, c=center: (
+                    Transform3D.translation(c.x, c.y, 0)
+                    @ Transform3D.rotation_z(tau * a)
+                    @ Transform3D.rotation_x(tau * a - 0.38)
                     @ Transform3D.rotation_y(0.45)
-                )
-                objects = _style_objects(grid, style_name, base)
-                for obj in objects:
-                    scene.add(obj)
-                    scene.fade_in(obj, duration=0.12, at=start)
-                    scene.play_transform_function(
-                        obj,
-                        lambda a, c=center: (
-                            Transform3D.translation(c.x, c.y, 0)
-                            @ Transform3D.rotation_z(tau * a)
-                            @ Transform3D.rotation_x(tau * a - 0.38)
-                            @ Transform3D.rotation_y(0.45)
-                        ),
-                        duration=DURATION_PER_SHAPE,
-                        easing=Easing.LINEAR,
-                        at=start,
-                    )
-                    scene.fade_out(obj, duration=0.12, at=start + DURATION_PER_SHAPE - 0.12)
+                ),
+                duration=DURATION_PER_SHAPE,
+                easing=Easing.LINEAR,
+                at=start,
+            )
+            obj.fade_out(duration=0.12, at=start + DURATION_PER_SHAPE - 0.12)
 
     return scene

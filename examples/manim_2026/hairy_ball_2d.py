@@ -5,10 +5,9 @@ import math
 from pathlib import Path
 
 from zanim import (
-    Arrow, BatchObject2D, Canvas, Circle, Color, DOWN, DynamicNumber, Easing,
-    Group2D, LEFT, Line, LineSet, Math, NumberFormat, Object2D, Polygon,
-    RectSet, Rectangle, RIGHT, ScalarValue, Scene, Square, StrokeStyle, Style,
-    Text, Transform2D, UP, Vec2,
+    Arrow, BatchObject2D, Canvas, Color, DynamicNumber, Easing, Group2D, Line,
+    LineSet, Math, NumberFormat, Object2D, Rectangle, RIGHT, ScalarValue, Scene,
+    StrokeStyle, Text, Transform2D, Vec2, WORLD,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,7 +33,7 @@ def stroke(color=WHITE, width=0.025):
 
 
 def outline_rect(w, h, *, color=WHITE, width=0.025, fill=None, z=0):
-    return Object2D(Rectangle(w, h), style=Style(fill=fill, stroke=stroke(color, width)), z_index=z)
+    return Object2D(Rectangle(w, h), fill=fill, stroke=color, stroke_width=width, z_index=z)
 
 
 def text_row(parts: list[tuple[str, Color]], *, font_size=46, buff=0.08) -> Group2D:
@@ -42,14 +41,25 @@ def text_row(parts: list[tuple[str, Color]], *, font_size=46, buff=0.08) -> Grou
     row.arrange(RIGHT, buff=buff)
     return row
 
+def prepare_reveal(group: Group2D) -> Group2D:
+    for child in group.children:
+        if isinstance(child, (Text, Math)):
+            child.reveal = 0.0
+    return group
+
+
+def reveal_group(sc: Scene, group: Group2D, duration: float, *, at: float = 0.0) -> None:
+    for child in group.children:
+        sc.reveal(child, duration=duration, at=at)
+
 
 def rename_theorem(*, draft=False) -> Scene:
     sc = scene(draft=draft)
     name1 = Text("Hairy Ball Theorem", font_size=62)
     name2 = Text("Sphere Vector Field Theorem", font_size=62, opacity=0)
     name1.move_to(Vec2(-2.2, 1.05)); name2.move_to(Vec2(-1.45, -1.0))
-    l1 = Object2D(Line(Vec2(-4.75, 1.05), Vec2(-3.35, 1.05)), style=Style(fill=None, stroke=stroke(RED, .055)))
-    l2 = Object2D(Line(Vec2(-3.15, 1.05), Vec2(-2.05, 1.05)), style=Style(fill=None, stroke=stroke(RED, .055)))
+    l1 = Object2D(Line(Vec2(-4.75, 1.05), Vec2(-3.35, 1.05)), stroke=RED, stroke_width=.055)
+    l2 = Object2D(Line(Vec2(-3.15, 1.05), Vec2(-2.05, 1.05)), stroke=RED, stroke_width=.055)
     l1.trim = l2.trim = 0.0
     sc.add(name1, name2, l1, l2)
     sc.wait(1)
@@ -64,7 +74,7 @@ def rename_theorem(*, draft=False) -> Scene:
 
 def simple_implies(*, draft=False) -> Scene:
     sc = scene(draft=draft)
-    arrow = Math("==>", font_size=125)
+    arrow = Math("==>", font_size=125, reveal=0)
     sc.add(arrow); sc.create(arrow, 1.2); sc.wait(1.0)
     return sc
 
@@ -74,6 +84,7 @@ def wing_code(*, draft=False) -> Scene:
     code = Text(
         'def wing_vect(heading_vect):\n    """Return 3d vector perpendicular\n    to heading_vect"""\n    ...',
         font_size=34,
+        reveal=0,
     )
     code.move_to(Vec2(-1.5, .5)); sc.add(code); sc.create(code, 2.0, Easing.LINEAR); sc.wait(1.0)
     return sc
@@ -88,6 +99,7 @@ def lazy_perp_code(*, draft=False) -> Scene:
         "    x, y, z = heading\n"
         "    return [-y, x, 0] / sqrt(x*x + y*y)",
         font_size=28,
+        reveal=0,
     )
     code.move_to(Vec2(-.65, 1.3)); sc.add(code); sc.create(code, 2.2, Easing.LINEAR); sc.wait(1.0)
     return sc
@@ -95,25 +107,26 @@ def lazy_perp_code(*, draft=False) -> Scene:
 
 def statement_of_theorem(*, draft=False) -> Scene:
     sc = scene(draft=draft)
-    title = Text("Hairy Ball Theorem", font_size=65); title.move_to(Vec2(-2.75, 3.15))
-    underline = Object2D(Line(Vec2(-5.15, 2.68), Vec2(-0.8, 2.68)), style=Style(fill=None, stroke=stroke(WHITE, .025)))
+    title = Text("Hairy Ball Theorem", font_size=65, reveal=0); title.move_to(Vec2(-2.75, 3.15))
+    underline = Object2D(Line(Vec2(-5.15, 2.68), Vec2(-0.8, 2.68)), stroke=WHITE, stroke_width=.025, trim=0)
 
     line1a = text_row([("Any ", WHITE), ("continuous", WHITE), (" vector field", WHITE)], font_size=45)
     line1b = text_row([("Any ", WHITE), ("continuous", BLUE), (" vector field", WHITE)], font_size=45)
-    line2 = Text("on a sphere must have at least", font_size=45)
+    line2 = Text("on a sphere must have at least", font_size=45, reveal=0)
     line3a = text_row([("one null vector", WHITE), (".", WHITE)], font_size=45)
     line3b = text_row([("one null vector", YELLOW), (".", WHITE)], font_size=45)
     for g in (line1a, line1b): g.move_to(Vec2(-2.2, 1.45))
     line2.move_to(Vec2(-2.15, .45))
     for g in (line3a, line3b): g.move_to(Vec2(-3.45, -.55))
+    prepare_reveal(line1a); prepare_reveal(line3a)
     line1b.opacity = 0; line3b.opacity = 0
     statement = Group2D([line1a, line2, line3a])
     sc.add(title, underline, statement, line1b, line3b)
     sc.create(title, 1.0); sc.create(underline, .5)
     with sc.parallel():
-        sc.create(line1a, 1.4)
+        reveal_group(sc, line1a, 1.4)
         sc.create(line2, 1.8, at=.35)
-        sc.create(line3a, 1.4, at=.75)
+        reveal_group(sc, line3a, 1.4, at=.75)
     sc.wait(1)
     with sc.parallel(): sc.fade_out(line1a, .55); sc.fade_in(line1b, .55)
     sc.wait(.8)
@@ -124,7 +137,7 @@ def statement_of_theorem(*, draft=False) -> Scene:
 
 def write_antipode(*, draft=False) -> Scene:
     sc = scene(draft=draft)
-    a = Text("“Antipodes”", font_size=68); b = Text("Antipode map", font_size=68, opacity=0)
+    a = Text("“Antipodes”", font_size=68, reveal=0); b = Text("Antipode map", font_size=68, opacity=0)
     for obj in (a, b): obj.move_to(Vec2(-3.85, 2.7))
     sc.add(a, b); sc.create(a, 1.5); sc.wait(.8)
     with sc.parallel(): sc.fade_out(a, .7); sc.fade_in(b, .7)
@@ -140,8 +153,8 @@ def three_cases(*, draft=False) -> Scene:
     for x, a, b in zip(xs, top, bottom):
         ta=Text(a,font_size=38,color=GREY); tb=Text(b,font_size=52,opacity=0)
         ta.move_to(Vec2(x,2.45)); tb.move_to(Vec2(x,1.45)); top_objs.append(ta); bottom_objs.append(tb)
-    cross1=Object2D(Line(Vec2(3.35,.95),Vec2(5.35,1.95)),style=Style(fill=None,stroke=stroke(RED,.055)),opacity=0)
-    cross2=Object2D(Line(Vec2(3.35,1.95),Vec2(5.35,.95)),style=Style(fill=None,stroke=stroke(RED,.055)),opacity=0)
+    cross1=Object2D(Line(Vec2(3.35,.95),Vec2(5.35,1.95)), stroke=RED, stroke_width=.055, opacity=0)
+    cross2=Object2D(Line(Vec2(3.35,1.95),Vec2(5.35,.95)), stroke=RED, stroke_width=.055, opacity=0)
     why=Text("Why not?",font_size=38,color=YELLOW,opacity=0); why.move_to(Vec2(4.35,.25))
     sc.add(*(top_objs+bottom_objs+[cross1,cross2,why])); sc.wait(.5)
     for obj in bottom_objs: sc.fade_in(obj,.55)
@@ -152,19 +165,19 @@ def three_cases(*, draft=False) -> Scene:
 
 def proof_outline(*, draft=False) -> Scene:
     sc = scene(draft=draft)
-    title=Text("Proof by Contradiction",font_size=64); title.move_to(Vec2(0,3.15))
+    title=Text("Proof by Contradiction",font_size=64,reveal=0); title.move_to(Vec2(0,3.15))
     left=outline_rect(3.2,3.2); left.move_to(Vec2(-3.45,.45)); left.opacity=0
     right=outline_rect(3.2,3.2); right.move_to(Vec2(3.45,.45)); right.opacity=0
     implies=Math("==>",font_size=100,opacity=0); implies.move_to(Vec2(0,.45))
     impossible=Text("Impossibility",font_size=62,color=RED,opacity=0); impossible.move_to(Vec2(4.9,2.45))
     question=Text("What do we\nshow here?",font_size=52,opacity=0); question.move_to(Vec2(.25,.2))
-    brace=Object2D(Line(Vec2(-1.55,-1.15),Vec2(-1.55,2.05)),style=Style(fill=None,stroke=stroke(WHITE,.035)),opacity=0)
+    brace=Object2D(Line(Vec2(-1.55,-1.15),Vec2(-1.55,2.05)), stroke=WHITE, stroke_width=.035, opacity=0)
     sc.add(title,left,right,implies,impossible,question,brace)
     sc.create(title,1.4); sc.wait(.6); sc.fade_in(left,.7); sc.wait(.7)
     sc.fade_in(implies,.6); sc.fade_in(impossible,.7); sc.wait(.6)
     with sc.parallel():
         sc.fade_in(right,.8)
-        sc.play_transform(impossible,Transform2D.translation(3.45,2.45).scale(.6),.8)
+        sc.transform(impossible, to=Transform2D.translation(3.45,2.45).scale(.6), duration=.8)
     sc.wait(.7); sc.fade_out(impossible,.5)
     with sc.parallel(): sc.fade_out(implies,.5); sc.fade_out(right,.5)
     with sc.parallel(): sc.fade_in(brace,.5); sc.fade_in(question,.8)
@@ -207,7 +220,7 @@ def inside_outside(*, draft=False) -> Scene:
 
 def p_to_neg_p(*, draft=False) -> Scene:
     sc=scene(draft=draft)
-    p=Math("p",font_size=100); arrow=Math("==>",font_size=100,opacity=0); neg=Math("-p",font_size=100,opacity=0)
+    p=Math("p",font_size=100,reveal=0); arrow=Math("==>",font_size=100,opacity=0); neg=Math("-p",font_size=100,opacity=0)
     p.move_to(Vec2(-2.5,2.2)); arrow.move_to(Vec2(0,2.2)); neg.move_to(Vec2(2.5,2.2))
     sc.add(p,arrow,neg); sc.create(p,.7); sc.fade_in(arrow,.6); sc.fade_in(neg,.7); sc.wait(1.0); return sc
 
@@ -240,7 +253,7 @@ def flux_decimals(*, draft=False) -> Scene:
     for target,color in targets:
         nxt=color_index[color]
         with sc.parallel():
-            sc.play_value(value,target,1.0 if abs(target)!=1 else 2.5,Easing.SMOOTHSTEP)
+            sc.value(value, to=target, duration=1.0 if abs(target)!=1 else 2.5, easing=Easing.SMOOTHSTEP)
             if nxt!=current:
                 sc.fade_out(nums[current],.35,at=.35); sc.fade_in(nums[nxt],.35,at=.35)
         current=nxt; sc.wait(.45)
@@ -249,8 +262,8 @@ def flux_decimals(*, draft=False) -> Scene:
 
 def frame_intuition(*, draft=False) -> Scene:
     sc=scene(draft=draft)
-    h=Object2D(Line(Vec2(-7,2.1),Vec2(7,2.1)),style=Style(fill=None,stroke=stroke(WHITE,.02)))
-    v=Object2D(Line(Vec2(0,-4),Vec2(0,4)),style=Style(fill=None,stroke=stroke(WHITE,.02)))
+    h=Object2D(Line(Vec2(-7,2.1),Vec2(7,2.1)), stroke=WHITE, stroke_width=.02)
+    v=Object2D(Line(Vec2(0,-4),Vec2(0,4)), stroke=WHITE, stroke_width=.02)
     intuitive=Text("Intuitive idea",font_size=54); intuitive.move_to(Vec2(-3.5,3.05))
     counter=Text("Counterexample",font_size=54,opacity=0); clever=Text("Clever proof",font_size=54,opacity=0)
     counter.move_to(Vec2(3.5,3.05)); clever.move_to(Vec2(3.5,3.05))
@@ -299,8 +312,8 @@ def rotation_in_2d(*, draft=False) -> Scene:
     e1=Arrow(Vec2(),Vec2(1.0,0),color=GREEN); e2=Arrow(Vec2(),Vec2(0,1.0),color=RED); basis=Group2D([e1,e2])
     sc.add(back,front,basis); sc.wait(.8)
     with sc.parallel():
-        sc.play_transform(front,Transform2D.rotation(math.pi),5.0,Easing.SMOOTHSTEP)
-        sc.play_transform(basis,Transform2D.rotation(math.pi),5.0,Easing.SMOOTHSTEP)
+        sc.rotate(front, by=math.pi, frame=WORLD, duration=5.0, easing=Easing.SMOOTHSTEP)
+        sc.rotate(basis, by=math.pi, frame=WORLD, duration=5.0, easing=Easing.SMOOTHSTEP)
     sc.wait(.8); return sc
 
 

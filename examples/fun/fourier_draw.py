@@ -7,7 +7,7 @@ from pathlib import Path
 
 from zanim import (
     Camera2D, Canvas, Color, DynamicGeometryObject2D, Group2D, Math, Object2D,
-    Polygon, Polyline, Scene, StrokeStyle, Style, Transform2D, Vec2,
+    Polygon, Polyline, Scene, Style, Transform2D, Vec2, affine2d,
     load_svg,
 )
 from zanim.extras.fourier import (
@@ -133,12 +133,11 @@ def build_scene(
     reference_points = tuple(point2(value) for value in samples)
     reference = Object2D(
         Polyline((*reference_points, reference_points[0])),
-        style=Style(fill=None, stroke=StrokeStyle(Color(118, 129, 151, 80), 0.018)),
-        z_index=-5,
+        stroke=Color(118, 129, 151, 80), stroke_width=0.018, z_index=-5,
     )
 
-    circle_style = Style(fill=None, stroke=StrokeStyle(Color(132, 157, 198, 82), 0.012))
-    arrow_style = Style(fill=Color(205, 220, 245, 190), stroke=None)
+    circle_style = Style.outline(Color(132, 157, 198, 82), 0.012)
+    arrow_style = Style.solid(Color(205, 220, 245, 190))
     children = []
     visual_indices = [
         index for index, term in enumerate(terms)
@@ -176,12 +175,12 @@ def build_scene(
 
     trace = DynamicGeometryObject2D(
         trace_geometry,
-        style=Style(fill=None, stroke=StrokeStyle(Color(255, 108, 139), 0.045)),
+        style=Style.outline(Color(255, 108, 139), 0.045),
         z_index=4,
     )
     tip = DynamicGeometryObject2D(
         lambda t: tip_polygon(chain_at(float(t))[-1]),
-        style=Style(fill=Color(255, 204, 214), stroke=None),
+        style=Style.solid(Color(255, 204, 214)),
         z_index=5,
     )
 
@@ -189,14 +188,14 @@ def build_scene(
         'f(t) = sum_k c_k e^(2 pi i k t)',
         font_size=29,
         color=Color(223, 228, 240),
-        transform=Transform2D.translation(0, 4.25),
+        transform=affine2d(to=(0, 4.25)),
         z_index=10,
     )
     term_label = Math(
         f'N = {len(visual_indices)}',
         font_size=21,
         color=Color(150, 163, 188),
-        transform=Transform2D.translation(0, 3.72),
+        transform=affine2d(to=(0, 3.72)),
         z_index=10,
     )
 

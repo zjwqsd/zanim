@@ -34,7 +34,8 @@ class AxesTests(unittest.TestCase):
             lambda t: axes.area_polygon(lambda x: 1+x*x*0.1, -2+t, 1+t*0.1),
             style=Style(fill=Color(100, 150, 255, 120), stroke=None),
         )
-        scene = Scene(canvas=Canvas(width=640, height=360, unit_size=70)).add(obj)
+        scene = Scene(canvas=Canvas(width=640, height=360, unit_size=70))
+        scene.add(obj)
         a = scene.evaluate(0.5).objects[0].snapshot.geometry
         scene.evaluate(1.0)
         b = scene.evaluate(0.5).objects[0].snapshot.geometry

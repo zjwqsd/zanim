@@ -20,16 +20,18 @@ class PlaybackTests(unittest.TestCase):
 
     def test_non_looping_playback_cannot_overrun_source(self):
         video = Video(MEDIA / "clip.mp4")
-        scene = Scene().add(video)
+        scene = Scene()
+        scene.add(video)
         with self.assertRaises(ValueError):
-            scene.play_media(video, duration=3.0)
+            scene.media(video, duration=3.0)
 
     def test_static_image_can_be_scheduled(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "x.png"
             PILImage.new("RGBA", (4, 2), (255, 0, 0, 255)).save(path)
             image = Image(path)
-            scene = Scene(); scene.add(image); scene.play_media(image, duration=2)
+            scene = Scene(); scene
+            scene.add(image); scene.media(image, duration=2)
             self.assertEqual(len(scene.evaluate(1).rasters), 1)
             self.assertEqual(len(scene.evaluate(3).rasters), 0)
 
@@ -64,8 +66,9 @@ class PlaybackTests(unittest.TestCase):
 
     def test_audio_mix_is_finite_and_timeline_aligned(self):
         audio = Audio(MEDIA / "tone.wav", gain=0.2)
-        scene = Scene().add(audio)
-        scene.play_media(audio, duration=2.0, loop=True, at=0.25)
+        scene = Scene()
+        scene.add(audio)
+        scene.media(audio, duration=2.0, loop=True, at=0.25)
         with tempfile.TemporaryDirectory() as td:
             output = Path(td) / "mix.wav"
             render_audio_mix(scene, output, scene.timeline.cursor)

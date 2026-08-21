@@ -6,7 +6,7 @@ from PIL import Image as PILImage, ImageChops, ImageDraw
 
 from zanim import (
     Canvas, Color, Easing, Group2D, Object2D, RasterObject2D, Scene, Square,
-    StrokeStyle, Style, Transform2D, Vec2,
+    Transform2D, Vec2,
 )
 from zanim.raster import RasterFrame, RasterSource, SceneRasterSource
 
@@ -23,11 +23,11 @@ def _grid_scene(indices: range | list[int]) -> Scene:
         row,col=divmod(i,7)
         p=Vec2((col-3)*0.62,(3-row)*0.62)
         squares.append(Object2D(
-            Square(0.5),transform=Transform2D.translation(p.x,p.y),
-            style=Style(fill=Color(BLUE.r,BLUE.g,BLUE.b,76),stroke=StrokeStyle(Color(BLUE.r,BLUE.g,BLUE.b,190),0.025)),
+            Square(0.5), position=p,
+            fill=BLUE.with_alpha(76), stroke=BLUE.with_alpha(190), stroke_width=0.025,
         ))
-    group=Group2D(squares); sc.add(group)
-    sc.play_transform_function(group,lambda a:Transform2D.rotation(math.tau*a),duration=8,easing=Easing.LINEAR)
+    group=Group2D(squares); group=sc.add(group)
+    group.transform_function(lambda a:Transform2D.rotation(math.tau*a), duration=8, easing=Easing.LINEAR)
     return sc
 
 
@@ -75,8 +75,8 @@ def build_frame_effect_example()->Scene:
     sc=Scene(canvas=Canvas(width=1920,height=1080,unit_size=135),fps=30)
     e=RasterObject2D(even,width=FRAME_W,height=FRAME_H)
     o=RasterObject2D(odd,width=FRAME_W,height=FRAME_H)
-    sc.add(e,o)
+    e,o=sc.add(e,o)
     with sc.parallel():
-        sc.play_media(e,duration=8)
-        sc.play_media(o,duration=8)
+        e.media(duration=8)
+        o.media(duration=8)
     return sc

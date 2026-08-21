@@ -6,9 +6,9 @@ from pathlib import Path
 import random
 
 from zanim import (
-    Axes2D, Canvas, Color, DynamicGeometryObject2D, FormulaLiteral,
+    Axes2D, Canvas, Color, DOWN, DynamicGeometryObject2D, FormulaLiteral,
     FormulaTemplate, MatrixSlot, NumberFormat, NumberSlot, Scene, ScriptSlots,
-    StrokeStyle, Style, Text, Transform2D, Vec2,
+    Style, TOP, Text, Vec2, affine2d,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,15 +38,16 @@ def matrices(t: float):
 
 def build_scene() -> Scene:
     scene = Scene(canvas=Canvas(1920, 1080, 105), fps=60)
-    title = Text("Dynamic geometry and dynamic math", font_size=33, transform=Transform2D.translation(0, 4.35))
-    scene.add(title)
+    title = Text("Dynamic geometry and dynamic math", font_size=33, opacity=0)
+    title.place(anchor=TOP, at=scene.frame.top + 0.35 * DOWN)
+    title = scene.add(title)
 
     axes = Axes2D(x_range=(-4, 4), y_range=(-0.4, 3.2), width=9.0, height=5.5, center=Vec2(-4.0, -0.8))
     grid = axes.grid_object(x_step=1.0, y_step=0.5)
     axes_lines = axes.axes_object(color=Color(150, 160, 183, 220), width=0.022)
     area = DynamicGeometryObject2D(
         lambda t: axes.area_polygon(f, lower(t), upper(t), samples=120),
-        style=Style(fill=Color(78, 139, 255, 105), stroke=StrokeStyle(Color(112, 170, 255), 0.018)),
+        style=Style.paint(Color(78, 139, 255, 105), Color(112, 170, 255), 0.018),
     )
     graph = axes.plot(f, samples=260, color=Color(118, 205, 255), stroke_width=0.04)
     scene.add(grid, area, axes_lines, graph)
@@ -68,7 +69,7 @@ def build_scene() -> Scene:
             "b": upper,
             "value": lambda t: axes.integral_value(f, lower(t), upper(t), samples=120),
         },
-        transform=Transform2D.translation(3.7, 2.25),
+        transform=affine2d(to=(3.7, 2.25)),
     )
 
     small = NumberFormat(width=2, sign="negative")
@@ -88,10 +89,10 @@ def build_scene() -> Scene:
             "B": lambda t: matrices(t)[1],
             "C": lambda t: matrices(t)[2],
         },
-        transform=Transform2D.translation(3.7, -1.2),
+        transform=affine2d(to=(3.7, -1.2)),
     )
 
-    scene.fade_in(title, duration=0.7)
+    title.fade_in(duration=0.7)
     scene.wait(5.3)
     return scene
 

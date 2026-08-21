@@ -45,15 +45,363 @@ z_index
 bounds()
 ```
 
-and spatial helpers such as `shift`, `move_to`, `next_to`, `align_to`, `to_edge`, `scale_about`, and `rotate_about`.
+and low-level spatial helpers such as `shift`, `move_to`, `scale_about`, and `rotate_about`.
 
-`Group2D` adds `arrange` and `arrange_in_grid` without adding renderer-side hierarchy.
+### Initial-state sugar
+
+Simple objects do not need to spell out `Style` or `Transform2D` just to declare
+an initial visual state:
+
+```python
+star = Object2D(
+    Polygon(star_points()),
+    stroke=WHITE,
+    stroke_width=.045,
+    position=(2, 0),
+    rotation=.2,
+    scale=.5,
+)
+```
+
+The style sugar is exact: `fill=` means fill, `stroke=` means outline, and giving
+both means both. `stroke_width` defaults to `.035` when a stroke is present. The
+complete `style=Style(...)` form remains available, but mixing it with
+`fill/stroke/stroke_width` is an error rather than an override. `Color.with_alpha()`
+is the compact explicit way to change alpha:
+
+```python
+Object2D(Circle(1), fill=BLUE.with_alpha(128), stroke=WHITE)
+```
+
+Initial transform sugar uses the same fixed affine convention as `affine2d()`:
+
+```text
+Translation(position) @ Rotation(rotation) @ Shear(shear) @ Scale(scale)
+```
+
+`position` is the local origin's location in the parent frame; it is not a visual
+bounds-center shortcut. Visual placement still uses `place(anchor=..., at=...)`.
+`Group2D` accepts the same `position/rotation/scale/shear` sugar, so kinematic
+frame offsets can be written directly as `Group2D(..., position=(L, 0))`. Mixing
+`transform=` with transform sugar is an error.
+
+After `Scene.add()`, bound objects provide the matching style timeline sugar:
+
+```python
+obj = scene.add(obj)
+obj.fill(BLUE)
+obj.outline(WHITE, width=.045)
+obj.paint(fill=RED.with_alpha(128), stroke=RED, stroke_width=.045)
+```
+
+These are exact shorthands for `obj.style(to=Style...)`; they add no extra channel
+or hidden animation.
+
+### Declare, layout, animate
+
+The preferred authoring order is deliberately visible in code:
+
+```python
+# 1. Declare visual objects.
+title = Text("Layout is data")
+square = Object2D(Square(1), style=Style.solid(BLUE))
+circle = Object2D(Circle(.5), style=Style.solid(ORANGE))
+group = Group2D([square, circle])
+
+# 2. Lay them out once, before they enter the Scene.
+header = scene.frame.top_region(height=1.2)
+content = scene.frame.inset(.6).below(header, gap=.2)
+title.place(anchor=TOP, at=header.top + .25 * DOWN)
+Row(gap=.7, at=content.center).place(*group.children)
+
+# 3. Cross the lifetime boundary. add() returns bound timeline handles.
+title, group = scene.add(title, group)
+square, circle = group.children
+
+# 4. Post-add authoring is naturally object-bound.
+square.move(by=UP, frame=WORLD)
+```
+
+`scene.frame` is the Canvas expressed as an explicit world-space `Frame`.
+`frame.top`, `frame.bottom`, `frame.left`, corners, and `frame.center` are actual
+`Vec2` points. `Frame.inset()` and named regions make composition readable
+without scattering magic coordinates through constructors.
+
+`obj.place(anchor=..., at=...)` states exactly which visual-bounds point is put
+at which point in its parent layout space. For top-level objects that is world
+space; children are laid out in their Group's local frame. `obj.anchor(...)`
+queries the same parent-space points. `TOP`,
+`BOTTOM`, `TOP_LEFT`, etc. are explicit layout anchors; existing `UP`, `RIGHT`,
+etc. remain ordinary `Vec2` directions and keep their arithmetic meaning.
+
+`Row`, `Column`, and `Grid` are layout specifications, not persistent constraint
+systems. Before `Scene.add()`, `.place()` applies a specification once:
+
+```python
+Row(gap=.7, at=content.center).place(a, b, c)
+```
+
+After the objects are in the Scene, the exact same specification can be used as
+an explicit animation target:
+
+```python
+scene.layout(group, to=Grid(rows=2, cols=2, gap=.6, at=content.center))
+scene.layout(group, to=Column(gap=.35, at=content.center))
+```
+
+`Scene.layout()` computes one target transform per direct child and schedules
+those transforms in parallel. It does not create copies, retain a live layout
+constraint, or change object identity. Rotation and scale are preserved; the
+layout determines target translations from the objects' current authored bounds.
+For a `Group2D`, child layout coordinates are group-local, while the Group keeps
+its own independent transform.
+
+`Group2D.arrange()` / `arrange_in_grid()` remain compact one-time helpers, but the
+curated API examples prefer explicit layout specifications because their target
+position can be read directly from the code. See `examples/showcase/layout.py`
+for independent child motion followed by Row → Grid → Column layout transitions.
+
+### Explicit authoring state and lifetime
+
+Zanim separates **object lifetime**, **initial state**, and **state animation**.
+They are three different things.
+
+Before an object joins a Scene, ordinary mutation is layout/configuration:
+
+```python
+box = Object2D(
+    Square(1),
+    style=Style.outline(Color(120, 170, 255), 0.04),
+    opacity=0,
+)
+box.place(anchor=CENTER, at=2 * LEFT + UP)
+```
+
+`Scene.add()` is temporal. It means the object starts existing at the current
+timeline cursor. It does not imply a fade, reveal, copy, or any other entrance.
+It also returns a **bound timeline handle**, so the same variable can naturally
+change roles at the lifetime boundary:
+
+```python
+scene.wait(2)
+box = scene.add(box)  # raw Object2D -> BoundObject2D
+                     # box is absent for t < 2; lifetime begins at t = 2
+
+box.move(to=(3, 1))
+box.opacity(to=.4)
+```
+
+The handle does not replace the render object: `box.raw` is the exact object that
+was declared and registered. `scene.on(raw)` returns the same stable handle. For
+multiple objects, `a, b = scene.add(a, b)` returns handles in the same order. A
+bound `Group2D` exposes bound direct children through `group.children`.
+
+This makes the phase distinction explicit in Python:
+
+```text
+Object2D / Group2D     declare + layout
+        |
+        | scene.add()
+        v
+BoundObject2D / BoundGroup2D     timeline operations
+```
+
+Likewise, `Scene.remove()` ends lifetime at the current cursor. Lifetimes are
+half-open intervals `[add_time, remove_time)`. Removing an object does not alter
+its opacity or other authored state. `add()` and `remove()` are intentionally not
+allowed inside `parallel()` because lifetime boundaries must name one exact
+timeline cursor.
+
+Entrance animations start from the state that is actually authored. They never
+insert a hidden state before the clip:
+
+```python
+label = Text("explicit", opacity=0)
+path = Object2D(Circle(1), trim=0)
+math = Math("x^2", reveal=0)
+
+label, path, math = scene.add(label, path, math)
+scene.wait(1)
+label.fade_in()   # valid: opacity is really 0
+path.create()     # valid: trim is really 0
+math.create()     # valid: reveal is really 0
+```
+
+Calling `fade_in()` on an object whose current authored opacity is already 1, or
+`create()` on an object whose trim/reveal is already 1, is an error. Arbitrary
+state transitions use the explicit target APIs instead:
+
+```python
+box.opacity(to=0.4, duration=0.4)
+box.style(to=Style.solid(Color(80, 150, 255)), duration=0.6)
+box.move(by=3 * RIGHT, frame=WORLD, duration=1.2)
+box.move(to=(0, -1), duration=0.8)
+box.rotate(by=0.4, about=box.center, duration=0.6)
+box.scale(by=1.5, about=box.center, duration=0.6)
+```
+
+Every 2D object's `transform` is rigorously **local -> parent**. Relative motion
+therefore requires an explicit frame:
+
+```python
+car.move(by=2 * RIGHT, frame=LOCAL)   # T' = T @ delta
+box.move(by=2 * RIGHT, frame=PARENT) # T' = delta @ T
+box.move(by=2 * RIGHT, frame=WORLD)  # true Scene-world delta
+```
+
+`LOCAL` right-multiplies, `PARENT` left-multiplies, and `WORLD` is converted
+through the parent world pose before updating the local transform. `by=` without
+`frame=` is an error. `to=` is already a complete local-to-parent target and
+therefore never accepts a frame. For visual placement, `scene.move(obj, to=...,
+anchor=CENTER)` is an absolute world-space anchor target.
+
+`SE2` is a first-class rigid transform and can be passed directly:
+
+```python
+robot.transform(
+    by=SE2(theta=.4, translation=RIGHT),
+    frame=LOCAL,
+)
+robot.transform(to=SE2(theta=1.0, translation=Vec2(3, 2)))
+```
+
+`SE2` endpoints use rigid interpolation (linear translation + shortest-angle
+rotation), so the whole clip remains in SE(2). Explicit `Transform2D` endpoints
+select general affine interpolation and may include scale/shear. No operation
+creates a replacement or hidden copy.
+
+The 2D camera is owned and bound by its `Scene` from construction, so it does
+not need `scene.on(scene.camera)`. Its transform has a different, explicit
+meaning: **world -> view**. Common camera animation is authored directly:
+
+```python
+scene.camera.affine(to=(-.3, -.08), scale=1.15, duration=1.3)
+scene.camera.pan(by=(1, 0))          # camera motion in Scene-world coordinates
+scene.camera.zoom(by=1.2)            # about view-space origin by default
+scene.camera.rotate_view(by=.2)      # exact rotation path, no midpoint shrink
+```
+
+`camera.pose()` / `camera.affine()` are complete world-to-view targets.
+`camera.pan()` is relative world-space camera motion (`V' = V @ T(-d)`), while
+`zoom(..., about=...)` and `rotate_view(..., about=...)` take explicit
+view-space pivot points. The low-level `scene.transform(scene.camera, to=...)`
+form remains available. Dynamic provider-driven cameras reject timeline clips.
+
+For common absolute motion, bound handles provide two deliberately small
+constructor-like shorthands:
+
+```python
+# Complete rigid pose. Equivalent to transform(to=SE2(...)).
+robot.pose(to=(3, 2), rotation=pi / 2)
+
+# Complete affine target, always composed in this fixed order:
+# Translation @ Rotation @ Shear @ Scale
+shape.affine(to=(-3, 0), rotation=.2, scale=1.5, shear=(.1, 0))
+
+# The same pure constructors are available inside procedural motion.
+star.transform_function(
+    lambda a: affine2d(rotation=TAU * a, scale=1.5 * a)
+)
+```
+
+`pose()` and `affine()` both require `to=`. Omitted rotation/shear/scale use
+their identity values; they never inspect the current transform and silently
+preserve unspecified components. For relative motion, use `move`, `rotate`,
+`scale`, or the full `transform(..., by=..., frame=...)` API. Bound `move()` also
+accepts a numeric `(x, y)` tuple as an exact shorthand for `Vec2(x, y)`.
+
+The Scene-level forms remain the complete low-level API and are mechanically
+equivalent, for example `box.move(to=(2, 1))` delegates to
+`scene.move(box.raw, to=Vec2(2, 1))`. The handle adds no implicit animation,
+parallelism, copy, or replacement behavior.
+
+For nested objects, `WORLD` motion is only accepted while the ancestor transform
+chain is static over the same time span. Otherwise the requested world frame
+would depend on a simultaneously moving parent; Zanim rejects that ambiguity
+instead of silently approximating it. Articulated mechanisms should express joint
+motion in `LOCAL` or `PARENT`.
+
+After `Scene.add()`, direct public state assignment is rejected because it has no
+time semantics:
+
+```python
+box.raw.opacity = 0          # error after add()
+box.raw.transform = ...      # error after add()
+
+box.opacity(to=0)            # explicit timeline state change
+```
+
+Scene operations record the clip first and then update the raw object's authored
+target state. A bound handle exposes world-space `center`, `origin`, anchors, and
+`transform_value`; `.raw` gives explicit access to the underlying authored object.
+`scene.evaluate(t)` reconstructs the actual historical state at any time.
+
+Object-to-object interpolation stays deliberately separate:
+
+```python
+scene.interpolate(source, target, duration=1.0)
+```
+
+It creates one extra transient relation and **does not modify either endpoint at
+all**: no property, opacity, identity, add/remove state, or lifetime changes.
+The original source and target continue rendering according to their own state.
+
+A true visual/lifetime handoff is explicit instead:
+
+```python
+source = scene.add(source)       # target is intentionally not added
+target = scene.replace(source, target, duration=1.0)
+```
+
+At the replacement start, `source` leaves the Scene; only the source->target
+transient renders during the clip; at the clip end `target` begins its lifetime
+with exactly the state it was declared with. `replace()` is a lifetime boundary
+and is not allowed inside `parallel()`.
+
+`Vec2` supports arithmetic (`3 * RIGHT + 0.5 * UP`) so spatial intent remains
+readable without implicit coercions. The complete lifetime/state philosophy is
+shown in `examples/showcase/state_model.py`.
+
+## Frames and planar forward kinematics
+
+Nested `Group2D` objects form a genuine transform tree. A child transform is
+`T_parent_child`, so world pose is ordinary matrix composition:
+
+```text
+T_world_ee = T_world_1 @ T_1_2 @ ... @ T_n_ee
+```
+
+This is exactly open-chain forward kinematics. Revolute and prismatic joints are
+just local rigid transforms:
+
+```python
+joint3 = Group2D([...], position=(L2, 0))
+joint2 = Group2D([..., joint3], position=(L1, 0))
+root = Group2D([link1, joint2])
+root = scene.add(root)
+joint2, joint3 = scene.on(joint2), scene.on(joint3)
+
+home1 = SE2.from_affine(root.transform_value)
+home2 = SE2.from_affine(joint2.transform_value)
+home3 = SE2.from_affine(joint3.transform_value)
+
+with scene.parallel(duration=5):
+    root.transform_function(lambda a: home1 @ SE2(theta=q1(a)))
+    joint2.transform_function(lambda a: home2 @ SE2(theta=q2(a)))
+    joint3.transform_function(lambda a: home3 @ SE2(translation=q3(a) * RIGHT))
+```
+
+Each provider returns one complete local-to-parent pose; parent composition gives
+the full FK automatically. `scene.world_transform(obj)` and
+`scene.world_point(obj, local_point)` expose the resulting geometry without
+including the camera/view transform. See `examples/showcase/kinematics.py`.
 
 ## Animation channels
 
 The timeline deliberately uses explicit channels rather than a generic component/track framework:
 
-- `TransformClip` — ordinary affine interpolation for scene objects/groups/camera
+- `TransformClip` — general affine interpolation for scene objects/groups/camera
+- `SE2TransformClip` — rigid 2D interpolation that remains in SE(2)
 - `TransformFunctionClip` — a pure `alpha -> Transform2D` channel for procedural motion without stateful updaters
 - `DynamicVectorObject2D` — a pure absolute-time `VectorDocument` source; `zanim.vector.map_vector_document` applies nonlinear mappings directly to cubic control points
 - `OpacityClip` — all visual objects/groups
@@ -67,12 +415,40 @@ The timeline deliberately uses explicit channels rather than a generic component
 
 `Scene.create()` uses path trim for geometry and vector reveal for text/math. `fade_in`/`fade_out` use the common opacity channel.
 
+### Shared duration in parallel blocks
+
+A parallel block may provide one local default duration for the animation calls
+inside it:
+
+```python
+with scene.parallel(duration=1.6):
+    shapes.move(by=(.8, .25), frame=WORLD)       # 1.6 s
+    square.paint(fill=GREEN, stroke=WHITE)       # 1.6 s
+    arrow.move(by=(.15, .1), frame=WORLD, at=.2) # starts at +.2, lasts 1.6 s
+```
+
+The default is only used when a clip omits `duration`. An explicit per-clip value
+always wins:
+
+```python
+with scene.parallel(duration=1.6):
+    a.fade_out()               # 1.6 s
+    b.fade_out(duration=.4)    # .4 s
+```
+
+Outside that block, an omitted animation duration is still `1.0` second. The
+default never changes `at=`, easing, channels, frame semantics, or the common
+parallel base cursor. It is purely a local default-value scope. Media playback
+keeps its existing `duration=None` meaning of deriving duration from the source.
+
 ## Coordinates and camera
 
 - +x points right, +y points up.
 - `(0, 0)` is the canvas center by default.
 - `unit_size` is pixels per logical unit.
-- object transforms may be arbitrary affine maps, including singular transforms.
+- object transforms are local-to-parent affine maps; `SE2` is the rigid subset.
+- `LOCAL`, `PARENT`, and `WORLD` explicitly name the frame of relative motion.
+- object transforms may still be arbitrary affine maps, including singular transforms.
 - the y-axis flip into device coordinates happens only in the Canvas basis.
 - `Camera2D` supplies the world-to-view affine transform before object/group transforms.
 
@@ -88,10 +464,10 @@ audio = video.audio_track(gain=0.7)
 
 scene.add(image, gif, video, audio)
 with scene.parallel():
-    scene.play_media(image, duration=4)
-    scene.play_media(gif, duration=4, loop=True)
-    scene.play_media(video, duration=4, source_start=0.5, speed=1.25, loop=True)
-    scene.play_media(audio, duration=4, source_start=0.5, speed=1.25, loop=True)
+    scene.media(image, duration=4)
+    scene.media(gif, duration=4, loop=True)
+    scene.media(video, duration=4, source_start=0.5, speed=1.25, loop=True)
+    scene.media(audio, duration=4, source_start=0.5, speed=1.25, loop=True)
 ```
 
 PNG/JPEG and GIF are decoded through Pillow. Video and audio use ffmpeg/ffprobe; `ffmpeg` must be available on `PATH`. Video uses a streaming raw-RGBA ffmpeg decoder with a bounded in-memory LRU, so decoded frame sequences are not written to disk. Rendering evaluates snapshots inside worker threads, so large raster frames are retained only for active workers rather than for the whole movie. Final audio mixing is sample-based at 48 kHz and muxed into the output MP4 as AAC.
@@ -141,6 +517,7 @@ uv run python examples/showcase/math.py
 uv run python examples/showcase/batches.py
 uv run python examples/showcase/media.py
 uv run python examples/showcase/three_d.py
+uv run python examples/showcase/kinematics.py
 
 uv run python examples/fun/fourier_draw.py --terms 36
 uv run python examples/fun/neural_network.py

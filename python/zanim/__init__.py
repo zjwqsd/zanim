@@ -7,6 +7,10 @@ submodules instead of becoming root-package compatibility commitments.
 from .batch import BatchObject2D, CircleSet, LineSet, RectSet
 from .audio import Audio, AudioObject
 from .bounds import Bounds2D
+from .bound import (
+    BoundItem, Bound2D, BoundObject2D, BoundVector2D, BoundBatch2D,
+    BoundRaster2D, BoundGroup2D, BoundMesh3D, BoundValue, BoundAudio,
+)
 from .camera import Camera2D
 from .camera3d import Camera3D
 from .dynamic import DynamicNumber, NumberFormat
@@ -20,6 +24,10 @@ from .formula import (
     ScriptSlots,
 )
 from .group import Group2D
+from .layout import (
+    Anchor, Frame, Row, Column, Grid, CENTER, TOP, BOTTOM, LEFT_CENTER,
+    RIGHT_CENTER, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT,
+)
 from .geometry import (
     Arc,
     Circle,
@@ -43,19 +51,46 @@ from .raster import AlphaMaskSource, GIF, Image, RasterObject2D, SceneRasterSour
 from .shapes import Arrow, Dot, NumberLine
 from .scene import Scene
 from .mesh3d import Box3D, Cube3D, MeshObject3D, Surface3D, TriangleMesh
-from .space import Canvas, Linear2D, SE2, Transform2D, Vec2
+from .space import (
+    Canvas, Linear2D, LOCAL, PARENT, WORLD, SE2, Transform2D, TransformFrame, Vec2,
+    affine2d, pose2d,
+)
 from .space3d import SO3, Transform3D, Vec3
 from .svg import load_svg
-from .timeline import BatchClip, Easing, InterpolationClip, OpacityClip, PathTrimClip, PlaybackClip, RevealClip, StyleClip, TimeSpan, Timeline, TransformClip, TransformFunctionClip, Transform3DClip, Transform3DFunctionClip, ValueClip
+from .timeline import BatchClip, Easing, InterpolationClip, OpacityClip, PathTrimClip, PlaybackClip, RevealClip, SE2TransformClip, StyleClip, TimeSpan, Timeline, TransformClip, TransformFunctionClip, Transform3DClip, Transform3DFunctionClip, ValueClip
 from .typst import Math, Text
 from .value import ScalarValue
 from .vector import DynamicVectorObject2D, VectorContour, VectorDocument, VectorObject2D, VectorPath
 
 __all__ = [
     "Arc",
+    "Anchor",
+    "Frame",
+    "Row",
+    "Column",
+    "Grid",
+    "CENTER",
+    "TOP",
+    "BOTTOM",
+    "LEFT_CENTER",
+    "RIGHT_CENTER",
+    "TOP_LEFT",
+    "TOP_RIGHT",
+    "BOTTOM_LEFT",
+    "BOTTOM_RIGHT",
     "Arrow",
     "Axes2D",
     "Bounds2D",
+    "BoundItem",
+    "Bound2D",
+    "BoundObject2D",
+    "BoundVector2D",
+    "BoundBatch2D",
+    "BoundRaster2D",
+    "BoundGroup2D",
+    "BoundMesh3D",
+    "BoundValue",
+    "BoundAudio",
     "Box3D",
     "Camera2D",
     "Camera3D",
@@ -101,7 +136,14 @@ __all__ = [
     "RegularPolygon",
     "RevealClip",
     "RIGHT",
+    "LOCAL",
+    "PARENT",
+    "WORLD",
+    "TransformFrame",
     "SE2",
+    "pose2d",
+    "affine2d",
+    "SE2TransformClip",
     "Scene",
     "SO3",
     "ScalarValue",

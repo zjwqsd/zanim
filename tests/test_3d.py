@@ -70,7 +70,7 @@ class Mesh3DTests(unittest.TestCase):
         scene = Scene(canvas=Canvas(320, 180, 25), fps=30)
         cube = Cube3D(color=Color(80, 160, 255))
         scene.add(cube)
-        scene.play_transform_function(
+        scene.transform_function(
             cube,
             lambda a: Transform3D.rotation_y(math.pi * a),
             duration=2.0,
@@ -88,7 +88,7 @@ class Mesh3DTests(unittest.TestCase):
         scene = Scene()
         cube = Cube3D()
         scene.add(cube)
-        scene.play_transform(cube, Transform3D.translation(1, 0, 0), duration=1.0)
+        scene.transform(cube, to=Transform3D.translation(1, 0, 0), duration=1.0)
         got = scene.evaluate(0.5).meshes3d[0].snapshot.transform.apply(Vec3())
         self.assertGreater(got.x, 0.0)
         self.assertLess(got.x, 1.0)

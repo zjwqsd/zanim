@@ -1,32 +1,62 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from .object import SceneObject2D
-from .space import Transform2D, Vec2
+from .space import SE2, Transform2D, Vec2, affine2d, pose2d
+from .timeline import Easing
+
+if TYPE_CHECKING:
+    from .scene import Scene
 
 CameraTransformProvider = Callable[[float], Transform2D]
 
 
 @dataclass(slots=True)
 class Camera2D(SceneObject2D):
-    """2D world-to-view transform.
+    """Scene-owned 2D world-to-view camera.
+
+    ``Scene`` binds its camera immediately, so camera animation is authored
+    directly on ``scene.camera`` rather than through ``scene.on(...)``. The
+    stored transform always means ``world -> view``; it is deliberately not an
+    object local/parent transform.
 
     A camera is either timeline-driven (the default) or driven by a pure
-    absolute-time ``transform_provider``.  Keeping these modes exclusive makes
+    absolute-time ``transform_provider``. Keeping these modes exclusive makes
     random-access evaluation unambiguous.
     """
 
-    transform: Transform2D = Transform2D()
+    transform: Transform2D | SE2 = Transform2D()
     opacity: float = 1.0
     z_index: int = 0
     transform_provider: CameraTransformProvider | None = field(default=None, repr=False)
+    _scene: "Scene | None" = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         self._validate_scene_state()
         if self.transform_provider is not None and not callable(self.transform_provider):
             raise TypeError("camera transform_provider must be callable")
+
+    def _bind_scene(self, scene: "Scene") -> None:
+        if self._scene is not None and self._scene is not scene:
+            raise ValueError("Camera2D is already bound to a different Scene")
+        object.__setattr__(self, "_scene", scene)
+
+    def _require_scene(self) -> "Scene":
+        if self._scene is None:
+            raise RuntimeError("Camera2D animation requires a Scene-bound camera")
+        return self._scene
+
+    @staticmethod
+    def _point(value: Vec2 | tuple[float, float], *, name: str) -> Vec2:
+        if isinstance(value, Vec2):
+            return value
+        if isinstance(value, tuple) and len(value) == 2:
+            x, y = value
+            if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+                return Vec2(float(x), float(y))
+        raise TypeError(f"{name} must be Vec2 or a numeric (x, y) tuple")
 
     @property
     def is_dynamic(self) -> bool:
@@ -43,33 +73,140 @@ class Camera2D(SceneObject2D):
     def bounds(self):
         raise TypeError("Camera2D has no object bounds")
 
-    def pan(self, x: float, y: float) -> "Camera2D":
-        if self.is_dynamic:
-            raise TypeError("dynamic Camera2D transform is owned by transform_provider")
-        # Camera motion is opposite to the world-to-view translation.
-        self.transform = Transform2D.translation(-x, -y) @ self.transform
-        return self
-
-    def zoom(self, factor: float, center: Vec2 = Vec2()) -> "Camera2D":
-        if self.is_dynamic:
-            raise TypeError("dynamic Camera2D transform is owned by transform_provider")
-        if factor <= 0:
-            raise ValueError("camera zoom must be positive")
-        self.transform = (
-            Transform2D.translation(center.x, center.y)
-            @ Transform2D.scaling(factor)
-            @ Transform2D.translation(-center.x, -center.y)
-            @ self.transform
+    def transform_to(
+        self,
+        to: Transform2D | SE2,
+        *,
+        duration: float | None = None,
+        easing: Easing = Easing.SMOOTHSTEP,
+        at: float = 0.0,
+    ):
+        """Animate to one complete ``world -> view`` transform."""
+        return self._require_scene().transform(
+            self, to=to, duration=duration, easing=easing, at=at
         )
-        return self
 
-    def rotate_view(self, radians: float, center: Vec2 = Vec2()) -> "Camera2D":
-        if self.is_dynamic:
-            raise TypeError("dynamic Camera2D transform is owned by transform_provider")
-        self.transform = (
-            Transform2D.translation(center.x, center.y)
-            @ Transform2D.rotation(-radians)
-            @ Transform2D.translation(-center.x, -center.y)
-            @ self.transform
+    def pose(
+        self,
+        *,
+        to: Vec2 | tuple[float, float],
+        rotation: float = 0.0,
+        duration: float | None = None,
+        easing: Easing = Easing.SMOOTHSTEP,
+        at: float = 0.0,
+    ):
+        """Animate to a complete rigid ``world -> view`` pose."""
+        return self.transform_to(
+            pose2d(to=to, rotation=rotation),
+            duration=duration, easing=easing, at=at,
         )
-        return self
+
+    def affine(
+        self,
+        *,
+        to: Vec2 | tuple[float, float],
+        rotation: float = 0.0,
+        scale: float | tuple[float, float] = 1.0,
+        shear: Vec2 | tuple[float, float] = (0.0, 0.0),
+        duration: float | None = None,
+        easing: Easing = Easing.SMOOTHSTEP,
+        at: float = 0.0,
+    ):
+        """Animate to ``Translation @ Rotation @ Shear @ Scale`` in view space."""
+        return self.transform_to(
+            affine2d(to=to, rotation=rotation, scale=scale, shear=shear),
+            duration=duration, easing=easing, at=at,
+        )
+
+    def transform_function(
+        self,
+        provider,
+        *,
+        duration: float | None = None,
+        easing: Easing = Easing.SMOOTHSTEP,
+        at: float = 0.0,
+    ):
+        """Animate with ``alpha -> complete world-to-view transform``."""
+        return self._require_scene().transform_function(
+            self, provider, duration=duration, easing=easing, at=at
+        )
+
+    def pan(
+        self,
+        *,
+        by: Vec2 | tuple[float, float],
+        duration: float | None = None,
+        easing: Easing = Easing.SMOOTHSTEP,
+        at: float = 0.0,
+    ):
+        """Move the camera by one explicit delta in Scene-world coordinates.
+
+        With ``V`` the current world-to-view transform, camera motion ``d``
+        produces ``V' = V @ Translation(-d)``.
+        """
+        d = self._point(by, name="by")
+        current = self.transform
+        return self.transform_function(
+            lambda a: current @ Transform2D.translation(-d.x * a, -d.y * a),
+            duration=duration, easing=easing, at=at,
+        )
+
+    def zoom(
+        self,
+        *,
+        by: float,
+        about: Vec2 | tuple[float, float] = (0.0, 0.0),
+        duration: float | None = None,
+        easing: Easing = Easing.SMOOTHSTEP,
+        at: float = 0.0,
+    ):
+        """Zoom by a positive factor about one explicit view-space point."""
+        factor = float(by)
+        if factor <= 0.0:
+            raise ValueError("camera zoom factor must be > 0")
+        center = self._point(about, name="about")
+        current = self.transform
+
+        def provider(a: float) -> Transform2D:
+            s = 1.0 + (factor - 1.0) * a
+            return (
+                Transform2D.translation(center.x, center.y)
+                @ Transform2D.scaling(s)
+                @ Transform2D.translation(-center.x, -center.y)
+                @ current
+            )
+
+        return self.transform_function(
+            provider, duration=duration, easing=easing, at=at
+        )
+
+    def rotate_view(
+        self,
+        *,
+        by: float,
+        about: Vec2 | tuple[float, float] = (0.0, 0.0),
+        duration: float | None = None,
+        easing: Easing = Easing.SMOOTHSTEP,
+        at: float = 0.0,
+    ):
+        """Rotate the camera by ``by`` about one explicit view-space point.
+
+        Camera rotation is opposite world image rotation, hence ``-by`` in the
+        world-to-view transform. The path uses exact rotations rather than
+        affine coefficient interpolation, so it never shrinks midway.
+        """
+        center = self._point(about, name="about")
+        angle = float(by)
+        current = self.transform
+
+        def provider(a: float) -> Transform2D:
+            return (
+                Transform2D.translation(center.x, center.y)
+                @ Transform2D.rotation(-angle * a)
+                @ Transform2D.translation(-center.x, -center.y)
+                @ current
+            )
+
+        return self.transform_function(
+            provider, duration=duration, easing=easing, at=at
+        )

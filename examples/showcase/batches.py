@@ -4,7 +4,7 @@ from __future__ import annotations
 from math import cos, pi, sin
 from pathlib import Path
 
-from zanim import BatchObject2D, Canvas, CircleSet, Color, Easing, LineSet, Scene, Text, Transform2D, Vec2
+from zanim import BatchObject2D, Canvas, CircleSet, Color, DOWN, LineSet, Scene, TOP, Text, Vec2
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "media/showcase/batches.mp4"
@@ -44,18 +44,19 @@ def line_state(phase: float) -> LineSet:
 
 def build_scene() -> Scene:
     scene = Scene(canvas=Canvas(1280, 720, 90), fps=60)
-    title = Text("600 primitives, two batch objects", font_size=31, transform=Transform2D.translation(0, 3.25))
+    title = Text("600 primitives, two batch objects", font_size=31, opacity=0)
+    title.place(anchor=TOP, at=scene.frame.top + 0.35 * DOWN)
     dots = BatchObject2D(circle_state(0.0), z_index=2)
     lines = BatchObject2D(line_state(0.0), z_index=0)
-    scene.add(lines, dots, title)
-    scene.fade_in(title, duration=0.6)
+    lines, dots, title = scene.add(lines, dots, title)
+    title.fade_in(duration=0.6)
 
-    with scene.parallel():
-        scene.play_batch(dots, circle_state(0.33), duration=2.0, easing=Easing.SMOOTHSTEP)
-        scene.play_batch(lines, line_state(0.55), duration=2.0, easing=Easing.SMOOTHSTEP)
-    with scene.parallel():
-        scene.play_batch(dots, circle_state(0.68), duration=2.0, easing=Easing.SMOOTHSTEP)
-        scene.play_batch(lines, line_state(1.0), duration=2.0, easing=Easing.SMOOTHSTEP)
+    with scene.parallel(duration=2):
+        dots.batch(to=circle_state(0.33))
+        lines.batch(to=line_state(0.55))
+    with scene.parallel(duration=2):
+        dots.batch(to=circle_state(0.68))
+        lines.batch(to=line_state(1.0))
     scene.wait(0.4)
     return scene
 

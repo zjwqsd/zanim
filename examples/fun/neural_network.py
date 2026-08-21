@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 import random
 
-from zanim import BatchObject2D, Canvas, CircleSet, Color, Easing, LineSet, Scene, Text, Transform2D, Vec2
+from zanim import BatchObject2D, Canvas, CircleSet, Color, LineSet, Scene, Text, Vec2, affine2d
 from zanim.mapping import activation_colors, activation_radii, signed_weight_colors, weight_widths
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,7 +19,7 @@ def layer_points(x: float, count: int) -> tuple[Vec2, ...]:
 
 
 def transparent(colors: tuple[Color, ...]) -> tuple[Color, ...]:
-    return tuple(Color(c.r, c.g, c.b, 0) for c in colors)
+    return tuple(c.with_alpha(0) for c in colors)
 
 
 def build_scene() -> Scene:
@@ -47,21 +47,27 @@ def build_scene() -> Scene:
         base = Color(80 + 40*layer_index, 150, 255 - 35*layer_index)
         fills = activation_colors(values, base=base, min_alpha=50, max_alpha=255)
         radii = activation_radii(values, minimum=0.13, maximum=0.23)
-        idle = CircleSet(centers, (0.14,)*len(centers), tuple(Color(base.r, base.g, base.b, 26) for _ in centers))
+        idle = CircleSet(centers, (0.14,)*len(centers), tuple(base.with_alpha(26) for _ in centers))
         active = CircleSet(centers, radii, fills, tuple(Color(230, 238, 255, 170) for _ in centers), (0.018,)*len(centers))
         node_objects.append(BatchObject2D(idle, z_index=2))
         node_targets.append(active)
 
-    title = Text("Signals flow; geometry stays batched", font_size=31, transform=Transform2D.translation(0, 3.55), z_index=10)
+    title = Text(
+        "Signals flow; geometry stays batched", font_size=31,
+        transform=affine2d(to=(0, 3.55)), opacity=0, z_index=10,
+    )
     scene.add(*edge_objects, *node_objects, title)
-    scene.fade_in(title, duration=0.6)
+    edge_objects = [scene.on(obj) for obj in edge_objects]
+    node_objects = [scene.on(obj) for obj in node_objects]
+    title = scene.on(title)
+    title.fade_in(duration=0.6)
 
     # Propagate left to right. Each layer transition is just two BatchClips.
     for i in range(len(edge_objects)):
         with scene.parallel():
-            scene.play_batch(node_objects[i], node_targets[i], duration=0.55)
-            scene.play_batch(edge_objects[i], edge_targets[i], duration=0.75, at=0.25)
-            scene.play_batch(node_objects[i+1], node_targets[i+1], duration=0.55, at=0.65)
+            node_objects[i].batch(to=node_targets[i], duration=0.55)
+            edge_objects[i].batch(to=edge_targets[i], duration=0.75, at=0.25)
+            node_objects[i+1].batch(to=node_targets[i+1], duration=0.55, at=0.65)
         scene.wait(0.12)
 
     # Emphasize the winning output neuron.
@@ -75,7 +81,7 @@ def build_scene() -> Scene:
         tuple(Color(255, 240, 210, 240) for _ in out),
         (0.026,)*len(out),
     )
-    scene.play_batch(node_objects[-1], final, duration=0.55, easing=Easing.SMOOTHSTEP)
+    node_objects[-1].batch(to=final, duration=0.55)
     scene.wait(0.65)
     return scene
 

@@ -28,16 +28,18 @@ class BoundsAndGroupTests(unittest.TestCase):
     def test_group_transform_is_composed_at_evaluation(self):
         child = Object2D(Square(1), transform=Transform2D.translation(1, 0))
         group = Group2D([child], transform=Transform2D.translation(2, 0))
-        scene = Scene().add(group)
+        scene = Scene()
+        scene.add(group)
         self.assertEqual(len(scene.objects), 1)
         self.assertAlmostEqual(scene.evaluate(0).objects[0].snapshot.transform.tx, 3)
-        scene.play_transform(group, Transform2D.translation(5, 0), duration=1)
+        scene.transform(group, to=Transform2D.translation(5, 0), duration=1)
         self.assertAlmostEqual(scene.evaluate(1).objects[0].snapshot.transform.tx, 6)
 
     def test_camera_is_same_transform_channel(self):
         obj = Object2D(Square(1), transform=Transform2D.translation(2, 0))
-        scene = Scene().add(obj)
-        scene.play_transform(scene.camera, Transform2D.scaling(2), duration=1)
+        scene = Scene()
+        scene.add(obj)
+        scene.transform(scene.camera, to=Transform2D.scaling(2), duration=1)
         snap = scene.evaluate(1).objects[0].snapshot
         self.assertAlmostEqual(snap.transform.tx, 4)
         self.assertAlmostEqual(snap.transform.xx, 2)
@@ -45,14 +47,17 @@ class BoundsAndGroupTests(unittest.TestCase):
     def test_group_z_and_opacity_compose(self):
         child = Object2D(Square(1), opacity=0.5, z_index=2)
         group = Group2D([child], opacity=0.4, z_index=3)
-        snap = Scene().add(group).evaluate(0).objects[0].snapshot
+        scene = Scene()
+        scene.add(group)
+        snap = scene.evaluate(0).objects[0].snapshot
         self.assertAlmostEqual(snap.opacity, 0.2)
         self.assertEqual(snap.z_index, 5)
 
     def test_group_opacity_clip_affects_children(self):
         child = Object2D(Square(1), opacity=.8)
         group = Group2D([child], opacity=.5)
-        scene = Scene().add(group)
+        scene = Scene()
+        scene.add(group)
         scene.fade_out(group, duration=2)
         self.assertAlmostEqual(scene.evaluate(0).objects[0].snapshot.opacity, .4)
         self.assertAlmostEqual(scene.evaluate(1).objects[0].snapshot.opacity, .2)

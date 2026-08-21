@@ -4,28 +4,70 @@ from dataclasses import dataclass, field
 from math import ceil
 
 from .object import SceneObject2D
-from .space import Transform2D, Vec2
+from .space import SE2, Transform2D, Vec2
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, init=False)
 class Group2D(SceneObject2D):
     """Lightweight authoring container.
 
-    Groups own no renderer payload. Scene registration keeps the hierarchy only
-    long enough to compose transforms/opacity/z-index into leaf snapshots.
+    Groups own no renderer payload. A group's transform is rigorously the
+    local-to-parent frame transform. Nested groups therefore compose exactly as
+    a scene graph / open-chain forward-kinematics tree. Scene registration keeps
+    the hierarchy to compose transforms/opacity/z-index into leaf snapshots.
     """
 
-    children: list[SceneObject2D] = field(default_factory=list)
-    transform: Transform2D = Transform2D()
-    opacity: float = 1.0
-    z_index: int = 0
+    children: list[SceneObject2D]
+    transform: Transform2D
+    opacity: float
+    z_index: int
 
-    def __post_init__(self) -> None:
+    def __init__(
+        self,
+        children: list[SceneObject2D] | None = None,
+        transform: Transform2D | SE2 | None = None,
+        opacity: float = 1.0,
+        z_index: int = 0,
+        *,
+        position: Vec2 | tuple[float, float] | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Vec2 | tuple[float, float] | None = None,
+    ) -> None:
+        from .space import affine2d
+
+        transform_sugar = any(value is not None for value in (position, rotation, scale, shear))
+        if transform is not None and transform_sugar:
+            raise ValueError(
+                "Group2D accepts either transform= or position/rotation/scale/shear sugar, not both"
+            )
+        if transform is None:
+            resolved_transform = (
+                affine2d(
+                    to=(0.0, 0.0) if position is None else position,
+                    rotation=0.0 if rotation is None else rotation,
+                    scale=1.0 if scale is None else scale,
+                    shear=(0.0, 0.0) if shear is None else shear,
+                )
+                if transform_sugar else Transform2D()
+            )
+        elif isinstance(transform, SE2):
+            resolved_transform = transform.as_affine()
+        elif isinstance(transform, Transform2D):
+            resolved_transform = transform
+        else:
+            raise TypeError("transform must be Transform2D or SE2")
+
+        self.children = [] if children is None else children
+        self.transform = resolved_transform
+        self.opacity = float(opacity)
+        self.z_index = int(z_index)
         self._validate_scene_state()
         if any(not isinstance(child, SceneObject2D) for child in self.children):
             raise TypeError("Group2D children must be SceneObject2D instances")
 
     def add(self, *children: SceneObject2D) -> "Group2D":
+        self._require_layout_mutable()
         for child in children:
             if not isinstance(child, SceneObject2D):
                 raise TypeError("Group2D children must be SceneObject2D instances")

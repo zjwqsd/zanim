@@ -24,7 +24,8 @@ class RenderOrderTests(unittest.TestCase):
         vector = VectorObject2D(VectorDocument((), 1.0, 1.0, group_count=0))
         obj = Object2D(Circle(0.5))
         batch = BatchObject2D(CircleSet((Vec2(),), (0.2,), (Color(255, 255, 255),)))
-        scene = Scene().add(vector, obj, batch)
+        scene = Scene()
+        scene.add(vector, obj, batch)
         encoded = encode_snapshot(scene.evaluate(0.0))
         self.assertEqual(
             [(item.kind, item.index) for item in encoded.draw_items],
@@ -38,7 +39,9 @@ class RenderOrderTests(unittest.TestCase):
             low = Object2D(Circle(0.5), z_index=-1)
             raster = Image(path, z_index=0)
             high = Object2D(Circle(0.2), z_index=1)
-            encoded = encode_snapshot(Scene().add(high, raster, low).evaluate(0.0))
+            scene = Scene()
+            scene.add(high, raster, low)
+            encoded = encode_snapshot(scene.evaluate(0.0))
             self.assertEqual(
                 [item.kind for item in encoded.draw_items],
                 [DRAW_OBJECT, DRAW_RASTER, DRAW_OBJECT],

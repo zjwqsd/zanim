@@ -1,13 +1,71 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import cos, sin
+from enum import Enum
+from math import atan2, cos, isfinite, pi, sin
+
+
+class TransformFrame(str, Enum):
+    """Frame in which a relative transform is expressed.
+
+    For an authored local-to-parent transform ``T``:
+    - ``PARENT`` applies ``delta @ T``.
+    - ``LOCAL`` applies ``T @ delta``.
+    - ``WORLD`` expresses ``delta`` in world coordinates; Scene converts it
+      through the parent world transform before updating ``T``.
+    """
+
+    LOCAL = "local"
+    PARENT = "parent"
+    WORLD = "world"
+
+
+LOCAL = TransformFrame.LOCAL
+PARENT = TransformFrame.PARENT
+WORLD = TransformFrame.WORLD
 
 
 @dataclass(frozen=True, slots=True)
 class Vec2:
     x: float = 0.0
     y: float = 0.0
+
+    def __add__(self, other: "Vec2") -> "Vec2":
+        if not isinstance(other, Vec2):
+            return NotImplemented
+        return Vec2(self.x + other.x, self.y + other.y)
+
+    def __sub__(self, other: "Vec2") -> "Vec2":
+        if not isinstance(other, Vec2):
+            return NotImplemented
+        return Vec2(self.x - other.x, self.y - other.y)
+
+    def __neg__(self) -> "Vec2":
+        return Vec2(-self.x, -self.y)
+
+    def __mul__(self, scalar: float) -> "Vec2":
+        if not isinstance(scalar, (int, float)):
+            return NotImplemented
+        return Vec2(self.x * float(scalar), self.y * float(scalar))
+
+    def __rmul__(self, scalar: float) -> "Vec2":
+        return self * scalar
+
+    def __truediv__(self, scalar: float) -> "Vec2":
+        scalar = float(scalar)
+        if scalar == 0.0:
+            raise ZeroDivisionError("cannot divide Vec2 by zero")
+        return Vec2(self.x / scalar, self.y / scalar)
+
+    @property
+    def length(self) -> float:
+        return (self.x * self.x + self.y * self.y) ** 0.5
+
+    def normalized(self) -> "Vec2":
+        length = self.length
+        if length <= 1e-12:
+            raise ValueError("cannot normalize a zero Vec2")
+        return self / length
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +148,11 @@ class Transform2D:
         c, s = cos(radians), sin(radians)
         return Transform2D(xx=c, xy=-s, yx=s, yy=c)
 
+    @staticmethod
+    def shear(x: float = 0.0, y: float = 0.0) -> "Transform2D":
+        """Return the affine shear ``[[1, x], [y, 1]]``."""
+        return Transform2D(xx=1.0, xy=float(x), yx=float(y), yy=1.0)
+
     def translate(self, x: float, y: float) -> "Transform2D":
         """Append a translation in local coordinates (self @ translation)."""
         return self @ Transform2D.translation(x, y)
@@ -108,16 +171,44 @@ class Transform2D:
             self.yx * p.x + self.yy * p.y + self.ty,
         )
 
+    @property
+    def determinant(self) -> float:
+        return self.xx * self.yy - self.xy * self.yx
+
+    def inverse(self) -> "Transform2D":
+        """Return the inverse affine transform.
+
+        Raises for singular transforms instead of silently approximating one.
+        """
+        det = self.determinant
+        if abs(det) <= 1e-12:
+            raise ValueError("Transform2D is singular and cannot be inverted")
+        inv_xx, inv_xy = self.yy / det, -self.xy / det
+        inv_yx, inv_yy = -self.yx / det, self.xx / det
+        return Transform2D(
+            xx=inv_xx, xy=inv_xy, yx=inv_yx, yy=inv_yy,
+            tx=-(inv_xx * self.tx + inv_xy * self.ty),
+            ty=-(inv_yx * self.tx + inv_yy * self.ty),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class SE2:
-    """Rigid 2D pose: p' = R(theta) p + translation."""
+    """Rigid 2D pose ``p_parent = R(theta) p_local + translation``."""
 
     theta: float = 0.0
     translation: Vec2 = Vec2()
 
+    def __post_init__(self) -> None:
+        if not isfinite(float(self.theta)):
+            raise ValueError("SE2 theta must be finite")
+        if not isfinite(self.translation.x) or not isfinite(self.translation.y):
+            raise ValueError("SE2 translation must be finite")
+
     def __matmul__(self, other: "SE2") -> "SE2":
         """Group product; apply ``other`` first, then ``self``."""
+        if not isinstance(other, SE2):
+            return NotImplemented
         rotated = self.apply_vector(other.translation)
         return SE2(
             theta=self.theta + other.theta,
@@ -149,6 +240,76 @@ class SE2:
             xx=c, xy=-s, yx=s, yy=c,
             tx=self.translation.x, ty=self.translation.y,
         )
+
+    @staticmethod
+    def from_affine(transform: Transform2D, *, tolerance: float = 1e-7) -> "SE2":
+        """Convert a rigid affine transform to SE(2), rejecting scale/shear/reflection."""
+        if not isinstance(transform, Transform2D):
+            raise TypeError("SE2.from_affine() requires Transform2D")
+        x_axis = Vec2(transform.xx, transform.yx)
+        y_axis = Vec2(transform.xy, transform.yy)
+        if abs(x_axis.length - 1.0) > tolerance or abs(y_axis.length - 1.0) > tolerance:
+            raise ValueError("Transform2D is not rigid: basis vectors must have unit length")
+        if abs(x_axis.x * y_axis.x + x_axis.y * y_axis.y) > tolerance:
+            raise ValueError("Transform2D is not rigid: basis vectors must be orthogonal")
+        if abs(transform.determinant - 1.0) > tolerance:
+            raise ValueError("Transform2D is not in SE(2): determinant must be +1")
+        return SE2(
+            theta=atan2(transform.yx, transform.xx),
+            translation=Vec2(transform.tx, transform.ty),
+        )
+
+    def interpolate(self, other: "SE2", alpha: float) -> "SE2":
+        """Rigid interpolation with linear translation and shortest-angle rotation."""
+        if not isinstance(other, SE2):
+            raise TypeError("SE2.interpolate() requires SE2")
+        t = max(0.0, min(1.0, float(alpha)))
+        dtheta = (other.theta - self.theta + pi) % (2 * pi) - pi
+        return SE2(
+            theta=self.theta + dtheta * t,
+            translation=self.translation + (other.translation - self.translation) * t,
+        )
+
+
+def _authoring_vec2(value: Vec2 | tuple[float, float], *, name: str) -> Vec2:
+    if isinstance(value, Vec2):
+        return value
+    if isinstance(value, tuple) and len(value) == 2:
+        x, y = value
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+            return Vec2(float(x), float(y))
+    raise TypeError(f"{name} must be Vec2 or a numeric (x, y) tuple")
+
+
+def pose2d(
+    *, to: Vec2 | tuple[float, float] = (0.0, 0.0), rotation: float = 0.0
+) -> SE2:
+    """Construct a rigid 2D pose from authoring-friendly values."""
+    return SE2(theta=float(rotation), translation=_authoring_vec2(to, name="to"))
+
+
+def affine2d(
+    *,
+    to: Vec2 | tuple[float, float] = (0.0, 0.0),
+    rotation: float = 0.0,
+    scale: float | tuple[float, float] = 1.0,
+    shear: Vec2 | tuple[float, float] = (0.0, 0.0),
+) -> Transform2D:
+    """Construct ``Translation @ Rotation @ Shear @ Scale`` explicitly."""
+    p = _authoring_vec2(to, name="to")
+    sh = _authoring_vec2(shear, name="shear")
+    if isinstance(scale, (int, float)):
+        sx = sy = float(scale)
+    elif isinstance(scale, tuple) and len(scale) == 2 and all(isinstance(v, (int, float)) for v in scale):
+        sx, sy = float(scale[0]), float(scale[1])
+    else:
+        raise TypeError("scale must be a number or numeric (x, y) tuple")
+    return (
+        Transform2D.translation(p.x, p.y)
+        @ Transform2D.rotation(float(rotation))
+        @ Transform2D.shear(sh.x, sh.y)
+        @ Transform2D.scaling(sx, sy)
+    )
 
 
 @dataclass(slots=True)

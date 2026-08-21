@@ -6,10 +6,13 @@ The examples are intentionally small in number. Each file should either teach a 
 
 | Example | What it demonstrates |
 | --- | --- |
-| `basics.py` | `Scene`, `Object2D`, `Group2D`, layout, styles, transforms, camera transforms |
-| `timeline.py` | sequential clips, `parallel()`, relative `at`, easing, transform functions, interpolation |
+| `basics.py` | declare → layout → `add()` bound handles → animate, `Frame`, anchors, groups, styles, camera transforms |
+| `state_model.py` | Zanim design philosophy: temporal `add/remove`, explicit entrance state, no hidden pre-state |
+| `layout.py` | independent child motion, `place()`, `scene.layout()`, Row → Grid → Column transitions |
+| `kinematics.py` | SE(2), local→parent Group2D composition, `transform_function()`, revolute/prismatic open-chain FK |
+| `timeline.py` | sequential clips, `parallel(duration=...)`, relative `at`, transform functions, and pure transient `interpolate()` |
 | `math.py` | `Axes2D`, dynamic geometry, `FormulaTemplate`, `NumberSlot`, `MatrixSlot`, absolute-time providers |
-| `batches.py` | `BatchObject2D`, `CircleSet`, `LineSet`, `play_batch()` for hundreds of primitives |
+| `batches.py` | `BatchObject2D`, `CircleSet`, `LineSet`, bound `batch(to=...)` state animation for hundreds of primitives |
 | `media.py` | image, GIF, video, audio, looping, source offsets and synchronized transforms |
 | `three_d.py` | `Camera3D`, meshes, `Surface3D`, `SO3`, `Transform3D`, 2D overlays over 3D |
 
@@ -17,8 +20,11 @@ Run one directly, for example:
 
 ```bash
 uv run python examples/showcase/basics.py
+uv run python examples/showcase/state_model.py
+uv run python examples/showcase/layout.py
 uv run python examples/showcase/math.py
 uv run python examples/showcase/three_d.py
+uv run python examples/showcase/kinematics.py
 ```
 
 ## `fun/`

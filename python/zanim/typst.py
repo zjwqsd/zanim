@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 
 from .geometry import Color
-from .space import Transform2D
+from .space import SE2, Transform2D
 from .svg import load_svg
 from .vector import VectorObject2D
 
@@ -106,7 +106,8 @@ class Text(VectorObject2D):
         font_size: float = 36.0,
         font: str | tuple[str, ...] | None = None,
         color: Color = Color(240, 242, 248),
-        transform: Transform2D = Transform2D(),
+        transform: Transform2D | SE2 = Transform2D(),
+        reveal: float = 1.0,
         opacity: float = 1.0,
         z_index: int = 0,
     ) -> None:
@@ -116,7 +117,7 @@ class Text(VectorObject2D):
         self.color = color
         source = _page_preamble(font_size, color, font) + f'#text({json.dumps(content, ensure_ascii=False)})\n'
         document = load_svg(compile_typst_svg(source))
-        super().__init__(document=document, transform=transform, reveal=1.0, opacity=opacity, z_index=z_index)
+        super().__init__(document=document, transform=transform, reveal=reveal, opacity=opacity, z_index=z_index)
 
 
 class Math(VectorObject2D):
@@ -130,7 +131,8 @@ class Math(VectorObject2D):
         *,
         font_size: float = 36.0,
         color: Color = Color(240, 242, 248),
-        transform: Transform2D = Transform2D(),
+        transform: Transform2D | SE2 = Transform2D(),
+        reveal: float = 1.0,
         opacity: float = 1.0,
         z_index: int = 0,
     ) -> None:
@@ -139,4 +141,4 @@ class Math(VectorObject2D):
         self.color = color
         typst_source = _page_preamble(font_size, color, None) + f'$ {source} $\n'
         document = load_svg(compile_typst_svg(typst_source))
-        super().__init__(document=document, transform=transform, reveal=1.0, opacity=opacity, z_index=z_index)
+        super().__init__(document=document, transform=transform, reveal=reveal, opacity=opacity, z_index=z_index)

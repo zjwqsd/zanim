@@ -148,7 +148,7 @@ wheels = [
 
 [[package]]
 name = "zanim"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "pillow" },
@@ -160,7 +160,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pillow", specifier = ">=10.2.0" }]
+requires-dist = [{ name = "pillow", specifier = ">=10.3.0" }]
 
 [package.metadata.requires-dev]
 dev = [{ name = "numpy", specifier = ">=2.5.2" }]

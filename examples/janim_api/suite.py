@@ -6,11 +6,11 @@ from pathlib import Path
 from typing import Callable
 
 from zanim import (
-    Arc, Axes2D, Canvas, Circle, Color, DOWN, DynamicGeometryObject2D,
-    DynamicNumber, DynamicVectorObject2D, Easing, Group2D, LEFT, Line, Math,
-    NumberFormat, Object2D, ObjectInterpolation, Polygon, Polyline, Rectangle,
-    RegularPolygon, RIGHT, Scene, Square, StrokeStyle, Style, Text, Transform2D,
-    UP, Vec2, VectorDocument, VectorPath,
+    Axes2D, Canvas, Circle, Color, DOWN, DynamicGeometryObject2D,
+    DynamicNumber, DynamicVectorObject2D, Easing, Group2D, Line, Math,
+    NumberFormat, Object2D, Polygon, Polyline, Rectangle,
+    RIGHT, Scene, Square, StrokeStyle, Style, Text, Transform2D,
+    Vec2, VectorDocument, VectorPath, affine2d,
 )
 
 from .frame_effect_example import build_frame_effect_example
@@ -43,17 +43,16 @@ def scene() -> Scene:
 
 
 def stroke(color=WHITE, width=0.035, alpha=255):
-    c = Color(color.r, color.g, color.b, alpha)
-    return StrokeStyle(c, width)
+    return StrokeStyle(color.with_alpha(alpha), width)
 
 
 def outlined(color=WHITE, fill=None, width=0.035):
-    return Style(fill=fill, stroke=stroke(color, width))
+    return Style.outline(color, width) if fill is None else Style.paint(fill, color, width)
 
 
 def filled(color, alpha=255, stroke_color=None, stroke_width=0.025):
-    fill = Color(color.r, color.g, color.b, alpha)
-    return Style(fill=fill, stroke=None if stroke_color is None else stroke(stroke_color, stroke_width))
+    fill = color.with_alpha(alpha)
+    return Style.solid(fill) if stroke_color is None else Style.paint(fill, stroke_color, stroke_width)
 
 
 def star_points(outer=1.0, inner=0.45, count=5, phase=PI/2):
@@ -83,53 +82,57 @@ def sector_polygon(start: float, sweep: float, radius: float, center=Vec2(), sam
 
 
 def show_now(sc: Scene, obj):
+    # add() itself means "exists from now"; no opacity trick is needed.
     sc.add(obj)
-    sc.fade_in(obj, duration=0.0)
     return obj
 
 
 def add_reveal_group(sc: Scene, group: Group2D, duration=1.0, lag=0.04):
+    for child in group.children:
+        if isinstance(child, (Text, Math)):
+            child.reveal = 0.0
+        else:
+            child.opacity = 0.0
     sc.add(group)
     with sc.parallel():
         for i, child in enumerate(group.children):
             if isinstance(child, (Text, Math)):
-                sc.play_reveal(child, duration=max(0.15, duration-lag*i), at=lag*i)
+                sc.reveal(child, duration=max(0.15, duration-lag*i), at=lag*i)
             else:
                 sc.fade_in(child, duration=max(0.15, duration-lag*i), at=lag*i)
 
 
 def hello_janim() -> Scene:
     sc=scene()
-    circle=Object2D(Circle(1.0), style=outlined(BLUE, None, 0.045))
-    square=Object2D(Square(2.0), style=outlined(GREEN, Color(GREEN.r,GREEN.g,GREEN.b,128), 0.045), opacity=0.0)
-    sc.add(circle, square)
+    circle=Object2D(Circle(1.0), stroke=BLUE, stroke_width=0.045, trim=0.0)
+    circle=sc.add(circle)
     sc.wait(1)
-    sc.create(circle, duration=1)
-    # Persistent endpoints stay hidden while a visible transient performs the morph.
-    circle.opacity=1.0; square.opacity=1.0
-    relation=ObjectInterpolation.from_objects(circle,square)
-    with sc.parallel():
-        sc.timeline.add_interpolation(relation,duration=1)
-        sc.fade_out(circle,duration=0.0)
-    square.opacity=0.0
-    sc.fade_in(square,duration=0.0)
-    sc.play_path_trim(square, 0.0, duration=1)
+    circle.create(duration=1)
+
+    # This is a lifetime handoff, not a pure interpolation relation:
+    # circle leaves when the morph starts, square joins when it finishes.
+    square=Object2D(Square(2.0), fill=GREEN.with_alpha(128), stroke=GREEN, stroke_width=0.045)
+    square=sc.replace(circle, square, duration=1)
+    square.trim(to=0.0, duration=1)
     sc.wait(1)
     return sc
 
 
 def basic_animation() -> Scene:
     sc=scene()
-    circle=Object2D(Circle(1), style=outlined(WHITE, None, 0.045))
-    star=Object2D(Polygon(star_points()), style=outlined(WHITE, None, 0.045), transform=Transform2D.scaling(0.0))
-    sc.add(circle, star)
+    circle=Object2D(Circle(1), stroke=WHITE, stroke_width=0.045, trim=0.0)
+    star=Object2D(Polygon(star_points()), stroke=WHITE, stroke_width=0.045, scale=0.0)
+    circle, star=sc.add(circle, star)
     sc.wait(1)
-    sc.create(circle)
-    sc.play_transform(circle, Transform2D.translation(-3,0).scale(1.5))
-    sc.play_style(circle, outlined(RED, Color(RED.r,RED.g,RED.b,128), 0.045))
-    sc.play_transform_function(star, lambda a: Transform2D.rotation(TAU*a).scale(1.5*a), duration=1)
-    sc.play_transform(star, Transform2D.translation(3,0).scale(1.5))
-    sc.play_style(star, outlined(YELLOW, Color(YELLOW.r,YELLOW.g,YELLOW.b,128), 0.045))
+
+    circle.create()
+    circle.affine(to=(-3, 0), scale=1.5)
+    circle.paint(fill=RED.with_alpha(128), stroke=RED, stroke_width=0.045)
+
+    star.transform_function(lambda a: affine2d(rotation=TAU*a, scale=1.5*a), duration=1)
+    star.affine(to=(3, 0), scale=1.5)
+    star.paint(fill=YELLOW.with_alpha(128), stroke=YELLOW, stroke_width=0.045)
+
     sc.wait(1)
     return sc
 
@@ -145,7 +148,7 @@ def rich_line(parts, font_size=28):
 
 def text_example() -> Scene:
     sc=scene()
-    title=Text('Here is some text',font_size=64)
+    title=Text('Here is some text',font_size=64,reveal=0)
     d0=rich_line([
         ('You can also apply ',WHITE,1),('styles',BLUE,1),(' to the text.',WHITE,1)
     ])
@@ -153,9 +156,10 @@ def text_example() -> Scene:
         ('You can also apply ',WHITE,1),('styles',GREEN,1.4),(' to the text.',WHITE,1)
     ])
     title.move_to(Vec2(0,0.7)); d0.move_to(Vec2(0,-0.6)); d1.move_to(Vec2(0,-0.6))
+    d0.opacity = 0.0; d1.opacity = 0.0
     sc.add(title,d0,d1)
     sc.wait(1)
-    sc.play_reveal(title, duration=1)
+    sc.reveal(title, duration=1)
     sc.fade_in(d0,duration=1)
     with sc.parallel():
         sc.fade_out(d0,duration=1)
@@ -175,13 +179,14 @@ def typst_example() -> Scene:
         Math('5 < 17',font_size=34),
         Text('Vector documents can also be composed as a full Typst-style document.',font_size=26),
     ]
+    for item in lines: item.reveal = 0.0
     doc=Group2D(lines)
     doc.arrange(DOWN,buff=0.25)
     doc.move_to(Vec2(0,0.3))
     sc.add(doc)
     with sc.parallel():
         for i,item in enumerate(lines):
-            sc.play_reveal(item,duration=3.2,at=i*0.12)
+            sc.reveal(item,duration=3.2,at=i*0.12)
     sc.wait(1)
     sc.fade_out(doc,duration=1)
 
@@ -191,12 +196,13 @@ def typst_example() -> Scene:
         Text('TypstMath',font_size=34,color=BLUE),
         Math('sum_(i=1)^n x_i = x_1 + x_2 + dots.c + x_n',font_size=31),
     ]
+    for item in cells: item.reveal = 0.0
     grid=Group2D(cells)
     # 2x2 manual layout closer to JAnim's arrange_in_grid.
     for item,pos in zip(cells,[Vec2(-3,0.8),Vec2(3,0.8),Vec2(-3,-0.8),Vec2(3,-0.8)]): item.move_to(pos)
     sc.add(grid)
     with sc.parallel():
-        for i,item in enumerate(cells): sc.play_reveal(item,duration=1.5,at=i*0.10)
+        for i,item in enumerate(cells): sc.reveal(item,duration=1.5,at=i*0.10)
     sc.wait(1)
     sc.fade_out(grid,duration=1)
     return sc
@@ -272,7 +278,7 @@ def _pi_grid_document() -> VectorDocument:
     paths=[]
     for row in range(10):
         for col in range(10):
-            transform=Transform2D.translation((col-4.5)*0.68,(4.5-row)*0.62)
+            transform=affine2d(to=((col-4.5)*0.68,(4.5-row)*0.62))
             placed=map_vector_document(glyph,transform.apply)
             for path in placed.paths:
                 paths.append(VectorPath(path.contours,path.fill,path.stroke,0))
@@ -291,7 +297,6 @@ def animating_pi() -> Scene:
     yellow=_recolor_vector(base,YELLOW)
     blue=_recolor_vector(base,BLUE)
     shifted_yellow=map_vector_document(yellow,Transform2D.translation(-1,0).apply)
-    shifted_blue=map_vector_document(blue,Transform2D.translation(-1,0).apply)
 
     fit=Transform2D.scaling(0.66/0.68,0.66/0.62)
     fitted_blue=map_vector_document(blue,fit.apply)
@@ -373,21 +378,23 @@ def number_plane() -> Scene:
     # Individual lines allow a true write-like stagger rather than batch fade.
     lines=[]
     for x in range(-7,8):
-        lines.append(Object2D(Line(axes.c2p(x,-4),axes.c2p(x,4)),style=Style(fill=None,stroke=stroke(Color(95,105,130),0.012,120))))
+        lines.append(Object2D(Line(axes.c2p(x,-4),axes.c2p(x,4)), stroke=Color(95,105,130,120), stroke_width=0.012, trim=0.0))
     for y in range(-4,5):
-        lines.append(Object2D(Line(axes.c2p(-7,y),axes.c2p(7,y)),style=Style(fill=None,stroke=stroke(Color(95,105,130),0.012,120))))
+        lines.append(Object2D(Line(axes.c2p(-7,y),axes.c2p(7,y)), stroke=Color(95,105,130,120), stroke_width=0.012, trim=0.0))
     plane=Group2D(lines)
     graph=axes.plot(math.sin,samples=320,color=BLUE,stroke_width=0.035)
-    sc.add(plane,graph)
+    graph.trim = 0.0
+    plane, graph = sc.add(plane, graph)
+    lines = [sc.on(line) for line in lines]
     sc.wait(0.2)
     with sc.parallel():
-        for i,line in enumerate(lines): sc.create(line,duration=1.2,at=i*0.03)
-    sc.create(graph,duration=1)
+        for i,line in enumerate(lines): line.create(duration=1.2,at=i*0.03)
+    graph.create()
     sc.wait(1)
     matrix=Transform2D(xx=3,xy=-1,yx=1,yy=2)
     with sc.parallel():
-        sc.play_transform(plane,matrix,duration=2)
-        sc.play_transform(graph,matrix,duration=2)
+        plane.transform(to=matrix, duration=2)
+        graph.transform(to=matrix, duration=2)
     sc.wait(1)
     return sc
 
@@ -411,9 +418,9 @@ def updater_example() -> Scene:
     def brace_geom(t):
         w=width_at(t); y=1.35; h=0.22
         return Polyline((Vec2(-w/2,y-h),Vec2(-w/2,y),Vec2(-0.12,y),Vec2(0,y+h),Vec2(0.12,y),Vec2(w/2,y),Vec2(w/2,y-h)))
-    brace=DynamicGeometryObject2D(brace_geom,style=Style(fill=None,stroke=stroke(WHITE,0.03)),z_index=1)
-    prefix=Text('Width =',font_size=25,transform=Transform2D.translation(-0.55,2.05))
-    number=DynamicNumber(width_at,number_format=NumberFormat(width=5,decimals=2,sign='space'),font_size=25,transform=Transform2D.translation(0.55,2.05))
+    brace=DynamicGeometryObject2D(brace_geom, style=Style.outline(WHITE, 0.03), z_index=1)
+    prefix=Text('Width =',font_size=25,transform=affine2d(to=(-0.55,2.05)))
+    number=DynamicNumber(width_at,number_format=NumberFormat(width=5,decimals=2,sign='space'),font_size=25,transform=affine2d(to=(0.55,2.05)))
     sc.add(square,brace,prefix,number)
     # Timeline length/phase boundaries are encoded in width_at.
     sc.wait(1); sc.wait(1); sc.wait(1); sc.wait(1); sc.wait(5); sc.wait(1)
@@ -425,10 +432,10 @@ def arrow_pointing() -> Scene:
     p1=Vec2(-3,0)
     def p2(t):
         a=TAU*max(0,min(1,t/4)); return Vec2(2-2*math.cos(a),-2*math.sin(a))
-    dot1=Object2D(Circle(0.08),transform=Transform2D.translation(p1.x,p1.y),style=filled(WHITE))
-    dot2=Object2D(Circle(0.08),style=filled(WHITE))
-    sc.add(dot1,dot2)
-    sc.play_transform_function(dot2,lambda a: Transform2D.translation(2-2*math.cos(TAU*a),-2*math.sin(TAU*a)),duration=4,easing=Easing.LINEAR)
+    dot1=Object2D(Circle(0.08), position=p1, fill=WHITE)
+    dot2=Object2D(Circle(0.08), fill=WHITE)
+    dot1, dot2 = sc.add(dot1,dot2)
+    dot2.transform_function(lambda a: affine2d(to=(2-2*math.cos(TAU*a), -2*math.sin(TAU*a))), duration=4, easing=Easing.LINEAR)
     def arrow_poly(t):
         a=p1; b=p2(t); dx,dy=b.x-a.x,b.y-a.y; L=max(1e-6,math.hypot(dx,dy)); ux,uy=dx/L,dy/L; nx,ny=-uy,ux
         tip=min(0.22,L*0.25); shaft=0.025; half=0.075; bx,by=b.x-ux*tip,b.y-uy*tip
@@ -447,10 +454,10 @@ def combine_updaters() -> Scene:
         if segment>=1: y=math.sin(max(0,min(1,a))*4*PI)
         if segment>=2: rot=-TAU*max(0,min(1,a))
         return Transform2D.translation(x,y).rotate(rot)
-    obj=DynamicGeometryObject2D(lambda t:square_polygon(2.0,state(t)),style=outlined(WHITE,None,0.04))
-    sc.add(obj)
+    obj=DynamicGeometryObject2D(lambda t:square_polygon(2.0,state(t)),style=Style.outline(WHITE,0.04))
+    obj=sc.add(obj)
     sc.wait(2); sc.wait(2)
-    sc.play_style(obj,outlined(BLUE,None,0.04),duration=2,easing=Easing.LINEAR)
+    obj.outline(BLUE, width=0.04, duration=2, easing=Easing.LINEAR)
     return sc
 
 
@@ -458,22 +465,28 @@ def rotating_pie() -> Scene:
     sc=scene(); colors=[RED,PURPLE,MAROON,GOLD]; sectors=[]
     for i,c in enumerate(colors):
         ang=i*TAU/4; off=Vec2(0.05*math.cos(ang+PI/4),0.05*math.sin(ang+PI/4))
-        sec=Object2D(sector_polygon(ang,TAU/4,1.5),style=filled(c),transform=Transform2D.translation(off.x,off.y))
+        sec=Object2D(sector_polygon(ang,TAU/4,1.5), position=off, fill=c)
         sectors.append(sec)
-    pie=Group2D(sectors); sc.add(pie)
-    base0=sectors[0].transform
+    pie=Group2D(sectors); pie=sc.add(pie)
+    sector0=sc.on(sectors[0]); base0=sector0.transform_value
     with sc.parallel():
-        sc.play_transform_function(pie,lambda a: Transform2D.rotation(TAU*a),duration=5,easing=Easing.LINEAR)
-        sc.play_transform_function(sectors[0],lambda a: Transform2D.translation(base0.tx+(1.0*math.sin(PI*a)/math.sqrt(2)),base0.ty+(1.0*math.sin(PI*a)/math.sqrt(2))),duration=2,easing=Easing.LINEAR,at=2)
+        pie.transform_function(lambda a: affine2d(rotation=TAU*a), duration=5, easing=Easing.LINEAR)
+        sector0.transform_function(
+            lambda a: affine2d(to=(
+                base0.tx + math.sin(PI*a)/math.sqrt(2),
+                base0.ty + math.sin(PI*a)/math.sqrt(2),
+            )),
+            duration=2, easing=Easing.LINEAR, at=2,
+        )
     return sc
 
 
 def marked_item() -> Scene:
     sc=scene()
     def tr(a): return Transform2D.translation(math.sin(4*PI*a),0).rotate(TAU*a)
-    square=Object2D(Square(2),style=outlined(WHITE,None,0.04))
-    sc.add(square)
-    sc.play_transform_function(square,tr,duration=4,easing=Easing.LINEAR)
+    square=Object2D(Square(2), stroke=WHITE, stroke_width=0.04)
+    square=sc.add(square)
+    square.transform_function(tr,duration=4,easing=Easing.LINEAR)
     local1=Vec2(0.5,0); local2=Vec2(0,-0.5)
     def mark(local,t): return tr(max(0,min(1,t/4))).apply(local)
     tri1=DynamicGeometryObject2D(lambda t:triangle_polygon(mark(local1,t),0.20),style=outlined(GREEN,None,0.035),z_index=2)

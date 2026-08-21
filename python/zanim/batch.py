@@ -109,7 +109,7 @@ class BatchObject2D(SceneObject2D):
     """
 
     batch: BatchGeometry
-    transform: Transform2D = Transform2D()
+    transform: Transform2D | SE2 = Transform2D()
     opacity: float = 1.0
     z_index: int = 0
 

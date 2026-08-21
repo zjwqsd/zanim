@@ -12,7 +12,6 @@ from zanim import (
     Circle,
     Color,
     DynamicGeometryObject2D,
-    Easing,
     Ellipse,
     Group2D,
     Line,
@@ -24,11 +23,11 @@ from zanim import (
     StrokeStyle,
     Style,
     Text,
-    Transform2D,
     Vec2,
     VectorDocument,
     VectorObject2D,
     VectorPath,
+    affine2d,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -90,11 +89,7 @@ def _recolor_document(document: VectorDocument, color: Color) -> VectorDocument:
 
 
 def _make_clock(scene: Scene):
-    circle = Object2D(
-        Circle(CLOCK_RADIUS),
-        style=Style(fill=None, stroke=StrokeStyle(GREY, 0.025)),
-        z_index=-3,
-    )
+    circle = Object2D(Circle(CLOCK_RADIUS), stroke=GREY, stroke_width=0.025, z_index=-3)
 
     tick_starts: list[Vec2] = []
     tick_ends: list[Vec2] = []
@@ -127,15 +122,15 @@ def _make_clock(scene: Scene):
     hands = [
         DynamicGeometryObject2D(
             hour_hand,
-            style=Style(fill=None, stroke=StrokeStyle(Color(183, 189, 204), 0.055)),
+            style=Style.outline(Color(183, 189, 204), 0.055),
             z_index=-1,
         ),
         DynamicGeometryObject2D(
             minute_hand,
-            style=Style(fill=None, stroke=StrokeStyle(Color(205, 210, 221), 0.035)),
+            style=Style.outline(Color(205, 210, 221), 0.035),
             z_index=-1,
         ),
-        Object2D(Circle(0.065), style=Style(fill=GREY, stroke=None), z_index=0),
+        Object2D(Circle(0.065), fill=GREY, z_index=0),
     ]
 
     white_numbers: list[Math] = []
@@ -166,26 +161,16 @@ def _make_clock(scene: Scene):
 
     clock = Group2D([circle, ticks, *hands, *white_numbers, *red_numbers, *teal_numbers])
     scene.add(clock)
-    return red_numbers, teal_numbers
+    return (
+        [scene.on(number) for number in red_numbers],
+        [scene.on(number) for number in teal_numbers],
+    )
 
 
 def _make_ladybug() -> Group2D:
-    body = Object2D(
-        Ellipse(0.23, 0.31),
-        style=Style(fill=RED, stroke=StrokeStyle(BLACK, 0.018)),
-        z_index=20,
-    )
-    head = Object2D(
-        Circle(0.095),
-        transform=Transform2D.translation(0, 0.285),
-        style=Style(fill=BLACK, stroke=None),
-        z_index=21,
-    )
-    seam = Object2D(
-        Line(Vec2(0, -0.25), Vec2(0, 0.24)),
-        style=Style(fill=None, stroke=StrokeStyle(BLACK, 0.016)),
-        z_index=22,
-    )
+    body = Object2D(Ellipse(0.23, 0.31), fill=RED, stroke=BLACK, stroke_width=0.018, z_index=20)
+    head = Object2D(Circle(0.095), position=(0, 0.285), fill=BLACK, z_index=21)
+    seam = Object2D(Line(Vec2(0, -0.25), Vec2(0, 0.24)), stroke=BLACK, stroke_width=0.016, z_index=22)
     spots = []
     for x, y, radius in (
         (-0.095, 0.12, 0.040),
@@ -194,18 +179,9 @@ def _make_ladybug() -> Group2D:
         (0.105, -0.07, 0.047),
     ):
         spots.append(
-            Object2D(
-                Circle(radius),
-                transform=Transform2D.translation(x, y),
-                style=Style(fill=BLACK, stroke=None),
-                z_index=22,
-            )
+            Object2D(Circle(radius), position=(x, y), fill=BLACK, z_index=22)
         )
-    halo = Object2D(
-        Circle(0.29),
-        style=Style(fill=Color(RED_DARK.r, RED_DARK.g, RED_DARK.b, 90), stroke=None),
-        z_index=18,
-    )
+    halo = Object2D(Circle(0.29), fill=RED_DARK.with_alpha(90), z_index=18)
     return Group2D([halo, body, head, seam, *spots], z_index=20)
 
 
@@ -275,26 +251,20 @@ def build_ladybug_scene(*, draft: bool = False) -> Scene:
     scene = Scene(canvas=_canvas(draft), fps=30 if draft else 60)
     red_numbers, teal_numbers = _make_clock(scene)
 
-    bug = _make_ladybug()
     start = Vec2(-7.0, -0.25)
-    bug.transform = Transform2D.translation(start.x, start.y)
-    scene.add(bug)
+    bug = _make_ladybug()
+    bug.transform = affine2d(to=start)
+    bug = scene.add(bug)
 
     landing_end = _clock_point(0)
     p1 = Vec2(-4.9, 1.35)
     p2 = Vec2(-1.7, 3.05)
 
-    scene.play_transform_function(
-        bug,
-        lambda alpha: Transform2D.translation(
-            *(
-                lambda p: (p.x, p.y)
-            )(_cubic_point(start, p1, p2, landing_end, alpha))
-        ),
+    bug.transform_function(
+        lambda alpha: affine2d(to=_cubic_point(start, p1, p2, landing_end, alpha)),
         duration=LAND_DURATION,
-        easing=Easing.SMOOTHSTEP,
     )
-    scene.fade_in(red_numbers[0], duration=0.35)
+    red_numbers[0].fade_in(duration=0.35)
     scene.wait(0.35)
 
     steps = _walk_steps()
@@ -302,20 +272,20 @@ def build_ladybug_scene(*, draft: bool = False) -> Scene:
 
     arrow_arc = DynamicGeometryObject2D(
         _arrow_arc_provider(sim_start, steps),
-        style=Style(fill=None, stroke=StrokeStyle(YELLOW, 0.045)),
+        style=Style.outline(YELLOW, 0.045),
         opacity=0.0,
         z_index=12,
     )
     arrow_tip = DynamicGeometryObject2D(
         _arrow_tip_provider(sim_start, steps),
-        style=Style(fill=YELLOW, stroke=None),
+        style=Style.solid(YELLOW),
         opacity=0.0,
         z_index=13,
     )
-    scene.add(arrow_arc, arrow_tip)
-    with scene.parallel():
-        scene.fade_in(arrow_arc, duration=0.08)
-        scene.fade_in(arrow_tip, duration=0.08)
+    arrow_arc, arrow_tip = scene.add(arrow_arc, arrow_tip)
+    with scene.parallel(duration=0.08):
+        arrow_arc.fade_in()
+        arrow_tip.fade_in()
 
     visited = {0}
     current = 0
@@ -327,45 +297,36 @@ def build_ladybug_scene(*, draft: bool = False) -> Scene:
 
         def transform_at(alpha: float, a0=start_angle, da=sweep):
             angle = a0 + da * alpha
-            return Transform2D.translation(
-                CLOCK_RADIUS * math.cos(angle),
-                CLOCK_RADIUS * math.sin(angle),
-            )
+            return affine2d(to=(CLOCK_RADIUS * math.cos(angle), CLOCK_RADIUS * math.sin(angle)))
 
         physical = lifted_end % 12
         is_new = physical not in visited
         is_final = is_new and len(visited) == 11
-        with scene.parallel():
-            scene.play_transform_function(
-                bug,
-                transform_at,
-                duration=STEP_DURATION,
-                easing=Easing.SMOOTHSTEP,
-            )
+        with scene.parallel(duration=STEP_DURATION):
+            bug.transform_function(transform_at)
             if is_new:
-                scene.fade_in(
-                    teal_numbers[physical] if is_final else red_numbers[physical],
-                    duration=min(0.26, STEP_DURATION),
+                (teal_numbers[physical] if is_final else red_numbers[physical]).fade_in(
+                    duration=min(0.26, STEP_DURATION)
                 )
         visited.add(physical)
         current = lifted_end
 
-    with scene.parallel():
-        scene.fade_out(arrow_arc, duration=0.16)
-        scene.fade_out(arrow_tip, duration=0.16)
+    with scene.parallel(duration=0.16):
+        arrow_arc.fade_out()
+        arrow_tip.fade_out()
     scene.wait(1.5)
     return scene
 
 
 def build_question_scene(*, draft: bool = False) -> Scene:
     scene = Scene(canvas=_canvas(draft), fps=30 if draft else 60)
-    first = Text("What is the probability that", font_size=43, color=WHITE)
-    second = Text("the last number painted is 6?", font_size=43, color=WHITE)
+    first = Text("What is the probability that", font_size=43, color=WHITE, reveal=0)
+    second = Text("the last number painted is 6?", font_size=43, color=WHITE, reveal=0)
     first.move_to(Vec2(0, 0.42))
     second.move_to(Vec2(0, -0.42))
-    scene.add(first, second)
-    scene.create(first, duration=1.05)
-    scene.create(second, duration=1.15)
+    first, second = scene.add(first, second)
+    first.create(duration=1.05)
+    second.create(duration=1.15)
     scene.wait(1.5)
     return scene
 
