@@ -1055,13 +1055,69 @@ class Scene:
     def wait(self, duration: float = 1.0):
         return self.timeline.wait(duration)
 
-    def render_frame(self, path, time: float):
+    @property
+    def duration(self) -> float:
+        """Authored timeline duration in seconds."""
+        return float(self.timeline.cursor)
+
+    def render_frame(self, path, time: float = 0.0):
+        """Render one absolute scene time without evaluating earlier frames."""
         from .render import render_snapshot
-        return render_snapshot(path, self.evaluate(time), self.canvas)
+
+        time = float(time)
+        if time < 0:
+            raise ValueError("time must be >= 0")
+        try:
+            return render_snapshot(path, self.evaluate(time), self.canvas)
+        finally:
+            self._close_media_sources()
 
     def render_video(self, path, **kwargs):
+        """Render all or part of the timeline; ``start``/``end`` are absolute seconds."""
         from .render import render_video
         return render_video(self, path, **kwargs)
+
+    def preview(self, **kwargs):
+        """Open the local random-access timeline preview UI.
+
+        By default this blocks until Ctrl-C. Pass ``block=False`` to run the
+        preview server on a daemon thread and receive its server handle.
+        """
+        from .preview import preview_scene
+        return preview_scene(self, **kwargs)
+
+    def render(
+        self, path, *, time: float | None = None,
+        start: float | None = None, end: float | None = None, **video_kwargs
+    ):
+        """Render the scene using its timeline shape to select image or video output.
+
+        A zero-duration scene renders one image at t=0. For an animated scene,
+        ``time=...`` renders one random-access frame, while ``start``/``end``
+        render only that absolute timeline interval. With no selector, an
+        animated scene renders its complete timeline.
+        """
+        if time is not None and (start is not None or end is not None):
+            raise ValueError("time cannot be combined with start/end")
+
+        if time is not None:
+            if video_kwargs:
+                names = ", ".join(sorted(video_kwargs))
+                raise TypeError(f"video options are invalid for frame rendering: {names}")
+            return self.render_frame(path, float(time))
+
+        if self.duration <= 0:
+            if start is not None or end is not None:
+                raise ValueError("start/end require a scene with positive timeline duration")
+            if video_kwargs:
+                names = ", ".join(sorted(video_kwargs))
+                raise TypeError(f"video options are invalid for a static scene: {names}")
+            return self.render_frame(path, 0.0)
+
+        resolved_start = 0.0 if start is None else float(start)
+        return self.render_video(
+            path, start=resolved_start, end=end, **video_kwargs
+        )
 
     def evaluate(self, time: float) -> RenderSnapshot:
         objects: list[RenderObject] = []

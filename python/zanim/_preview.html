@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zanim Preview</title>
+<style>
+:root{color-scheme:dark;--bg:#0b0e13;--panel:#11161e;--panel2:#151b24;--line:#263140;--text:#e8edf5;--muted:#8b98aa;--accent:#79a7ff;--good:#69d7a1;--warn:#f5bd68;--danger:#ff7b7b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow-x:hidden}
+button,input{font:inherit}button{color:var(--text);background:#1a2230;border:1px solid var(--line);border-radius:8px;min-height:36px;padding:0 12px;cursor:pointer}button:hover{background:#202b3a}button.primary{background:#203658;border-color:#345b93;color:#dbe9ff}button:disabled{opacity:.45;cursor:not-allowed}input[type=number],input[type=search],select{color:var(--text);background:#0d1219;border:1px solid var(--line);border-radius:7px;min-height:34px;padding:5px 8px;outline:none}input:focus,button:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 2px #79a7ff22}.app{min-height:100%;display:flex;flex-direction:column}.topbar{height:50px;padding:0 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;background:#0d1118}.brand{font-weight:700;letter-spacing:.02em}.meta{display:flex;gap:9px;color:var(--muted);font-size:12px;flex-wrap:wrap}.meta span{padding:3px 7px;background:#121923;border:1px solid #202a38;border-radius:999px}.cache-pill{margin-left:auto;color:var(--muted);font-size:12px}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 370px;min-height:0}.left{min-width:0;border-right:1px solid var(--line);display:flex;flex-direction:column}.stage-wrap{padding:18px;background:radial-gradient(circle at center,#1b2230 0,#0d1118 68%);display:flex;justify-content:center;align-items:center;min-height:360px}.stage{position:relative;max-width:100%;border:1px solid #2a3444;background:#080a0d;box-shadow:0 12px 34px #0006}.stage canvas{display:block;max-width:100%;height:auto}.stage .loading{position:absolute;right:10px;top:10px;padding:5px 8px;border-radius:6px;background:#090d13cc;color:var(--muted);font-size:12px;display:none}.stage.busy .loading{display:block}.controls{padding:12px 16px 14px;border-top:1px solid var(--line);background:#0f141c}.transport{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.timebox{display:flex;align-items:center;gap:6px;margin-left:5px;color:var(--muted)}.timebox input{width:88px}.frame-label{min-width:92px;color:var(--muted);font-variant-numeric:tabular-nums}.timeline{margin-top:10px}.timeline input[type=range]{width:100%;accent-color:var(--accent);margin:0}.cache-track{height:8px;background:#080b10;border:1px solid #202936;border-radius:4px;overflow:hidden;position:relative;margin-top:4px}.cache-track .segment{position:absolute;top:0;bottom:0;background:#3a8e68}.cache-track .selected{position:absolute;top:-1px;bottom:-1px;width:2px;background:#d9e6ff}.range-row{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}.range-row label{display:flex;align-items:center;gap:5px;color:var(--muted)}.range-row input{width:86px}.spacer{flex:1}.right{min-width:0;background:var(--panel);display:flex;flex-direction:column}.inspector-head{padding:12px;border-bottom:1px solid var(--line)}.inspector-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.inspector-title strong{font-size:13px}.inspector-head input{width:100%}.object-list{overflow:auto;max-height:calc(100vh - 142px)}.obj{border-bottom:1px solid #1e2834}.obj summary{list-style:none;cursor:pointer;padding:9px 12px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:7px}.obj summary::-webkit-details-marker{display:none}.obj summary:hover{background:#151c27}.obj .id{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)}.obj .type{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.badge{font-size:10px;border-radius:999px;padding:2px 6px;background:#202a37;color:var(--muted)}.badge.alive{background:#153124;color:#7ce2ac}.badge.active{background:#332711;color:#f3c86c}.details{padding:0 12px 11px 53px;color:var(--muted);font-size:12px}.kv{display:grid;grid-template-columns:104px minmax(0,1fr);gap:3px 8px;margin-top:5px}.kv .k{color:#657386}.kv .v{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-word;color:#b9c4d3}.clips{margin-top:8px}.clip{padding:5px 7px;margin-top:4px;border-left:2px solid #38475b;background:#0d1219}.clip.active{border-left-color:var(--warn)}.empty{padding:24px 14px;text-align:center;color:var(--muted)}.status{height:27px;border-top:1px solid var(--line);background:#0d1219;padding:5px 12px;color:var(--muted);font-size:11px;display:flex;gap:14px}.status strong{color:#b9c4d3;font-weight:500}@media(max-width:900px){.workspace{grid-template-columns:1fr}.left{border-right:0}.right{border-top:1px solid var(--line)}.object-list{max-height:none}.stage-wrap{min-height:240px}.topbar{height:auto;min-height:50px;flex-wrap:wrap;padding:10px 12px}.cache-pill{margin-left:0}}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="brand">Zanim Preview</div>
+    <div class="meta" id="meta"><span>loading scene…</span></div>
+    <div class="cache-pill" id="cachePill">cache —</div>
+  </header>
+  <main class="workspace">
+    <section class="left">
+      <div class="stage-wrap">
+        <div class="stage" id="stage"><canvas id="preview" aria-label="Zanim rendered frame"></canvas><div class="loading">rendering…</div></div>
+      </div>
+      <div class="controls">
+        <div class="transport">
+          <button id="play" type="button" aria-label="播放">▶</button>
+          <button id="prev" type="button" aria-label="上一帧">−1f</button>
+          <button id="next" type="button" aria-label="下一帧">+1f</button>
+          <div class="timebox"><span>t</span><input id="time" type="number" min="0" step="0.0001" value="0"><span>s</span></div>
+          <div class="frame-label" id="frameLabel">frame 0</div>
+          <div class="spacer"></div>
+          <button id="exportImage" class="primary" type="button">导出 PNG</button>
+        </div>
+        <div class="timeline">
+          <input id="scrub" type="range" min="0" max="0" step="1" value="0" aria-label="时间轴">
+          <div class="cache-track" id="cacheTrack" aria-label="已缓存帧范围"></div>
+        </div>
+        <div class="range-row">
+          <label>区间 <input id="rangeStart" type="number" min="0" step="0.0001" value="0"> s</label>
+          <span>→</span>
+          <label><input id="rangeEnd" type="number" min="0" step="0.0001" value="0"> s</label>
+          <button id="setStart" type="button">设为起点</button>
+          <button id="setEnd" type="button">设为终点</button>
+          <div class="spacer"></div>
+          <button id="exportVideo" class="primary" type="button">导出区间 MP4</button>
+        </div>
+      </div>
+    </section>
+    <aside class="right">
+      <div class="inspector-head">
+        <div class="inspector-title"><strong>Objects at <span id="inspectTime">0.000s</span></strong><span id="objectCount" class="badge">0</span></div>
+        <input id="filter" type="search" placeholder="筛选 id / 类型 / 状态">
+      </div>
+      <div class="object-list" id="objects"><div class="empty">waiting for frame…</div></div>
+    </aside>
+  </main>
+  <footer class="status"><span>hot <strong id="hotUsage">—</strong></span><span>cold <strong id="coldUsage">—</strong></span><span>hit <strong id="hitRate">—</strong></span><span>rendered <strong id="renderCount">—</strong></span><span>prefetch <strong id="prefetchCount">—</strong></span></footer>
+</div>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const state = {
+    meta: null, frame: 0, time: 0, playing: false, lastTick: 0,
+    inspect: null, request: 0, scrubTimer: null, loading: false,
+  };
+  const els = {
+    preview: $('preview'), stage: $('stage'), scrub: $('scrub'), time: $('time'),
+    frameLabel: $('frameLabel'), play: $('play'), prev: $('prev'), next: $('next'),
+    rangeStart: $('rangeStart'), rangeEnd: $('rangeEnd'), objects: $('objects'), filter: $('filter'),
+  };
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const clampTime = value => state.meta ? clamp(Number(value) || 0, 0, state.meta.duration) : 0;
+  const secForFrame = frame => state.meta ? clamp(frame, 0, state.meta.frame_count - 1) / state.meta.fps : 0;
+  const frameForSec = value => state.meta ? clamp(Math.round(clampTime(value) * state.meta.fps), 0, state.meta.frame_count - 1) : 0;
+  const queryTime = value => encodeURIComponent(clampTime(value).toPrecision(15));
+  const fmtBytes = n => n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+
+  function setTimeUI(value) {
+    const t = clampTime(value);
+    state.time = t;
+    state.frame = frameForSec(t);
+    els.scrub.value = state.frame;
+    els.time.value = t.toFixed(4);
+    els.frameLabel.textContent = `frame ≈ ${state.frame} / ${state.meta.frame_count - 1}`;
+    $('inspectTime').textContent = `${t.toFixed(4)}s`;
+  }
+
+  let rawRenderer = null;
+
+  function compileShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      const message = gl.getShaderInfoLog(shader) || 'shader compilation failed';
+      gl.deleteShader(shader);
+      throw new Error(message);
+    }
+    return shader;
+  }
+
+  function initRawRenderer() {
+    const canvas = els.preview;
+    canvas.width = state.meta.width;
+    canvas.height = state.meta.height;
+    const gl = canvas.getContext('webgl2', {alpha:false, antialias:false, depth:false, stencil:false});
+    if (gl) {
+      const vertex = compileShader(gl, gl.VERTEX_SHADER, `#version 300 es
+        in vec2 aPosition;
+        in vec2 aTexCoord;
+        out vec2 vTexCoord;
+        void main(){ gl_Position=vec4(aPosition,0.0,1.0); vTexCoord=aTexCoord; }`);
+      const fragment = compileShader(gl, gl.FRAGMENT_SHADER, `#version 300 es
+        precision mediump float;
+        uniform sampler2D uFrame;
+        in vec2 vTexCoord;
+        out vec4 outColor;
+        void main(){ outColor=vec4(texture(uFrame,vTexCoord).rgb,1.0); }`);
+      const program = gl.createProgram();
+      gl.attachShader(program, vertex);
+      gl.attachShader(program, fragment);
+      gl.linkProgram(program);
+      gl.deleteShader(vertex);
+      gl.deleteShader(fragment);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) || 'WebGL link failed');
+      gl.useProgram(program);
+      const vertices = new Float32Array([
+        -1,-1, 0,1,  1,-1, 1,1,
+        -1, 1, 0,0,  1, 1, 1,0,
+      ]);
+      const buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+      const pos = gl.getAttribLocation(program, 'aPosition');
+      const uv = gl.getAttribLocation(program, 'aTexCoord');
+      gl.enableVertexAttribArray(pos);
+      gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 16, 0);
+      gl.enableVertexAttribArray(uv);
+      gl.vertexAttribPointer(uv, 2, gl.FLOAT, false, 16, 8);
+      const texture = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, state.meta.width, state.meta.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.uniform1i(gl.getUniformLocation(program, 'uFrame'), 0);
+      gl.viewport(0, 0, state.meta.width, state.meta.height);
+      rawRenderer = {kind:'webgl2', gl, texture};
+      return;
+    }
+    const ctx = canvas.getContext('2d', {alpha:false});
+    if (!ctx) throw new Error('browser provides neither WebGL2 nor Canvas2D');
+    rawRenderer = {kind:'canvas2d', ctx};
+  }
+
+  function drawRawFrame(buffer) {
+    const expected = state.meta.preview_frame_bytes;
+    if (buffer.byteLength !== expected) throw new Error(`raw frame has ${buffer.byteLength} bytes; expected ${expected}`);
+    if (rawRenderer.kind === 'webgl2') {
+      const {gl, texture} = rawRenderer;
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, state.meta.width, state.meta.height, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(buffer));
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      return;
+    }
+    const rgba = new Uint8ClampedArray(buffer);
+    for (let i = 3; i < rgba.length; i += 4) rgba[i] = 255;
+    rawRenderer.ctx.putImageData(new ImageData(rgba, state.meta.width, state.meta.height), 0, 0);
+  }
+
+  async function showTime(value, selected = true) {
+    const requestedTime = clampTime(value);
+    setTimeUI(requestedTime);
+    const token = ++state.request;
+    state.loading = true;
+    els.stage.classList.add('busy');
+    try {
+      const response = await fetch(`/api/frame/raw?t=${queryTime(requestedTime)}&select=${selected ? 1 : 0}`);
+      if (!response.ok) throw new Error(await response.text());
+      const buffer = await response.arrayBuffer();
+      if (token !== state.request) return;
+      drawRawFrame(buffer);
+      await refreshInspect(requestedTime, token);
+    } catch (err) {
+      if (token === state.request) els.frameLabel.textContent = `render error: ${err.message}`;
+    } finally {
+      if (token === state.request) {
+        state.loading = false;
+        state.lastTick = performance.now();
+        els.stage.classList.remove('busy');
+      }
+    }
+  }
+
+  function showFrame(frame, selected = true) {
+    return showTime(secForFrame(frame), selected);
+  }
+
+  async function refreshInspect(value, token = state.request) {
+    const response = await fetch(`/api/inspect?t=${queryTime(value)}`);
+    if (!response.ok) return;
+    const data = await response.json();
+    if (token !== state.request) return;
+    state.inspect = data;
+    renderObjects();
+  }
+
+  function esc(value) {
+    return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function valueText(v) {
+    if (v === null) return 'null';
+    if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(5).replace(/0+$/, '').replace(/\.$/, '');
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+  }
+
+  function renderObjects() {
+    if (!state.inspect) return;
+    const q = els.filter.value.trim().toLowerCase();
+    const all = state.inspect.objects;
+    const items = all.filter(o => !q || `${o.id} ${o.type} ${o.alive ? 'alive' : 'inactive'} ${JSON.stringify(o.state)}`.toLowerCase().includes(q));
+    $('objectCount').textContent = `${items.length}/${all.length}`;
+    if (!items.length) {
+      els.objects.innerHTML = '<div class="empty">没有匹配对象</div>';
+      return;
+    }
+    els.objects.innerHTML = items.map(o => {
+      const stateRows = Object.entries(o.state).map(([k, v]) => `<div class="k">${esc(k)}</div><div class="v">${esc(valueText(v))}</div>`).join('');
+      const life = `${valueText(o.lifetime.start)} → ${o.lifetime.end === null ? '∞' : valueText(o.lifetime.end)}`;
+      const activeNames = new Set(o.active_clips.map(c => `${c.type}:${c.start}:${c.end}`));
+      const clips = o.clips.map(c => {
+        const key = `${c.type}:${c.start}:${c.end}`;
+        const active = activeNames.has(key);
+        const ac = o.active_clips.find(x => `${x.type}:${x.start}:${x.end}` === key);
+        return `<div class="clip${active ? ' active' : ''}"><b>${esc(c.type)}</b> ${valueText(c.start)}–${valueText(c.end)}${ac ? ` · ${(ac.progress * 100).toFixed(1)}%` : ''}</div>`;
+      }).join('');
+      return `<details class="obj"><summary><span class="id">#${o.id}</span><span class="type">${esc(o.type)}</span><span>${o.alive ? '<span class="badge alive">alive</span>' : '<span class="badge">inactive</span>'}${o.active_clips.length ? ` <span class="badge active">${o.active_clips.length} active</span>` : ''}</span></summary><div class="details"><div class="kv"><div class="k">lifetime</div><div class="v">${life}</div><div class="k">parents</div><div class="v">${esc(o.parents.join(' → ') || '—')}</div><div class="k">clips</div><div class="v">${o.clip_count}</div>${stateRows}</div>${clips ? `<div class="clips">${clips}</div>` : ''}</div></details>`;
+    }).join('');
+  }
+
+  function scheduleScrub() {
+    state.playing = false;
+    els.play.textContent = '▶';
+    clearTimeout(state.scrubTimer);
+    const frame = Number(els.scrub.value);
+    setTimeUI(secForFrame(frame));
+    state.scrubTimer = setTimeout(() => showFrame(frame, true), 55);
+  }
+
+  function download(url) {
+    const a = document.createElement('a');
+    a.href = url;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  function renderCache(cache) {
+    const track = $('cacheTrack');
+    track.replaceChildren();
+    const duration = Math.max(1 / state.meta.fps, state.meta.duration);
+    (cache.cached_spans || []).forEach(([a, b]) => {
+      const segment = document.createElement('span');
+      segment.className = 'segment';
+      segment.style.left = `${clamp(a / duration, 0, 1) * 100}%`;
+      const covered = Math.max(1 / state.meta.fps, b - a + 1 / state.meta.fps);
+      segment.style.width = `${Math.max(0.18, Math.min(100, covered / duration * 100))}%`;
+      track.appendChild(segment);
+    });
+    const marker = document.createElement('span');
+    marker.className = 'selected';
+    marker.style.left = `${clamp(state.time / duration, 0, 1) * 100}%`;
+    track.appendChild(marker);
+    $('cachePill').textContent = `rendered ${cache.cached_frames}/${state.meta.frame_count}f · cold ${fmtBytes(cache.cold_bytes)} · ${cache.cold_ratio.toFixed(0)}×`;
+    $('hotUsage').textContent = `${cache.hot_entries}f · ${fmtBytes(cache.hot_bytes)} / ${fmtBytes(cache.hot_limit)}`;
+    $('coldUsage').textContent = `${fmtBytes(cache.cold_bytes)} / ${fmtBytes(cache.cold_limit)}${cache.cold_full ? ' · full' : ''}`;
+    $('hitRate').textContent = `${(cache.stats.cache_hit_rate * 100).toFixed(0)}%`;
+    $('renderCount').textContent = cache.stats.renders;
+    $('prefetchCount').textContent = cache.stats.prefetch_renders;
+  }
+
+  async function pollCache() {
+    if (!state.meta) return;
+    try {
+      const response = await fetch('/api/cache');
+      if (response.ok) renderCache(await response.json());
+    } catch {}
+    setTimeout(pollCache, 450);
+  }
+
+  function tick(ts) {
+    if (state.playing && state.meta && !state.loading) {
+      if (!state.lastTick) state.lastTick = ts;
+      if (ts - state.lastTick >= 1000 / state.meta.fps) {
+        const nextTime = state.time + 1 / state.meta.fps;
+        if (nextTime >= state.meta.duration - 1e-12) {
+          state.playing = false;
+          els.play.textContent = '▶';
+          showTime(state.meta.duration, true);
+        } else {
+          state.lastTick = ts;
+          showTime(nextTime, true);
+        }
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+
+  async function init() {
+    const response = await fetch('/api/meta');
+    state.meta = await response.json();
+    initRawRenderer();
+    $('meta').innerHTML = `<span>${state.meta.width}×${state.meta.height}</span><span>${state.meta.fps} fps</span><span>${state.meta.duration.toFixed(3)} s</span><span>${state.meta.objects} objects</span><span>${rawRenderer.kind} · ${state.meta.preview_pixel_format}</span><span>${state.meta.preview_cache}</span><span>prefetch ${state.meta.prefetch_frames}f</span>`;
+    els.scrub.max = state.meta.frame_count - 1;
+    els.time.max = state.meta.duration;
+    els.rangeStart.max = state.meta.duration;
+    els.rangeEnd.max = state.meta.duration;
+    els.rangeEnd.value = state.meta.duration.toFixed(4);
+    if (state.meta.static) {
+      els.play.disabled = true;
+      els.prev.disabled = true;
+      els.next.disabled = true;
+      $('exportVideo').disabled = true;
+    }
+    await showTime(0, true);
+    pollCache();
+    requestAnimationFrame(tick);
+  }
+
+  els.scrub.addEventListener('input', scheduleScrub);
+  els.scrub.addEventListener('change', () => showFrame(Number(els.scrub.value), true));
+  els.time.addEventListener('change', () => {
+    state.playing = false;
+    els.play.textContent = '▶';
+    showTime(clampTime(els.time.value), true);
+  });
+  els.prev.addEventListener('click', () => showTime(state.time - 1 / state.meta.fps, true));
+  els.next.addEventListener('click', () => showTime(state.time + 1 / state.meta.fps, true));
+  els.play.addEventListener('click', () => {
+    state.playing = !state.playing;
+    state.lastTick = 0;
+    els.play.textContent = state.playing ? '❚❚' : '▶';
+    if (state.playing && state.time >= state.meta.duration - 1e-12) showTime(0, true);
+  });
+  $('setStart').addEventListener('click', () => els.rangeStart.value = state.time.toFixed(4));
+  $('setEnd').addEventListener('click', () => els.rangeEnd.value = Math.min(state.meta.duration, state.time + 1 / state.meta.fps).toFixed(4));
+  $('exportImage').addEventListener('click', () => download(`/api/export/image?t=${queryTime(state.time)}`));
+  $('exportVideo').addEventListener('click', () => {
+    const start = clampTime(els.rangeStart.value);
+    const end = clampTime(els.rangeEnd.value);
+    if (!(end > start)) {
+      els.frameLabel.textContent = 'export range: end must be greater than start';
+      return;
+    }
+    download(`/api/export/video?start_t=${queryTime(start)}&end_t=${queryTime(end)}`);
+  });
+  els.filter.addEventListener('input', renderObjects);
+
+  init().catch(err => { els.objects.innerHTML = `<div class="empty">${esc(err.message)}</div>`; });
+})();
+</script>
+</body>
+</html>

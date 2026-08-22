@@ -24,7 +24,7 @@ def _selected_frame_indices(frame_count: int) -> set[int]:
 
 
 def _verify_random_access(
-    scene, *, fps: int, selected: set[int], expected: dict[int, str]
+    scene, *, start: float, fps: int, selected: set[int], expected: dict[int, str]
 ) -> None:
     from .frame import render_snapshot_rgb0
 
@@ -32,7 +32,7 @@ def _verify_random_access(
     indices = list(selected)
     random.Random(42).shuffle(indices)
     for index in indices:
-        render_snapshot_rgb0(probe, scene.evaluate(index / fps), scene.canvas)
+        render_snapshot_rgb0(probe, scene.evaluate(start + index / fps), scene.canvas)
         if hashlib.sha256(probe).hexdigest() != expected[index]:
             raise AssertionError(f"non-deterministic frame at index {index}")
 
@@ -41,24 +41,35 @@ def _render_visual(
     scene,
     output: Path,
     *,
+    start: float,
+    duration: float,
     fps: int,
     workers: int,
     crf: int,
     preset: str,
     verify_random_access: bool,
     encoder_threads: int,
+    frame_provider=None,
 ) -> None:
     """Render RGB0 frames in parallel and stream them directly to libx264."""
     from .frame import render_snapshot_rgb0
 
-    duration = float(scene.timeline.cursor)
     frame_count = max(1, math.ceil(fps * duration - 1e-12))
     width, height = scene.width, scene.height
     workers = max(1, min(int(workers), frame_count))
     buffers = [bytearray(width * height * 4) for _ in range(workers)]
 
     def render_index(buffer: bytearray, index: int) -> None:
-        render_snapshot_rgb0(buffer, scene.evaluate(index / fps), scene.canvas)
+        sample_time = start + index / fps
+        if frame_provider is None:
+            render_snapshot_rgb0(buffer, scene.evaluate(sample_time), scene.canvas)
+            return
+        frame = frame_provider(sample_time)
+        if len(frame) != len(buffer):
+            raise ValueError(
+                f"frame provider returned {len(frame)} bytes; expected {len(buffer)}"
+            )
+        buffer[:] = frame
 
     selected = _selected_frame_indices(frame_count)
     expected: dict[int, str] = {}
@@ -103,7 +114,9 @@ def _render_visual(
     if proc.wait() != 0:
         raise RuntimeError("ffmpeg/libx264 video encoding failed")
     if verify_random_access:
-        _verify_random_access(scene, fps=fps, selected=selected, expected=expected)
+        _verify_random_access(
+            scene, start=start, fps=fps, selected=selected, expected=expected
+        )
 
 
 def render_video(
@@ -111,12 +124,15 @@ def render_video(
     path: str | Path,
     *,
     fps: int | None = None,
+    start: float = 0.0,
+    end: float | None = None,
     workers: int | None = None,
     crf: int = 18,
     preset: str = "veryfast",
     verify_random_access: bool = False,
     audio_bitrate: str = "192k",
     encoder_threads: int = 4,
+    _frame_provider=None,
 ) -> Path:
     """Render a Scene to H.264 MP4 with the portable libx264 pipeline."""
     if fps is None:
@@ -126,9 +142,22 @@ def render_video(
     if encoder_threads <= 0:
         raise ValueError("encoder_threads must be positive")
 
-    duration = float(scene.timeline.cursor)
-    if duration <= 0:
+    scene_duration = float(scene.timeline.cursor)
+    if scene_duration <= 0:
         raise ValueError("scene duration must be positive")
+
+    start = float(start)
+    end = scene_duration if end is None else float(end)
+    if start < 0:
+        raise ValueError("start must be >= 0")
+    if end <= start:
+        raise ValueError("end must be greater than start")
+    if end > scene_duration + 1e-12:
+        raise ValueError(
+            f"end ({end:.12g}) exceeds scene duration ({scene_duration:.12g})"
+        )
+    end = min(end, scene_duration)
+    duration = end - start
 
     subprocess.run(
         ["zig", "build", "-Doptimize=ReleaseFast"],
@@ -146,6 +175,9 @@ def render_video(
     has_audio = any(True for _ in scene._audio_playbacks())
     from .audio import render_audio_mix
 
+    if verify_random_access and _frame_provider is not None:
+        raise ValueError("verify_random_access cannot be combined with cached frame input")
+
     try:
         # Keep intermediate files beside the requested output. The final path is
         # replaced only after a complete render/mux succeeds.
@@ -155,19 +187,22 @@ def render_video(
             _render_visual(
                 scene,
                 visual,
+                start=start,
+                duration=duration,
                 fps=fps,
                 workers=workers,
                 crf=crf,
                 preset=preset,
                 verify_random_access=verify_random_access,
                 encoder_threads=encoder_threads,
+                frame_provider=_frame_provider,
             )
             if not has_audio:
                 visual.replace(output)
                 return output
 
             audio = temp / "audio.wav"
-            rendered_audio = render_audio_mix(scene, audio, duration)
+            rendered_audio = render_audio_mix(scene, audio, duration, start=start)
             if rendered_audio is None:
                 visual.replace(output)
                 return output

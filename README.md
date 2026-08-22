@@ -34,6 +34,35 @@ Important boundaries:
 - `z_index` plus insertion order defines one draw order across geometry, batch, vector, and raster representations.
 - Python owns animation and video orchestration. Zig only rasterizes already-evaluated values.
 
+### Random-access rendering
+
+`Scene.render()` uses the authored timeline to choose the useful output mode while preserving absolute-time evaluation:
+
+```python
+scene.render("still.png")                 # no timeline duration -> image at t=0
+scene.render("full.mp4")                  # animated scene -> complete timeline
+scene.render("frame.png", time=37.25)     # exactly one absolute-time frame
+scene.render("debug.mp4", start=35, end=42)  # only [35, 42)
+```
+
+`render_frame(path, time)` remains the direct single-frame API. `render_video(path, start=..., end=...)` exposes the same interval selection directly. A sliced video samples `scene.evaluate(start + frame/fps)`, so frames before `start` are never evaluated. Audio playback is sliced on the same absolute scene interval.
+
+#### Local random-access preview
+
+`Scene.preview()` opens a local browser UI backed by the same absolute-time evaluator:
+
+```python
+scene.preview()
+```
+
+The preview provides exact-time input plus frame-grid scrubbing/playback, PNG export, interval MP4 export, and an object inspector for every registered item at the selected time. Browser playback consumes the renderer's RGB0 output directly through WebGL2; PNG is only encoded on demand for image export or the legacy image endpoint.
+
+Rendered frames use two bounded storage roles. A small RGB0 hot working set is capped by memory (`hot_cache_mb=64` by default), while completed raster results are independently compressed with Zstandard level 1 into one session-local cold-cache file capped by `cold_cache_mb=1024`. The cold index, not the hot working set, defines the green rendered ranges in the timeline. Once the cold budget is full, background prefetch stops rather than letting disk use grow with scene duration. The cache file is deleted when the preview closes.
+
+Preview-assisted video export deliberately has only two modes. If every requested output sample is present in the cold cache, one continuous ffmpeg/libx264 process consumes restored RGB0 frames and skips `Scene.evaluate()` plus Zig rasterization. If even one requested sample is missing, export uses the normal `render_video()` path unchanged. This prevents partial cache/raster mixing from slowing final export while still allowing a fully previewed interval to export faster. No frame images or segment videos are written.
+
+Selecting a new time renders that sample first, discards stale queued prefetch work, then schedules a bounded forward window (`t + 1/fps`, `t + 2/fps`, ...). For scripting/tests, `scene.preview(block=False, open_browser=False, port=0)` returns a `PreviewServer`; call `close()` when finished. `hot_cache_mb=`, `cold_cache_mb=`, `prefetch_seconds=`, and `prefetch_workers=` tune the preview session without changing normal video-rendering semantics.
+
 ## Common authoring model
 
 Every visual object shares:
