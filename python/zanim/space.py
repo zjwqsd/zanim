@@ -186,7 +186,10 @@ class Transform2D:
         inv_xx, inv_xy = self.yy / det, -self.xy / det
         inv_yx, inv_yy = -self.yx / det, self.xx / det
         return Transform2D(
-            xx=inv_xx, xy=inv_xy, yx=inv_yx, yy=inv_yy,
+            xx=inv_xx,
+            xy=inv_xy,
+            yx=inv_yx,
+            yy=inv_yy,
             tx=-(inv_xx * self.tx + inv_xy * self.ty),
             ty=-(inv_yx * self.tx + inv_yy * self.ty),
         )
@@ -237,8 +240,12 @@ class SE2:
     def as_affine(self) -> Transform2D:
         c, s = cos(self.theta), sin(self.theta)
         return Transform2D(
-            xx=c, xy=-s, yx=s, yy=c,
-            tx=self.translation.x, ty=self.translation.y,
+            xx=c,
+            xy=-s,
+            yx=s,
+            yy=c,
+            tx=self.translation.x,
+            ty=self.translation.y,
         )
 
     @staticmethod
@@ -271,7 +278,10 @@ class SE2:
         )
 
 
-def _authoring_vec2(value: Vec2 | tuple[float, float], *, name: str) -> Vec2:
+Point2 = Vec2 | tuple[float, float]
+
+
+def as_vec2(value: Point2, *, name: str = "point") -> Vec2:
     if isinstance(value, Vec2):
         return value
     if isinstance(value, tuple) and len(value) == 2:
@@ -281,26 +291,28 @@ def _authoring_vec2(value: Vec2 | tuple[float, float], *, name: str) -> Vec2:
     raise TypeError(f"{name} must be Vec2 or a numeric (x, y) tuple")
 
 
-def pose2d(
-    *, to: Vec2 | tuple[float, float] = (0.0, 0.0), rotation: float = 0.0
-) -> SE2:
-    """Construct a rigid 2D pose from authoring-friendly values."""
-    return SE2(theta=float(rotation), translation=_authoring_vec2(to, name="to"))
+def pose2d(*, position: Point2 = (0.0, 0.0), rotation: float = 0.0) -> SE2:
+    """Construct a complete local-to-parent rigid pose."""
+    return SE2(theta=float(rotation), translation=as_vec2(position, name="position"))
 
 
 def affine2d(
     *,
-    to: Vec2 | tuple[float, float] = (0.0, 0.0),
+    position: Point2 = (0.0, 0.0),
     rotation: float = 0.0,
     scale: float | tuple[float, float] = 1.0,
-    shear: Vec2 | tuple[float, float] = (0.0, 0.0),
+    shear: Point2 = (0.0, 0.0),
 ) -> Transform2D:
     """Construct ``Translation @ Rotation @ Shear @ Scale`` explicitly."""
-    p = _authoring_vec2(to, name="to")
-    sh = _authoring_vec2(shear, name="shear")
+    p = as_vec2(position, name="position")
+    sh = as_vec2(shear, name="shear")
     if isinstance(scale, (int, float)):
         sx = sy = float(scale)
-    elif isinstance(scale, tuple) and len(scale) == 2 and all(isinstance(v, (int, float)) for v in scale):
+    elif (
+        isinstance(scale, tuple)
+        and len(scale) == 2
+        and all(isinstance(v, (int, float)) for v in scale)
+    ):
         sx, sy = float(scale[0]), float(scale[1])
     else:
         raise TypeError("scale must be a number or numeric (x, y) tuple")

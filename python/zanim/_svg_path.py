@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from math import atan2, ceil, cos, pi, radians, sin, sqrt, tan
 import re
+from math import atan2, ceil, cos, pi, radians, sin, sqrt, tan
 
-from .geometry import CubicBezier
+from .geometry import CubicBezierGeometry
 from .space import Vec2
 from .vector import VectorContour
 
@@ -14,12 +14,12 @@ def _lerp(a: Vec2, b: Vec2, t: float) -> Vec2:
     return Vec2(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
 
 
-def _line(a: Vec2, b: Vec2) -> CubicBezier:
-    return CubicBezier(a, _lerp(a, b, 1 / 3), _lerp(a, b, 2 / 3), b)
+def _line(a: Vec2, b: Vec2) -> CubicBezierGeometry:
+    return CubicBezierGeometry(a, _lerp(a, b, 1 / 3), _lerp(a, b, 2 / 3), b)
 
 
-def _quadratic(a: Vec2, q: Vec2, b: Vec2) -> CubicBezier:
-    return CubicBezier(
+def _quadratic(a: Vec2, q: Vec2, b: Vec2) -> CubicBezierGeometry:
+    return CubicBezierGeometry(
         a,
         Vec2(a.x + (q.x - a.x) * 2 / 3, a.y + (q.y - a.y) * 2 / 3),
         Vec2(b.x + (q.x - b.x) * 2 / 3, b.y + (q.y - b.y) * 2 / 3),
@@ -44,11 +44,9 @@ def _arc_to_cubics(
     large_arc: bool,
     sweep: bool,
     end: Vec2,
-) -> list[CubicBezier]:
+) -> list[CubicBezierGeometry]:
     rx, ry = abs(rx), abs(ry)
-    if rx == 0 or ry == 0 or (
-        abs(start.x - end.x) < 1e-12 and abs(start.y - end.y) < 1e-12
-    ):
+    if rx == 0 or ry == 0 or (abs(start.x - end.x) < 1e-12 and abs(start.y - end.y) < 1e-12):
         return [] if start == end else [_line(start, end)]
 
     phi = radians(rotation_deg % 360.0)
@@ -87,7 +85,7 @@ def _arc_to_cubics(
 
     count = max(1, int(ceil(abs(delta) / (pi / 2))))
     step = delta / count
-    out: list[CubicBezier] = []
+    out: list[CubicBezierGeometry] = []
     previous = start
     for index in range(count):
         a0 = theta + index * step
@@ -100,7 +98,7 @@ def _arc_to_cubics(
         p1 = _map_ellipse(cx, cy, rx, ry, phi, u1)
         p2 = _map_ellipse(cx, cy, rx, ry, phi, u2)
         p3 = end if index == count - 1 else _map_ellipse(cx, cy, rx, ry, phi, u3)
-        out.append(CubicBezier(previous, p1, p2, p3))
+        out.append(CubicBezierGeometry(previous, p1, p2, p3))
         previous = p3
     return out
 
@@ -112,7 +110,7 @@ def parse_path_data(data: str) -> tuple[VectorContour, ...]:
     command: str | None = None
     current = Vec2()
     contour_start = Vec2()
-    segments: list[CubicBezier] = []
+    segments: list[CubicBezierGeometry] = []
     contours: list[VectorContour] = []
     previous_cubic_control: Vec2 | None = None
     previous_quadratic_control: Vec2 | None = None
@@ -181,7 +179,7 @@ def parse_path_data(data: str) -> tuple[VectorContour, ...]:
             previous_cubic_control = previous_quadratic_control = None
         elif op == "C":
             c1, c2, p = point(relative), point(relative), point(relative)
-            segments.append(CubicBezier(current, c1, c2, p))
+            segments.append(CubicBezierGeometry(current, c1, c2, p))
             current = p
             previous_cubic_control, previous_quadratic_control = c2, None
         elif op == "S":
@@ -194,7 +192,7 @@ def parse_path_data(data: str) -> tuple[VectorContour, ...]:
                 )
             )
             c2, p = point(relative), point(relative)
-            segments.append(CubicBezier(current, c1, c2, p))
+            segments.append(CubicBezierGeometry(current, c1, c2, p))
             current = p
             previous_cubic_control, previous_quadratic_control = c2, None
         elif op == "Q":

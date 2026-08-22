@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from math import pi
 
 from .object import SceneObject2D
-from .space import Linear2D, SE2, Transform2D, Vec2
+from .space import SE2, Linear2D, Transform2D, Vec2
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,13 +57,13 @@ class Style:
 
 
 @dataclass(frozen=True, slots=True)
-class Line:
+class LineGeometry:
     start: Vec2
     end: Vec2
 
 
 @dataclass(frozen=True, slots=True)
-class Polyline:
+class PolylineGeometry:
     points: tuple[Vec2, ...]
 
     def __post_init__(self) -> None:
@@ -72,7 +72,7 @@ class Polyline:
 
 
 @dataclass(frozen=True, slots=True)
-class Polygon:
+class PolygonGeometry:
     points: tuple[Vec2, ...]
 
     def __post_init__(self) -> None:
@@ -81,7 +81,7 @@ class Polygon:
 
 
 @dataclass(frozen=True, slots=True)
-class Rectangle:
+class RectangleGeometry:
     width: float
     height: float
 
@@ -91,7 +91,7 @@ class Rectangle:
 
 
 @dataclass(frozen=True, slots=True)
-class Square:
+class SquareGeometry:
     side: float
 
     def __post_init__(self) -> None:
@@ -100,7 +100,7 @@ class Square:
 
 
 @dataclass(frozen=True, slots=True)
-class Circle:
+class CircleGeometry:
     radius: float
 
     def __post_init__(self) -> None:
@@ -109,7 +109,7 @@ class Circle:
 
 
 @dataclass(frozen=True, slots=True)
-class Ellipse:
+class EllipseGeometry:
     radius_x: float
     radius_y: float
 
@@ -119,7 +119,7 @@ class Ellipse:
 
 
 @dataclass(frozen=True, slots=True)
-class Arc:
+class ArcGeometry:
     radius: float
     start_angle: float
     sweep_angle: float
@@ -130,7 +130,7 @@ class Arc:
 
 
 @dataclass(frozen=True, slots=True)
-class RegularPolygon:
+class RegularPolygonGeometry:
     sides: int
     radius: float
     phase: float = pi / 2
@@ -143,14 +143,25 @@ class RegularPolygon:
 
 
 @dataclass(frozen=True, slots=True)
-class CubicBezier:
+class CubicBezierGeometry:
     p0: Vec2
     p1: Vec2
     p2: Vec2
     p3: Vec2
 
 
-Geometry = Line | Polyline | Polygon | Rectangle | Square | Circle | Ellipse | Arc | RegularPolygon | CubicBezier
+Geometry = (
+    LineGeometry
+    | PolylineGeometry
+    | PolygonGeometry
+    | RectangleGeometry
+    | SquareGeometry
+    | CircleGeometry
+    | EllipseGeometry
+    | ArcGeometry
+    | RegularPolygonGeometry
+    | CubicBezierGeometry
+)
 
 
 @dataclass(slots=True, init=False)
@@ -223,12 +234,13 @@ class Object2D(SceneObject2D):
         if transform is None:
             resolved_transform = (
                 affine2d(
-                    to=(0.0, 0.0) if position is None else position,
+                    position=(0.0, 0.0) if position is None else position,
                     rotation=0.0 if rotation is None else rotation,
                     scale=1.0 if scale is None else scale,
                     shear=(0.0, 0.0) if shear is None else shear,
                 )
-                if transform_sugar else Transform2D()
+                if transform_sugar
+                else Transform2D()
             )
         elif isinstance(transform, SE2):
             resolved_transform = transform.as_affine()

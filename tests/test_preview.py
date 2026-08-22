@@ -1,27 +1,35 @@
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 from urllib.request import urlopen
 
-from zanim import Canvas, Circle, Color, Group2D, LOCAL, Object2D, Rectangle, Scene, Style, Transform2D
+from zanim import (
+    LOCAL,
+    Canvas,
+    Circle,
+    Color,
+    Group,
+    Rectangle,
+    Scene,
+    Style,
+    Transform2D,
+)
 from zanim.preview import PreviewServer, PreviewSession, _CompressedFrameCache
 
 
 class PreviewSessionTests(unittest.TestCase):
     def make_scene(self, *, fps=10, duration=2.0):
         scene = Scene(canvas=Canvas(80, 48, 12), fps=fps)
-        obj = Object2D(Circle(1))
+        obj = Circle(1)
         scene.add(obj)
         scene.transform(obj, to=Transform2D.translation(2, 0), duration=duration)
         return scene, obj
 
     def test_prefetch_plan_is_forward_from_selection(self):
         scene, _ = self.make_scene(fps=10, duration=4)
-        session = PreviewSession(
-            scene, hot_cache_mb=0, prefetch_seconds=0.5, prefetch_workers=1
-        )
+        session = PreviewSession(scene, hot_cache_mb=0, prefetch_seconds=0.5, prefetch_workers=1)
         try:
             plan = session.prefetch_plan(12)
             self.assertTrue(plan)
@@ -59,7 +67,7 @@ class PreviewSessionTests(unittest.TestCase):
             info = session.inspect(5)
             obj = next(item for item in info["objects"] if item["id"] == 1)
             self.assertTrue(obj["alive"])
-            self.assertEqual(obj["type"], "Object2D")
+            self.assertEqual(obj["type"], "Circle")
             self.assertEqual(obj["active_clips"][0]["type"], "TransformClip")
             self.assertAlmostEqual(obj["active_clips"][0]["progress"], 0.25)
             self.assertAlmostEqual(obj["state"]["render_transform"]["tx"], 0.3125)
@@ -69,10 +77,9 @@ class PreviewSessionTests(unittest.TestCase):
         finally:
             session.close()
 
-
     def test_removed_object_has_no_current_preview_state(self):
         scene = Scene(canvas=Canvas(200, 120, 20), fps=10)
-        obj = Object2D(Circle(1), style=Style(fill=Color(240, 80, 80)))
+        obj = Circle(1, style=Style(fill=Color(240, 80, 80)))
         handle = scene.add(obj)
         handle.move(by=(1, 0), frame=LOCAL, duration=0.5)
         scene.wait(0.5)
@@ -80,8 +87,16 @@ class PreviewSessionTests(unittest.TestCase):
         scene.wait(0.5)
         session = PreviewSession(scene, hot_cache_mb=1, cold_cache_mb=1, prefetch_workers=1)
         try:
-            before = next(item for item in session.inspect_time(0.999, frame_object_ids=(1,))["objects"] if item["id"] == 1)
-            removed = next(item for item in session.inspect_time(1.0, frame_object_ids=(1,))["objects"] if item["id"] == 1)
+            before = next(
+                item
+                for item in session.inspect_time(0.999, frame_object_ids=(1,))["objects"]
+                if item["id"] == 1
+            )
+            removed = next(
+                item
+                for item in session.inspect_time(1.0, frame_object_ids=(1,))["objects"]
+                if item["id"] == 1
+            )
             self.assertTrue(before["alive"])
             self.assertTrue(before["state"])
             self.assertIsNotNone(before["local_bounds"])
@@ -94,7 +109,7 @@ class PreviewSessionTests(unittest.TestCase):
 
     def test_zero_duration_clip_is_not_active_at_same_time_removal(self):
         scene = Scene(canvas=Canvas(120, 80, 16), fps=10)
-        obj = Object2D(Circle(1), style=Style(fill=Color(240, 80, 80)))
+        obj = Circle(1, style=Style(fill=Color(240, 80, 80)))
         handle = scene.add(obj)
         handle.opacity(to=0.5, duration=0.0)
         handle.remove()
@@ -109,10 +124,10 @@ class PreviewSessionTests(unittest.TestCase):
 
     def test_removed_child_leaves_parent_current_bounds(self):
         scene = Scene(canvas=Canvas(240, 120, 20), fps=10)
-        left = Object2D(Circle(1), style=Style(fill=Color(240, 80, 80)))
-        right = Object2D(Circle(1), style=Style(fill=Color(80, 160, 240)))
+        left = Circle(1, style=Style(fill=Color(240, 80, 80)))
+        right = Circle(1, style=Style(fill=Color(80, 160, 240)))
         right.shift(4, 0)
-        group = Group2D([left, right])
+        group = Group([left, right])
         scene.add(group)
         right_handle = scene.on(right)
         scene.wait(1.0)
@@ -120,8 +135,16 @@ class PreviewSessionTests(unittest.TestCase):
         scene.wait(0.5)
         session = PreviewSession(scene, hot_cache_mb=1, cold_cache_mb=1, prefetch_workers=1)
         try:
-            before = next(item for item in session.inspect_time(0.5, frame_object_ids=(1,))["objects"] if item["id"] == 1)
-            after = next(item for item in session.inspect_time(1.0, frame_object_ids=(1,))["objects"] if item["id"] == 1)
+            before = next(
+                item
+                for item in session.inspect_time(0.5, frame_object_ids=(1,))["objects"]
+                if item["id"] == 1
+            )
+            after = next(
+                item
+                for item in session.inspect_time(1.0, frame_object_ids=(1,))["objects"]
+                if item["id"] == 1
+            )
             self.assertAlmostEqual(before["local_bounds"]["right"], 5.0)
             self.assertAlmostEqual(after["local_bounds"]["right"], 1.0)
         finally:
@@ -129,8 +152,8 @@ class PreviewSessionTests(unittest.TestCase):
 
     def test_group_local_bounds_follow_current_child_transform(self):
         scene = Scene(canvas=Canvas(200, 120, 20), fps=10)
-        child = Object2D(Rectangle(2, 1), style=Style(fill=Color(240, 80, 80)))
-        group = Group2D([child])
+        child = Rectangle(2, 1, style=Style(fill=Color(240, 80, 80)))
+        group = Group([child])
         group_handle = scene.add(group)
         child_handle = scene.on(child)
         child_handle.move(by=(2, 0), frame=LOCAL, duration=1.0)
@@ -138,15 +161,27 @@ class PreviewSessionTests(unittest.TestCase):
         try:
             start = session.inspect_time(0.0, frame_object_ids=(1,))
             middle = session.inspect_time(0.5, frame_object_ids=(1,))
-            start_group = next(item for item in start["objects"] if item["id"] == group_handle.object_id)
-            middle_group = next(item for item in middle["objects"] if item["id"] == group_handle.object_id)
+            start_group = next(
+                item for item in start["objects"] if item["id"] == group_handle.object_id
+            )
+            middle_group = next(
+                item for item in middle["objects"] if item["id"] == group_handle.object_id
+            )
             self.assertAlmostEqual(start_group["local_bounds"]["left"], -1.0)
             self.assertAlmostEqual(start_group["local_bounds"]["right"], 1.0)
             self.assertAlmostEqual(middle_group["local_bounds"]["left"], 0.0)
             self.assertAlmostEqual(middle_group["local_bounds"]["right"], 2.0)
-            self.assertEqual(middle["view_transform"], {
-                "xx": 1.0, "xy": 0.0, "yx": 0.0, "yy": 1.0, "tx": 0.0, "ty": 0.0,
-            })
+            self.assertEqual(
+                middle["view_transform"],
+                {
+                    "xx": 1.0,
+                    "xy": 0.0,
+                    "yx": 0.0,
+                    "yy": 1.0,
+                    "tx": 0.0,
+                    "ty": 0.0,
+                },
+            )
             self.assertEqual(session.metadata()["unit_size"], 20.0)
         finally:
             session.close()
@@ -230,7 +265,7 @@ class PreviewSessionTests(unittest.TestCase):
 
     def test_pick_http_endpoint_returns_object_id(self):
         scene = Scene(canvas=Canvas(80, 48, 12), fps=10)
-        scene.add(Object2D(Circle(1), style=Style(fill=Color(240, 80, 80))))
+        scene.add(Circle(1, style=Style(fill=Color(240, 80, 80))))
         server = PreviewServer(
             scene, host="127.0.0.1", port=0, hot_cache_mb=1, prefetch_workers=1
         ).start(open_browser=False)
@@ -260,10 +295,10 @@ class PreviewSessionTests(unittest.TestCase):
             self.assertIn(b'<canvas id="preview"', html)
             self.assertIn(b'<canvas id="overlay"', html)
             self.assertIn(b'id="reloadCode"', html)
-            self.assertIn(b'/api/reload', html)
-            self.assertIn(b'data-frame-object', html)
-            self.assertIn(b'/api/frame/raw', html)
-            self.assertIn(b'/api/pick', html)
+            self.assertIn(b"/api/reload", html)
+            self.assertIn(b"data-frame-object", html)
+            self.assertIn(b"/api/frame/raw", html)
+            self.assertIn(b"/api/pick", html)
             self.assertLess(html.index(b'id="sourcePanel"'), html.index(b'<aside class="right">'))
         finally:
             server.close()
@@ -279,7 +314,11 @@ class PreviewSessionTests(unittest.TestCase):
             after = session.cache_state()["stats"]["renders"]
             self.assertTrue(output.is_file())
             self.assertEqual(before, after)
-            self.assertGreater(session.cache_state()["stats"]["hot_hits"] + session.cache_state()["stats"]["cold_hits"], 0)
+            self.assertGreater(
+                session.cache_state()["stats"]["hot_hits"]
+                + session.cache_state()["stats"]["cold_hits"],
+                0,
+            )
             self.assertEqual(output, session.export_video(0, scene.fps))
         finally:
             session.close()

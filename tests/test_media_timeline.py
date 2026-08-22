@@ -4,12 +4,12 @@ import unittest
 from pathlib import Path
 
 from PIL import Image as PILImage
-
-from zanim import Audio, GIF, Image, PlaybackClip, Scene, TimeSpan, Video
+from zanim import GIF, Audio, Image, Scene, Video
 from zanim.render.audio import render_audio_mix
+from zanim.timeline import PlaybackClip, TimeSpan
 
 ROOT = Path(__file__).resolve().parents[1]
-MEDIA = ROOT / "assets/media_demo"
+MEDIA = ROOT / "examples/assets/media_demo"
 
 
 class PlaybackTests(unittest.TestCase):
@@ -30,20 +30,26 @@ class PlaybackTests(unittest.TestCase):
             path = Path(td) / "x.png"
             PILImage.new("RGBA", (4, 2), (255, 0, 0, 255)).save(path)
             image = Image(path)
-            scene = Scene(); scene
-            scene.add(image); scene.media(image, duration=2)
+            scene = Scene()
+            scene
+            scene.add(image)
+            scene.media(image, duration=2)
             self.assertEqual(len(scene.evaluate(1).rasters), 1)
             self.assertEqual(len(scene.evaluate(3).rasters), 0)
 
     def test_gif_uses_variable_frame_durations(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "x.gif"
-            frames = [PILImage.new("RGBA", (2, 2), c) for c in (
-                (255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)
-            )]
+            frames = [
+                PILImage.new("RGBA", (2, 2), c)
+                for c in ((255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255))
+            ]
             frames[0].save(
-                path, save_all=True, append_images=frames[1:],
-                duration=[100, 300, 200], loop=0,
+                path,
+                save_all=True,
+                append_images=frames[1:],
+                duration=[100, 300, 200],
+                loop=0,
             )
             gif = GIF(path)
             self.assertEqual(gif.source.frame_at(0.05).rgba[:4], bytes((255, 0, 0, 255)))
@@ -71,10 +77,21 @@ class PlaybackTests(unittest.TestCase):
         scene.media(audio, duration=2.0, loop=True, at=0.25)
         with tempfile.TemporaryDirectory() as td:
             output = Path(td) / "mix.wav"
-            render_audio_mix(scene, output, scene.timeline.cursor)
+            render_audio_mix(scene, output, scene.duration)
             proc = subprocess.run(
-                ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", str(output)],
-                check=True, capture_output=True, text=True,
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=nw=1:nk=1",
+                    str(output),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
             )
             self.assertAlmostEqual(float(proc.stdout.strip()), 2.25, places=2)
             self.assertLess(output.stat().st_size, 2_000_000)

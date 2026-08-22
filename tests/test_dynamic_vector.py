@@ -1,12 +1,19 @@
 import unittest
 
-from zanim import Color, CubicBezier, DynamicVectorObject2D, Scene, Vec2, VectorContour, VectorDocument, VectorPath
-from zanim.vector import map_vector_document
+from zanim import Scene, Vec2
+from zanim.geometry import CubicBezierGeometry
+from zanim.vector import (
+    DynamicVectorObject2D,
+    VectorContour,
+    VectorDocument,
+    VectorPath,
+    map_vector_document,
+)
 
 
 class DynamicVectorTests(unittest.TestCase):
     def setUp(self):
-        seg = CubicBezier(Vec2(0, 0), Vec2(1, 0), Vec2(1, 1), Vec2(2, 1))
+        seg = CubicBezierGeometry(Vec2(0, 0), Vec2(1, 0), Vec2(1, 1), Vec2(2, 1))
         self.doc = VectorDocument(
             (VectorPath((VectorContour((seg,), False),), fill=None),),
             width=2.0,
@@ -20,9 +27,7 @@ class DynamicVectorTests(unittest.TestCase):
         self.assertEqual(mapped.paths[0].contours[0].segments[0].p3, Vec2(6, 4))
 
     def test_point_mapping_can_recompute_intrinsic_size(self):
-        mapped = map_vector_document(
-            self.doc, lambda p: Vec2(p.x * 3, p.y * 4), update_size=True
-        )
+        mapped = map_vector_document(self.doc, lambda p: Vec2(p.x * 3, p.y * 4), update_size=True)
         self.assertAlmostEqual(mapped.width, 6.0)
         self.assertAlmostEqual(mapped.height, 4.0)
 
@@ -39,5 +44,5 @@ class DynamicVectorTests(unittest.TestCase):
         self.assertEqual(a.paths[0].contours[0].segments[0].p0, Vec2(0.75, 0))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

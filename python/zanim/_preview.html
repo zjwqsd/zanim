@@ -536,7 +536,7 @@ button,input{font:inherit}button{color:var(--text);background:#1a2230;border:1px
   }
 
   async function reloadCode() {
-    if (!state.meta?.source_available || state.reloading) return;
+    if (!state.meta?.reload_available || state.reloading) return;
     state.reloading = true;
     state.request += 1;
     clearTimeout(state.scrubTimer);
@@ -626,7 +626,7 @@ button,input{font:inherit}button{color:var(--text);background:#1a2230;border:1px
   async function init() {
     const response = await fetch('/api/meta');
     state.meta = await response.json();
-    els.reloadCode.hidden = !state.meta.source_available;
+    els.reloadCode.hidden = !state.meta.reload_available;
     if (state.meta.source_available) {
       const sourceResponse = await fetch('/api/source');
       if (!sourceResponse.ok) throw new Error(await sourceResponse.text());

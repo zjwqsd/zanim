@@ -5,18 +5,18 @@ from dataclasses import dataclass
 from .batch import BatchObject2D, CircleSet, LineSet, RectSet
 from .dynamic import number_metrics
 from .geometry import (
-    Arc,
-    Circle,
+    ArcGeometry,
+    CircleGeometry,
     Color,
-    CubicBezier,
-    Ellipse,
-    Line,
+    CubicBezierGeometry,
+    EllipseGeometry,
+    LineGeometry,
     Object2D,
-    Polygon,
-    Polyline,
-    Rectangle,
-    RegularPolygon,
-    Square,
+    PolygonGeometry,
+    PolylineGeometry,
+    RectangleGeometry,
+    RegularPolygonGeometry,
+    SquareGeometry,
 )
 from .svg import load_svg
 from .typst import compile_typst_svg
@@ -67,7 +67,7 @@ def _marker_color(index: int) -> Color:
 
 def _box_source(width: float, height: float, color: Color, *, baseline: str = "auto") -> str:
     return (
-        f'#box(width: {width * 72:.8f}pt, height: {height * 72:.8f}pt, '
+        f"#box(width: {width * 72:.8f}pt, height: {height * 72:.8f}pt, "
         f'baseline: {baseline}, fill: rgb("{_hex(color)}"))'
     )
 
@@ -83,7 +83,9 @@ def _number_box(slot, color: Color) -> str:
     return _box_source(width, height, color)
 
 
-def compile_formula_layout(items, *, gap: float, font_size: float, color: Color) -> CompiledFormulaLayout:
+def compile_formula_layout(
+    items, *, gap: float, font_size: float, color: Color
+) -> CompiledFormulaLayout:
     """Let Typst lay out the whole formula, then recover fixed slot boxes.
 
     FormulaTemplate does not implement mathematical spacing itself. Colored
@@ -137,12 +139,12 @@ def compile_formula_layout(items, *, gap: float, font_size: float, color: Color)
                 for cell_index in range(item.rows * item.cols)
             ]
             rows = [
-                "(" + ", ".join(cells[row * item.cols:(row + 1) * item.cols]) + ")"
+                "(" + ", ".join(cells[row * item.cols : (row + 1) * item.cols]) + ")"
                 for row in range(item.rows)
             ]
             fragments.append(
                 f'#math.mat({", ".join(rows)}, delim: "{item.delim}", '
-                f'row-gap: {item.row_gap}, column-gap: {item.column_gap})'
+                f"row-gap: {item.row_gap}, column-gap: {item.column_gap})"
             )
             continue
 
@@ -222,25 +224,25 @@ def object_size(obj: SceneObject) -> tuple[float, float]:
         raise TypeError(f"unsupported batch object for ObjectSlot: {type(batch).__name__}")
 
     geometry = obj.geometry
-    if isinstance(geometry, Rectangle):
+    if isinstance(geometry, RectangleGeometry):
         return geometry.width, geometry.height
-    if isinstance(geometry, Square):
+    if isinstance(geometry, SquareGeometry):
         return geometry.side, geometry.side
-    if isinstance(geometry, Circle):
+    if isinstance(geometry, CircleGeometry):
         return 2 * geometry.radius, 2 * geometry.radius
-    if isinstance(geometry, Ellipse):
+    if isinstance(geometry, EllipseGeometry):
         return 2 * geometry.radius_x, 2 * geometry.radius_y
-    if isinstance(geometry, Arc):
+    if isinstance(geometry, ArcGeometry):
         return 2 * geometry.radius, 2 * geometry.radius
-    if isinstance(geometry, RegularPolygon):
+    if isinstance(geometry, RegularPolygonGeometry):
         return 2 * geometry.radius, 2 * geometry.radius
-    if isinstance(geometry, Line):
+    if isinstance(geometry, LineGeometry):
         return abs(geometry.end.x - geometry.start.x), abs(geometry.end.y - geometry.start.y)
-    if isinstance(geometry, (Polyline, Polygon)):
+    if isinstance(geometry, (PolylineGeometry, PolygonGeometry)):
         xs = [point.x for point in geometry.points]
         ys = [point.y for point in geometry.points]
         return max(xs) - min(xs), max(ys) - min(ys)
-    if isinstance(geometry, CubicBezier):
+    if isinstance(geometry, CubicBezierGeometry):
         points = (geometry.p0, geometry.p1, geometry.p2, geometry.p3)
         xs = [point.x for point in points]
         ys = [point.y for point in points]

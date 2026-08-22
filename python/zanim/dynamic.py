@@ -5,12 +5,15 @@ from functools import lru_cache
 from numbers import Real
 from typing import Callable, Literal
 
-from .geometry import Color, CubicBezier
+from .geometry import Color, CubicBezierGeometry
 from .space import Transform2D
 from .typst import Math
 from .value import ScalarValue
 from .vector import (
-    VectorContour, VectorDocument, VectorObject2D, VectorPath,
+    VectorContour,
+    VectorDocument,
+    VectorObject2D,
+    VectorPath,
     vector_path_bounds,
 )
 
@@ -58,9 +61,11 @@ def _transform_path(path: VectorPath, transform: Transform2D, *, group: int = 0)
     contours = tuple(
         VectorContour(
             tuple(
-                CubicBezier(
-                    transform.apply(seg.p0), transform.apply(seg.p1),
-                    transform.apply(seg.p2), transform.apply(seg.p3),
+                CubicBezierGeometry(
+                    transform.apply(seg.p0),
+                    transform.apply(seg.p1),
+                    transform.apply(seg.p2),
+                    transform.apply(seg.p3),
                 )
                 for seg in contour.segments
             ),
@@ -100,20 +105,21 @@ class _MathNumberGlyphAtlas:
             top = max(vector_path_bounds(p)[3] for p in paths)
             cx, cy = (left + right) * 0.5, (bottom + top) * 0.5
             centered = tuple(
-                _transform_path(p, Transform2D.translation(-cx, -cy), group=0)
-                for p in paths
+                _transform_path(p, Transform2D.translation(-cx, -cy), group=0) for p in paths
             )
             # Typst's one-symbol equation width is its natural advance. This is
             # cached by compile_typst_svg, so these probes are cheap after the
             # first construction and never happen per frame.
             metric = Math(ch, font_size=font_size, color=color).document
             advances[ch] = metric.width
-            glyphs[ch] = VectorDocument(centered, max(right-left, 1e-9), max(top-bottom, 1e-9), 1)
+            glyphs[ch] = VectorDocument(
+                centered, max(right - left, 1e-9), max(top - bottom, 1e-9), 1
+            )
 
         self.glyphs = glyphs
         self.advances = advances
-        self.digit_advance = advances['8']
-        self.height = Math('8', font_size=font_size, color=color).document.height
+        self.digit_advance = advances["8"]
+        self.height = Math("8", font_size=font_size, color=color).document.height
         self._runs: dict[tuple[NumberFormat, str], VectorDocument] = {}
 
     def reserved_width(self, fmt: NumberFormat) -> float:
@@ -123,17 +129,19 @@ class _MathNumberGlyphAtlas:
         extra = 0.0
         if fmt.decimals > 0:
             digit_slots -= 1
-            extra += self.advances['.']
+            extra += self.advances["."]
         # A negative value can occupy one sign position and is wider than a
         # blank leading sign. This is the worst case for the supported format.
         if fmt.width >= 2:
-            negative = self.advances['-'] + max(0, digit_slots - 1) * self.digit_advance + extra
+            negative = self.advances["-"] + max(0, digit_slots - 1) * self.digit_advance + extra
         else:
             negative = self.digit_advance
         positive = digit_slots * self.digit_advance + extra
         return max(negative, positive)
 
-    def document(self, text: str, fmt: NumberFormat, align: Literal["left", "center", "right"] = "right") -> VectorDocument:
+    def document(
+        self, text: str, fmt: NumberFormat, align: Literal["left", "center", "right"] = "right"
+    ) -> VectorDocument:
         if len(text) != fmt.width:
             raise ValueError("formatted number must exactly match fixed width")
         key = (fmt, text, align)
@@ -142,7 +150,7 @@ class _MathNumberGlyphAtlas:
             return cached
 
         width = self.reserved_width(fmt)
-        visible = [ch for ch in text if ch != ' ']
+        visible = [ch for ch in text if ch != " "]
         run_width = sum(self.advances[ch] for ch in visible)
         if align == "right":
             cursor = width * 0.5 - run_width
@@ -161,7 +169,9 @@ class _MathNumberGlyphAtlas:
                 paths.append(_transform_path(path, Transform2D.translation(cx, 0.0), group=0))
             cursor += advance
 
-        doc = VectorDocument(tuple(paths), width=width, height=self.height, group_count=1 if paths else 0)
+        doc = VectorDocument(
+            tuple(paths), width=width, height=self.height, group_count=1 if paths else 0
+        )
         self._runs[key] = doc
         return doc
 
@@ -185,6 +195,7 @@ class DynamicNumber(VectorObject2D):
     """Fixed-box, high-frequency number rendered with Typst math glyphs."""
 
     __slots__ = ("provider", "number_format", "font_size", "color", "align", "_atlas")
+
     def __init__(
         self,
         provider: Callable[[float], Real] | ScalarValue,
@@ -210,7 +221,9 @@ class DynamicNumber(VectorObject2D):
         self.align = align
         self._atlas = _atlas(font_size, color)
         initial = self._document_for_value(provider(0.0))
-        super().__init__(document=initial, transform=transform, reveal=1.0, opacity=opacity, z_index=z_index)
+        super().__init__(
+            document=initial, transform=transform, reveal=1.0, opacity=opacity, z_index=z_index
+        )
 
     @property
     def fixed_size(self) -> tuple[float, float]:

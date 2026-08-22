@@ -1,6 +1,14 @@
 import unittest
 
-from zanim import Canvas, Color, FormulaLiteral, FormulaTemplate, NumberFormat, NumberSlot, Scene, ScriptSlots
+from zanim import (
+    Canvas,
+    FormulaLiteral,
+    FormulaTemplate,
+    NumberFormat,
+    NumberSlot,
+    Scene,
+    ScriptSlots,
+)
 
 
 class ScriptSlotsTests(unittest.TestCase):
@@ -13,7 +21,7 @@ class ScriptSlotsTests(unittest.TestCase):
         )
         template = FormulaTemplate(limits, FormulaLiteral("f(x) dif x", font_size=36), font_size=36)
         scene = Scene(canvas=Canvas(width=640, height=360, unit_size=75))
-        instance = template.mount(scene, {"a": lambda t: -2 + 0.1*t, "b": lambda t: 1 + 0.2*t})
+        instance = template.mount(scene, {"a": lambda t: -2 + 0.1 * t, "b": lambda t: 1 + 0.2 * t})
         self.assertIn("a", instance.slots)
         self.assertIn("b", instance.slots)
         a = instance.slots["a"][0]
@@ -31,5 +39,5 @@ class ScriptSlotsTests(unittest.TestCase):
             ScriptSlots("integral", NumberSlot("x", fmt), NumberSlot("x", fmt))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

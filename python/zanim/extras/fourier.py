@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from cmath import exp
+from dataclasses import dataclass
 from math import pi
 from typing import Iterable
 
@@ -22,12 +22,7 @@ class FourierTerm:
 
 def closed_contours(document: VectorDocument) -> tuple[VectorContour, ...]:
     """Return every closed contour in document paint order."""
-    return tuple(
-        contour
-        for path in document.paths
-        for contour in path.contours
-        if contour.closed
-    )
+    return tuple(contour for path in document.paths for contour in path.contours if contour.closed)
 
 
 def select_closed_contour(
@@ -50,11 +45,9 @@ def select_closed_contour(
         raise ValueError("contour strategy must be 'first' or 'longest'")
 
     def approximate_length(contour: VectorContour) -> float:
-        points = sample_vector_contour_by_arclength(
-            contour, probe_samples, tolerance=2e-3
-        )
+        points = sample_vector_contour_by_arclength(contour, probe_samples, tolerance=2e-3)
         return sum(
-            ((b.x-a.x)**2 + (b.y-a.y)**2) ** 0.5
+            ((b.x - a.x) ** 2 + (b.y - a.y) ** 2) ** 0.5
             for a, b in zip(points, (*points[1:], points[0]))
         )
 
@@ -88,10 +81,9 @@ def dft(samples: Iterable[complex]) -> tuple[FourierTerm, ...]:
     half = n // 2
     for k in range(n):
         frequency = k if k <= half else k - n
-        coefficient = sum(
-            value * exp(-2j * pi * k * index / n)
-            for index, value in enumerate(values)
-        ) / n
+        coefficient = (
+            sum(value * exp(-2j * pi * k * index / n) for index, value in enumerate(values)) / n
+        )
         terms.append(FourierTerm(frequency, coefficient))
     return tuple(terms)
 

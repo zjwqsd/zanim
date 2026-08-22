@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import ipaddress
 import json
 import math
 import queue
@@ -15,15 +16,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from PIL import Image as PILImage
 import zstandard as zstd
+from PIL import Image as PILImage
 
 from .audio import AudioObject
 from .batch import BatchObject2D, DynamicBatchObject2D
 from .bounds import Bounds2D, bounds_from_render_item
 from .camera import Camera2D
 from .geometry import Object2D
-from .group import Group2D
+from .group import Group
 from .mesh3d import MeshObject3D
 from .raster import RasterObject2D
 from .snapshot import (
@@ -34,12 +35,11 @@ from .snapshot import (
     RasterState,
     VectorSnapshot,
 )
+from .source import get_preview_reload, get_preview_source, reload_preview_scene
+from .space import Transform2D
 from .timeline import PlaybackClip
-from .source import get_preview_source, reload_preview_source
 from .value import ScalarValue
 from .vector import VectorObject2D
-from .space import Transform2D
-
 
 _HTML = Path(__file__).with_name("_preview.html")
 
@@ -236,7 +236,7 @@ class PreviewSession:
         self.scene = scene
         self.source_info = get_preview_source(scene)
         self.fps = max(1, int(scene.fps))
-        self.duration = max(0.0, float(scene.timeline.cursor))
+        self.duration = max(0.0, float(scene._timeline.cursor))
         self.frame_count = max(1, math.ceil(self.duration * self.fps - 1e-12))
         self.frame_bytes = int(scene.width) * int(scene.height) * 4
         hot_bytes = max(self.frame_bytes, int(hot_cache_mb) * 1024 * 1024)
@@ -550,8 +550,12 @@ class PreviewSession:
     @staticmethod
     def _transform2d(value) -> dict[str, float]:
         return {
-            "xx": value.xx, "xy": value.xy, "yx": value.yx, "yy": value.yy,
-            "tx": value.tx, "ty": value.ty,
+            "xx": value.xx,
+            "xy": value.xy,
+            "yx": value.yx,
+            "yy": value.yy,
+            "tx": value.tx,
+            "ty": value.ty,
         }
 
     @staticmethod
@@ -561,7 +565,7 @@ class PreviewSession:
     def _clips_for(self, object_id: int, time_value: float) -> tuple[list[dict], list[dict]]:
         all_clips: list[dict] = []
         active: list[dict] = []
-        for clip in self.scene.timeline.clips:
+        for clip in self.scene._timeline.clips:
             key = getattr(clip, "object_id", getattr(clip, "value_id", None))
             if key != object_id:
                 continue
@@ -586,14 +590,22 @@ class PreviewSession:
         index = self.frame_for_time(t)
         snapshot = self._snapshot_at_time(t)
         rendered = {}
-        for item in (*snapshot.objects, *snapshot.batches, *snapshot.vectors, *snapshot.rasters, *snapshot.meshes3d):
+        for item in (
+            *snapshot.objects,
+            *snapshot.batches,
+            *snapshot.vectors,
+            *snapshot.rasters,
+            *snapshot.meshes3d,
+        ):
             rendered[item.object_id] = item
 
         def local_bounds_at(registered) -> Bounds2D | None:
             obj = registered.object_ref
-            if not isinstance(obj, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, Group2D)):
+            if not isinstance(
+                obj, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, Group)
+            ):
                 return None
-            if not isinstance(obj, Group2D):
+            if not isinstance(obj, Group):
                 rendered_item = rendered.get(registered.object_id)
                 return None if rendered_item is None else bounds_from_render_item(rendered_item)
 
@@ -607,7 +619,7 @@ class PreviewSession:
                     continue
                 relative = Transform2D()
                 group_index = leaf.parent_ids.index(group_id)
-                for parent_id in leaf.parent_ids[group_index + 1:]:
+                for parent_id in leaf.parent_ids[group_index + 1 :]:
                     parent = self.scene._by_id[parent_id]
                     if not isinstance(parent.initial, NodeSnapshot):
                         continue
@@ -615,11 +627,11 @@ class PreviewSession:
                         parent_id, parent.initial.transform, t
                     )
                 initial = leaf.initial
-                if not isinstance(initial, (ObjectSnapshot, BatchSnapshot, VectorSnapshot, RasterState)):
+                if not isinstance(
+                    initial, (ObjectSnapshot, BatchSnapshot, VectorSnapshot, RasterState)
+                ):
                     continue
-                relative = relative @ self.scene._transform_at(
-                    leaf.object_id, initial.transform, t
-                )
+                relative = relative @ self.scene._transform_at(leaf.object_id, initial.transform, t)
                 pieces.append(bounds_from_render_item(rendered_item, relative))
             return Bounds2D.union(*pieces) if pieces else Bounds2D(0.0, 0.0, 0.0, 0.0)
 
@@ -627,8 +639,10 @@ class PreviewSession:
             if bounds is None:
                 return None
             return {
-                "left": bounds.left, "bottom": bounds.bottom,
-                "right": bounds.right, "top": bounds.top,
+                "left": bounds.left,
+                "bottom": bounds.bottom,
+                "right": bounds.right,
+                "top": bounds.top,
             }
 
         objects: list[dict] = []
@@ -642,7 +656,9 @@ class PreviewSession:
                 active = []
             info = {
                 "id": object_id,
-                "name": None if self.source_info is None else self.source_info.primary_name(object_id),
+                "name": None
+                if self.source_info is None
+                else self.source_info.primary_name(object_id),
                 "type": type(obj).__name__,
                 "alive": alive,
                 "parents": list(registered.parent_ids),
@@ -650,12 +666,14 @@ class PreviewSession:
                 "active_clips": active,
                 "clips": clips,
                 "clip_count": len(clips),
-                "frameable": alive and isinstance(
-                    obj, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, Group2D)
+                "frameable": alive
+                and isinstance(
+                    obj, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, Group)
                 ),
                 "local_bounds": (
                     bounds_dict(local_bounds_at(registered))
-                    if alive and object_id in requested_frames else None
+                    if alive and object_id in requested_frames
+                    else None
                 ),
                 "state": {},
             }
@@ -666,7 +684,9 @@ class PreviewSession:
             initial = registered.initial
             rendered_item = rendered.get(object_id)
             rendered_state = None if rendered_item is None else rendered_item.snapshot
-            if isinstance(initial, (ObjectSnapshot, BatchSnapshot, VectorSnapshot, RasterState, NodeSnapshot)):
+            if isinstance(
+                initial, (ObjectSnapshot, BatchSnapshot, VectorSnapshot, RasterState, NodeSnapshot)
+            ):
                 if isinstance(obj, Camera2D) and obj.is_dynamic:
                     local = obj.transform_at(t, initial.transform)
                 else:
@@ -674,7 +694,7 @@ class PreviewSession:
                 state["local_transform"] = self._transform2d(local)
                 state["opacity"] = self.scene._opacity_at(object_id, initial.opacity, t)
                 if alive and isinstance(
-                    obj, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, Group2D)
+                    obj, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, Group)
                 ):
                     state["world_transform"] = self._transform2d(
                         self.scene.world_transform(obj, time=t)
@@ -687,15 +707,19 @@ class PreviewSession:
                 style = self.scene._style_at(object_id, initial.style, t)
                 state["style"] = {
                     "fill": (
-                        None if style.fill is None
+                        None
+                        if style.fill is None
                         else [style.fill.r, style.fill.g, style.fill.b, style.fill.a]
                     ),
                     "stroke": (
-                        None if style.stroke is None
+                        None
+                        if style.stroke is None
                         else {
                             "rgba": [
-                                style.stroke.color.r, style.stroke.color.g,
-                                style.stroke.color.b, style.stroke.color.a,
+                                style.stroke.color.r,
+                                style.stroke.color.g,
+                                style.stroke.color.b,
+                                style.stroke.color.a,
                             ],
                             "width": style.stroke.width,
                         }
@@ -724,7 +748,7 @@ class PreviewSession:
                 state["value"] = obj.value_at(t)
             elif isinstance(obj, AudioObject):
                 playback = None
-                for clip in self.scene.timeline._channel_clips(PlaybackClip, object_id):
+                for clip in self.scene._timeline._channel_clips(PlaybackClip, object_id):
                     if clip.span.contains(t):
                         playback = clip.source_time(t)
                         break
@@ -739,22 +763,29 @@ class PreviewSession:
                 if source is None:
                     continue
                 key = (
-                    str(source["path"]), int(source["start_line"]), int(source["end_line"]),
-                    int(info["id"]), str(clip["type"]),
+                    str(source["path"]),
+                    int(source["start_line"]),
+                    int(source["end_line"]),
+                    int(info["id"]),
+                    str(clip["type"]),
                 )
                 if key in seen_sources:
                     continue
                 seen_sources.add(key)
-                active_sources.append({
-                    "object_id": info["id"],
-                    "name": info["name"],
-                    "type": info["type"],
-                    "clip_type": clip["type"],
-                    "source": source,
-                })
+                active_sources.append(
+                    {
+                        "object_id": info["id"],
+                        "name": info["name"],
+                        "type": info["type"],
+                        "clip_type": clip["type"],
+                        "source": source,
+                    }
+                )
         camera_info = next(info for info in objects if info["id"] == 0)
         return {
-            "frame": index, "time": t, "objects": objects,
+            "frame": index,
+            "time": t,
+            "objects": objects,
             "view_transform": camera_info["state"]["local_transform"],
             "active_sources": active_sources,
         }
@@ -816,7 +847,6 @@ class PreviewSession:
         self._exports[key] = output
         return output
 
-
     def export_video(
         self, start_frame: int, end_frame: int, *, crf: int = 18, preset: str = "veryfast"
     ) -> Path:
@@ -846,6 +876,16 @@ class PreviewSession:
         }
 
 
+def _is_loopback_host(host: str) -> bool:
+    value = str(host).strip().lower()
+    if value == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
 class PreviewServer:
     def __init__(
         self,
@@ -857,6 +897,7 @@ class PreviewServer:
         cold_cache_mb: int = 1024,
         prefetch_seconds: float = 2.5,
         prefetch_workers: int = 2,
+        allow_remote_reload: bool = False,
     ) -> None:
         self._session_options = {
             "hot_cache_mb": hot_cache_mb,
@@ -867,6 +908,7 @@ class PreviewServer:
         self.session = PreviewSession(scene, **self._session_options)
         self.host = host
         self.port = int(port)
+        self.reload_allowed = _is_loopback_host(host) or bool(allow_remote_reload)
         self._request_condition = threading.Condition()
         self._active_requests = 0
         self._reloading = False
@@ -917,7 +959,11 @@ class PreviewServer:
                         return
                     session = owner._begin_request()
                     if parsed.path == "/api/meta":
-                        self._json(session.metadata())
+                        metadata = session.metadata()
+                        metadata["reload_available"] = bool(
+                            owner.reload_allowed and get_preview_reload(session.scene) is not None
+                        )
+                        self._json(metadata)
                         return
                     if parsed.path == "/api/source":
                         self._json(session.source_document())
@@ -961,20 +1007,20 @@ class PreviewServer:
                     if parsed.path == "/api/inspect":
                         sample_time = self._time_param(session, params)
                         frame_ids = tuple(
-                            int(value) for chunk in params.get("frames", [])
-                            for value in chunk.split(",") if value
+                            int(value)
+                            for chunk in params.get("frames", [])
+                            for value in chunk.split(",")
+                            if value
                         )
-                        self._json(session.inspect_time(
-                            sample_time, frame_object_ids=frame_ids
-                        ))
+                        self._json(session.inspect_time(sample_time, frame_object_ids=frame_ids))
                         return
                     if parsed.path == "/api/pick":
                         sample_time = self._time_param(session, params)
                         if "x" not in params or "y" not in params:
                             raise ValueError("pick requires x and y pixel coordinates")
-                        self._json(session.pick_time(
-                            sample_time, int(params["x"][0]), int(params["y"][0])
-                        ))
+                        self._json(
+                            session.pick_time(sample_time, int(params["x"][0]), int(params["y"][0]))
+                        )
                         return
                     if parsed.path == "/api/export/image":
                         sample_time = self._time_param(session, params)
@@ -994,7 +1040,9 @@ class PreviewServer:
                         if "start_t" in params or "end_t" in params:
                             start_t = float(params.get("start_t", ["0"])[0])
                             end_t = float(params.get("end_t", [str(session.duration)])[0])
-                            output = session.export_video_time(start_t, end_t, crf=crf, preset=preset)
+                            output = session.export_video_time(
+                                start_t, end_t, crf=crf, preset=preset
+                            )
                             download_name = f"zanim-{start_t:.3f}s-{end_t:.3f}s.mp4"
                         else:
                             start = int(params.get("start", ["0"])[0])
@@ -1030,6 +1078,15 @@ class PreviewServer:
                 if parsed.path != "/api/reload":
                     self.send_error(HTTPStatus.NOT_FOUND)
                     return
+                if not owner.reload_allowed:
+                    self._json(
+                        {
+                            "ok": False,
+                            "error": "source reload is disabled for non-loopback Preview hosts",
+                        },
+                        HTTPStatus.FORBIDDEN,
+                    )
+                    return
                 params = parse_qs(parsed.query)
                 try:
                     requested_time = float(params.get("t", ["0"])[0])
@@ -1062,7 +1119,7 @@ class PreviewServer:
                 self._request_condition.notify_all()
 
     def reload_source(self, requested_time: float) -> dict:
-        """Explicitly rebuild the source-aware Scene and replace its PreviewSession."""
+        """Explicitly rebuild the backing script/builder and replace its PreviewSession."""
         with self._reload_lock:
             with self._request_condition:
                 self._reloading = True
@@ -1072,7 +1129,7 @@ class PreviewServer:
 
             new_session = None
             try:
-                new_scene = reload_preview_source(old_session.scene)
+                new_scene = reload_preview_scene(old_session.scene)
                 try:
                     new_session = PreviewSession(new_scene, **self._session_options)
                 except BaseException:

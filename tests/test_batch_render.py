@@ -1,9 +1,7 @@
 import unittest
 
-from zanim import (
-    BatchObject2D, Canvas, Color, Object2D, RectSet, Rectangle, Scene,
-    Transform2D, Vec2,
-)
+from zanim import Canvas, Color, Rectangle, Scene, Transform2D, Vec2
+from zanim.batch import BatchObject2D, RectSet
 from zanim.render.frame import render_snapshot_rgb0
 
 
@@ -19,12 +17,10 @@ class BatchRenderTests(unittest.TestCase):
         color = Color(120, 190, 240, 173)
 
         batch_scene = Scene(canvas=canvas)
-        batch_scene.add(BatchObject2D(
-            RectSet((Vec2(),), (Vec2(1, 1),), (color,))
-        ))
+        batch_scene.add(BatchObject2D(RectSet((Vec2(),), (Vec2(1, 1),), (color,))))
 
         object_scene = Scene(canvas=canvas)
-        object_scene.add(Object2D(Rectangle(1, 1), fill=color))
+        object_scene.add(Rectangle(1, 1, fill=color))
 
         self.assertEqual(self._pixels(batch_scene), self._pixels(object_scene))
 
@@ -34,15 +30,15 @@ class BatchRenderTests(unittest.TestCase):
         transform = Transform2D.rotation(0.37)
 
         batch_scene = Scene(canvas=canvas)
-        batch_scene.add(BatchObject2D(
-            RectSet((Vec2(),), (Vec2(1.2, 0.7),), (color,)),
-            transform=transform,
-        ))
+        batch_scene.add(
+            BatchObject2D(
+                RectSet((Vec2(),), (Vec2(1.2, 0.7),), (color,)),
+                transform=transform,
+            )
+        )
 
         object_scene = Scene(canvas=canvas)
-        object_scene.add(Object2D(
-            Rectangle(1.2, 0.7), transform=transform, fill=color
-        ))
+        object_scene.add(Rectangle(1.2, 0.7, transform=transform, fill=color))
 
         self.assertEqual(self._pixels(batch_scene), self._pixels(object_scene))
 

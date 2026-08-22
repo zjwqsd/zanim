@@ -1,4 +1,10 @@
 const std = @import("std");
+
+pub const ZANIM_ABI_VERSION: u32 = 1;
+
+export fn zanim_abi_version() u32 {
+    return ZANIM_ABI_VERSION;
+}
 const z2d = @import("z2d");
 
 const batch = @import("batch.zig");

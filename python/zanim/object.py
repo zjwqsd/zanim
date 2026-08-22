@@ -1,13 +1,8 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from .space import SE2, Transform2D, Vec2
 
-ORIGIN = Vec2(0, 0)
-RIGHT = Vec2(1, 0)
-LEFT = Vec2(-1, 0)
-UP = Vec2(0, 1)
-DOWN = Vec2(0, -1)
+from .space import SE2, Point2, Transform2D, Vec2, as_vec2
 
 if TYPE_CHECKING:
     from .bounds import Bounds2D
@@ -28,8 +23,7 @@ class SceneObject2D:
     def __setattr__(self, name: str, value) -> None:
         if not name.startswith("_") and getattr(self, "_zanim_scene_registered", False):
             raise RuntimeError(
-                f"cannot assign {name!r} after Scene.add(); "
-                "use a Scene timeline operation"
+                f"cannot assign {name!r} after Scene.add(); use a Scene timeline operation"
             )
         object.__setattr__(self, name, value)
 
@@ -60,6 +54,7 @@ class SceneObject2D:
 
     def bounds(self) -> "Bounds2D":
         from .bounds import bounds_of
+
         return bounds_of(self)
 
     @property
@@ -80,6 +75,7 @@ class SceneObject2D:
     def anchor(self, anchor) -> Vec2:
         """Return a visual-bounds anchor in the object's authored parent space."""
         from .layout import _anchor
+
         a = _anchor(anchor)
         bounds = self.bounds()
         return Vec2(
@@ -87,7 +83,7 @@ class SceneObject2D:
             bounds.center.y + a.y * bounds.height * 0.5,
         )
 
-    def place(self, *, anchor, at: Vec2):
+    def place(self, *, anchor, at: Point2):
         """Place one bounds anchor at an explicit point in its parent layout space.
 
         Before ``Scene.add()`` hierarchy has no Scene world context, so layout
@@ -95,8 +91,7 @@ class SceneObject2D:
         coordinates. The operation changes no geometry, opacity, or timeline.
         """
         self._require_layout_mutable()
-        if not isinstance(at, Vec2):
-            raise TypeError("place(at=...) requires Vec2")
+        at = as_vec2(at, name="at")
         return self.shift(at - self.anchor(anchor))
 
     def shift(self, x: float | Vec2, y: float | None = None):
@@ -112,8 +107,12 @@ class SceneObject2D:
         self.transform = Transform2D.translation(delta.x, delta.y) @ self.transform
         return self
 
-    def move_to(self, target: Vec2 | "SceneObject2D"):
-        point = target.bounds().center if isinstance(target, SceneObject2D) else target
+    def move_to(self, target: Point2 | "SceneObject2D"):
+        point = (
+            target.bounds().center
+            if isinstance(target, SceneObject2D)
+            else as_vec2(target, name="target")
+        )
         current = self.bounds().center
         return self.shift(point.x - current.x, point.y - current.y)
 
@@ -156,11 +155,11 @@ class SceneObject2D:
             dy = -half_h + buff - bounds.bottom
         return self.shift(dx, dy)
 
-    def scale_about(self, factor: float, about: Vec2 | None = None):
+    def scale_about(self, factor: float, about: Point2 | None = None):
         self._require_layout_mutable()
         if factor < 0:
             raise ValueError("scale factor must be >= 0")
-        center = self.bounds().center if about is None else about
+        center = self.bounds().center if about is None else as_vec2(about, name="about")
         op = (
             Transform2D.translation(center.x, center.y)
             @ Transform2D.scaling(float(factor))
@@ -169,9 +168,9 @@ class SceneObject2D:
         self.transform = op @ self.transform
         return self
 
-    def rotate_about(self, radians: float, about: Vec2 | None = None):
+    def rotate_about(self, radians: float, about: Point2 | None = None):
         self._require_layout_mutable()
-        center = self.bounds().center if about is None else about
+        center = self.bounds().center if about is None else as_vec2(about, name="about")
         op = (
             Transform2D.translation(center.x, center.y)
             @ Transform2D.rotation(float(radians))

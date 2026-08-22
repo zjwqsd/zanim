@@ -73,12 +73,12 @@ def unit_box_mesh() -> TriangleMesh:
     """
     h = 0.5
     faces = (
-        (Vec3(0, 0, 1),  (Vec3(-h,-h,h), Vec3(h,-h,h), Vec3(h,h,h), Vec3(-h,h,h))),
-        (Vec3(0, 0,-1),  (Vec3(h,-h,-h), Vec3(-h,-h,-h), Vec3(-h,h,-h), Vec3(h,h,-h))),
-        (Vec3(1, 0, 0),  (Vec3(h,-h,h), Vec3(h,-h,-h), Vec3(h,h,-h), Vec3(h,h,h))),
-        (Vec3(-1,0, 0),  (Vec3(-h,-h,-h), Vec3(-h,-h,h), Vec3(-h,h,h), Vec3(-h,h,-h))),
-        (Vec3(0, 1, 0),  (Vec3(-h,h,h), Vec3(h,h,h), Vec3(h,h,-h), Vec3(-h,h,-h))),
-        (Vec3(0,-1, 0),  (Vec3(-h,-h,-h), Vec3(h,-h,-h), Vec3(h,-h,h), Vec3(-h,-h,h))),
+        (Vec3(0, 0, 1), (Vec3(-h, -h, h), Vec3(h, -h, h), Vec3(h, h, h), Vec3(-h, h, h))),
+        (Vec3(0, 0, -1), (Vec3(h, -h, -h), Vec3(-h, -h, -h), Vec3(-h, h, -h), Vec3(h, h, -h))),
+        (Vec3(1, 0, 0), (Vec3(h, -h, h), Vec3(h, -h, -h), Vec3(h, h, -h), Vec3(h, h, h))),
+        (Vec3(-1, 0, 0), (Vec3(-h, -h, -h), Vec3(-h, -h, h), Vec3(-h, h, h), Vec3(-h, h, -h))),
+        (Vec3(0, 1, 0), (Vec3(-h, h, h), Vec3(h, h, h), Vec3(h, h, -h), Vec3(-h, h, -h))),
+        (Vec3(0, -1, 0), (Vec3(-h, -h, -h), Vec3(h, -h, -h), Vec3(h, -h, h), Vec3(-h, -h, h))),
     )
     vertices: list[Vec3] = []
     normals: list[Vec3] = []
@@ -87,7 +87,7 @@ def unit_box_mesh() -> TriangleMesh:
         base = len(vertices)
         vertices.extend(corners)
         normals.extend((normal, normal, normal, normal))
-        indices.extend((base, base+1, base+2, base, base+2, base+3))
+        indices.extend((base, base + 1, base + 2, base, base + 2, base + 3))
     return TriangleMesh(tuple(vertices), tuple(normals), tuple(indices))
 
 
@@ -169,20 +169,26 @@ def Surface3D(
 
     normals: list[Vec3] = []
     for j in range(ny):
-        jm = max(0, j - 1); jp = min(ny - 1, j + 1)
+        jm = max(0, j - 1)
+        jp = min(ny - 1, j + 1)
         for i in range(nx):
-            im = max(0, i - 1); ip = min(nx - 1, i + 1)
-            dzdx = (heights[j*nx + ip] - heights[j*nx + im]) / ((ip - im) * dx)
-            dzdy = (heights[jp*nx + i] - heights[jm*nx + i]) / ((jp - jm) * dy)
+            im = max(0, i - 1)
+            ip = min(nx - 1, i + 1)
+            dzdx = (heights[j * nx + ip] - heights[j * nx + im]) / ((ip - im) * dx)
+            dzdy = (heights[jp * nx + i] - heights[jm * nx + i]) / ((jp - jm) * dy)
             # world coordinates are (x, height, source-y)
             normals.append(Vec3(-dzdx, 1.0, -dzdy).normalized())
 
     indices: list[int] = []
     for j in range(ny - 1):
         for i in range(nx - 1):
-            a = j*nx + i
+            a = j * nx + i
             b = a + 1
             c = a + nx
             d = c + 1
             indices.extend((a, c, b, b, c, d))
-    return MeshObject3D(TriangleMesh(tuple(vertices), tuple(normals), tuple(indices)), transform=transform, color=color)
+    return MeshObject3D(
+        TriangleMesh(tuple(vertices), tuple(normals), tuple(indices)),
+        transform=transform,
+        color=color,
+    )

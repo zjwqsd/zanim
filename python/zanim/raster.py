@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import json
+import subprocess
+import threading
 from bisect import bisect_right
 from collections import OrderedDict
 from dataclasses import dataclass
-import json
 from pathlib import Path
-import subprocess
-import threading
 
 from PIL import Image as PILImage, ImageChops, ImageFilter
 
 from .object import SceneObject2D
+from .runtime import require_ffmpeg, require_ffprobe
 from .space import SE2, Transform2D
 
 
@@ -102,26 +103,37 @@ class AnimatedImageSource(RasterSource):
 
 
 def _read_exact(stream, size: int) -> bytes:
-    chunks=[]
-    remaining=size
+    chunks = []
+    remaining = size
     while remaining:
-        chunk=stream.read(remaining)
+        chunk = stream.read(remaining)
         if not chunk:
             break
         chunks.append(chunk)
-        remaining-=len(chunk)
-    return b''.join(chunks)
+        remaining -= len(chunk)
+    return b"".join(chunks)
 
 
 def _probe_video(path: Path) -> tuple[int, int, float, tuple[float, ...]]:
     proc = subprocess.run(
         [
-            "ffprobe", "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=width,height,duration,avg_frame_rate",
-            "-show_entries", "frame=best_effort_timestamp_time",
-            "-of", "json", str(path),
+            require_ffprobe(),
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,duration,avg_frame_rate",
+            "-show_entries",
+            "frame=best_effort_timestamp_time",
+            "-of",
+            "json",
+            str(path),
         ],
-        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
     )
     data = json.loads(proc.stdout)
     streams = data.get("streams") or []
@@ -132,7 +144,8 @@ def _probe_video(path: Path) -> tuple[int, int, float, tuple[float, ...]]:
     frames = data.get("frames") or []
     timestamps = tuple(
         float(frame["best_effort_timestamp_time"])
-        for frame in frames if frame.get("best_effort_timestamp_time") is not None
+        for frame in frames
+        if frame.get("best_effort_timestamp_time") is not None
     )
     duration_value = stream.get("duration")
     if duration_value is not None:
@@ -205,9 +218,20 @@ class VideoSource(RasterSource):
         self._stop_decoder()
         self._decoder = subprocess.Popen(
             [
-                "ffmpeg", "-loglevel", "error", "-i", str(self.path),
-                "-map", "0:v:0", "-pix_fmt", "rgba",
-                "-fps_mode", "passthrough", "-f", "rawvideo", "-",
+                require_ffmpeg(),
+                "-loglevel",
+                "error",
+                "-i",
+                str(self.path),
+                "-map",
+                "0:v:0",
+                "-pix_fmt",
+                "rgba",
+                "-fps_mode",
+                "passthrough",
+                "-f",
+                "rawvideo",
+                "-",
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -262,12 +286,13 @@ class SceneRasterSource(RasterSource):
         self.scene = scene
         self.width = int(scene.width)
         self.height = int(scene.height)
-        resolved = float(scene.timeline.cursor) if duration is None else float(duration)
+        resolved = scene.duration if duration is None else float(duration)
         self.duration = resolved if resolved > 0 else None
         self.frame_count = max(1, round((self.duration or 0.0) * max(1, int(scene.fps))))
 
     def frame_at(self, source_time: float) -> RasterFrame:
         from .render.frame import render_snapshot_rgba
+
         t = max(0.0, float(source_time))
         if self.duration is not None:
             t = min(t, max(0.0, self.duration - 1e-12))
@@ -282,7 +307,9 @@ class SceneRasterSource(RasterSource):
 class AlphaMaskSource(RasterSource):
     """Apply one raster source's alpha channel to another source."""
 
-    def __init__(self, content: RasterSource, mask: RasterSource, *, invert=0.0, feather=0.0) -> None:
+    def __init__(
+        self, content: RasterSource, mask: RasterSource, *, invert=0.0, feather=0.0
+    ) -> None:
         if content.width != mask.width or content.height != mask.height:
             raise ValueError("content and mask raster dimensions must match")
         self.content = content
@@ -384,4 +411,5 @@ class Video(RasterObject2D):
 
     def audio_track(self, *, gain: float = 1.0):
         from .audio import Audio
+
         return Audio(self.path, gain=gain)

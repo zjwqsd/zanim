@@ -1,9 +1,18 @@
 import unittest
 
 from zanim import (
-    Canvas, Circle, Color, DynamicNumber, FormulaLiteral, FormulaTemplate,
-    MatrixSlot, NumberFormat, NumberSlot, Object2D, ObjectSlot, Scene,
-    Style, Transform2D,
+    Canvas,
+    Circle,
+    Color,
+    DynamicNumber,
+    FormulaLiteral,
+    FormulaTemplate,
+    MatrixSlot,
+    NumberFormat,
+    ObjectSlot,
+    Scene,
+    Style,
+    Transform2D,
 )
 
 
@@ -51,9 +60,11 @@ class FormulaTemplateTests(unittest.TestCase):
 
     def test_object_slot_accepts_geometry_without_reflow(self):
         slot = ObjectSlot("shape", 1.4, 1.0)
-        template = FormulaTemplate(FormulaLiteral("x", font_size=28), slot, FormulaLiteral("=", font_size=28))
+        template = FormulaTemplate(
+            FormulaLiteral("x", font_size=28), slot, FormulaLiteral("=", font_size=28)
+        )
         width = template.width
-        circle = Object2D(Circle(1.0), style=Style(fill=Color(100, 180, 255), stroke=None))
+        circle = Circle(1.0, style=Style(fill=Color(100, 180, 255), stroke=None))
         scene = Scene(canvas=Canvas(width=640, height=360, unit_size=80))
         instance = template.mount(scene, {"shape": circle})
         self.assertEqual(template.width, width)

@@ -6,19 +6,35 @@ from math import cos, pi, sin, sqrt
 from pathlib import Path
 
 from zanim import (
-    Camera2D, Canvas, Color, DynamicGeometryObject2D, Group2D, Math, Object2D,
-    Polygon, Polyline, Scene, Style, Transform2D, Vec2, affine2d,
+    Camera2D,
+    Canvas,
+    Color,
+    Group,
+    Math,
+    Polyline,
+    Scene,
+    Style,
+    Transform2D,
+    Vec2,
+    affine2d,
     load_svg,
 )
 from zanim.extras.fourier import (
-    contour_samples, dft, dominant_terms, epicycle_chain, point2,
+    contour_samples,
+    dft,
+    dominant_terms,
+    epicycle_chain,
+    point2,
     select_closed_contour,
 )
+from zanim.geometry import PolygonGeometry, PolylineGeometry
+from zanim.plot import DynamicGeometryObject2D
 
 ROOT = Path(__file__).resolve().parents[2]
-SVG = ROOT / "assets/fourier_heart.svg"
-OUTPUT = ROOT / "media/fun/fourier_draw.mp4"
-FOLLOW_OUTPUT = ROOT / "media/fun/fourier_draw_follow.mp4"
+EXAMPLES = Path(__file__).resolve().parents[1]
+SVG = EXAMPLES / "assets/fourier_heart.svg"
+OUTPUT = ROOT / "media/extras/fourier_draw.mp4"
+FOLLOW_OUTPUT = ROOT / "media/extras/fourier_draw_follow.mp4"
 
 SAMPLE_COUNT = 768
 TERM_COUNT = 36
@@ -29,49 +45,58 @@ DRAW_DURATION = 6.2
 HOLD = 0.45
 
 
-def circle_polyline(center: complex, radius: float, samples: int = CIRCLE_SAMPLES) -> Polyline:
+def circle_polyline(
+    center: complex, radius: float, samples: int = CIRCLE_SAMPLES
+) -> PolylineGeometry:
     points = tuple(
         Vec2(
-            center.real + radius * cos(2*pi*i/samples),
-            center.imag + radius * sin(2*pi*i/samples),
+            center.real + radius * cos(2 * pi * i / samples),
+            center.imag + radius * sin(2 * pi * i / samples),
         )
         for i in range(samples + 1)
     )
-    return Polyline(points)
+    return PolylineGeometry(points)
 
 
-def arrow_polygon(start: complex, end: complex) -> Polygon:
-    dx, dy = end.real-start.real, end.imag-start.imag
-    length = sqrt(dx*dx + dy*dy)
+def arrow_polygon(start: complex, end: complex) -> PolygonGeometry:
+    dx, dy = end.real - start.real, end.imag - start.imag
+    length = sqrt(dx * dx + dy * dy)
     if length <= 1e-8:
         p = point2(start)
         eps = 1e-5
-        return Polygon((p, Vec2(p.x+eps, p.y), Vec2(p.x, p.y+eps)))
-    ux, uy = dx/length, dy/length
+        return PolygonGeometry((p, Vec2(p.x + eps, p.y), Vec2(p.x, p.y + eps)))
+    ux, uy = dx / length, dy / length
     nx, ny = -uy, ux
     shaft_half = min(0.018, length * 0.08)
     tip_length = min(0.15, length * 0.32)
     tip_half = min(0.065, max(shaft_half * 2.4, length * 0.10))
-    bx, by = end.real-ux*tip_length, end.imag-uy*tip_length
-    return Polygon((
-        Vec2(start.real + nx*shaft_half, start.imag + ny*shaft_half),
-        Vec2(bx + nx*shaft_half, by + ny*shaft_half),
-        Vec2(bx + nx*tip_half, by + ny*tip_half),
-        Vec2(end.real, end.imag),
-        Vec2(bx - nx*tip_half, by - ny*tip_half),
-        Vec2(bx - nx*shaft_half, by - ny*shaft_half),
-        Vec2(start.real - nx*shaft_half, start.imag - ny*shaft_half),
-    ))
+    bx, by = end.real - ux * tip_length, end.imag - uy * tip_length
+    return PolygonGeometry(
+        (
+            Vec2(start.real + nx * shaft_half, start.imag + ny * shaft_half),
+            Vec2(bx + nx * shaft_half, by + ny * shaft_half),
+            Vec2(bx + nx * tip_half, by + ny * tip_half),
+            Vec2(end.real, end.imag),
+            Vec2(bx - nx * tip_half, by - ny * tip_half),
+            Vec2(bx - nx * shaft_half, by - ny * shaft_half),
+            Vec2(start.real - nx * shaft_half, start.imag - ny * shaft_half),
+        )
+    )
 
 
-def tip_polygon(point: complex, radius: float = 0.055, sides: int = 14) -> Polygon:
-    return Polygon(tuple(
-        Vec2(point.real + radius*cos(2*pi*i/sides), point.imag + radius*sin(2*pi*i/sides))
-        for i in range(sides)
-    ))
+def tip_polygon(point: complex, radius: float = 0.055, sides: int = 14) -> PolygonGeometry:
+    return PolygonGeometry(
+        tuple(
+            Vec2(
+                point.real + radius * cos(2 * pi * i / sides),
+                point.imag + radius * sin(2 * pi * i / sides),
+            )
+            for i in range(sides)
+        )
+    )
 
 
-def build_scene(
+def _build_scene(
     svg_path: Path = SVG,
     *,
     sample_count: int = SAMPLE_COUNT,
@@ -125,53 +150,52 @@ def build_scene(
 
     def follow_view(time: float) -> Transform2D:
         focus = follow_focus(time)
-        return (
-            Transform2D.scaling(follow_zoom)
-            @ Transform2D.translation(-focus.real, -focus.imag)
-        )
+        return Transform2D.scaling(follow_zoom) @ Transform2D.translation(-focus.real, -focus.imag)
 
     reference_points = tuple(point2(value) for value in samples)
-    reference = Object2D(
-        Polyline((*reference_points, reference_points[0])),
-        stroke=Color(118, 129, 151, 80), stroke_width=0.018, z_index=-5,
+    reference = Polyline(
+        (*reference_points, reference_points[0]),
+        stroke=Color(118, 129, 151, 80),
+        stroke_width=0.018,
+        z_index=-5,
     )
 
     circle_style = Style.outline(Color(132, 157, 198, 82), 0.012)
     arrow_style = Style.solid(Color(205, 220, 245, 190))
     children = []
     visual_indices = [
-        index for index, term in enumerate(terms)
-        if term.frequency != 0 and term.radius > 2e-4
+        index for index, term in enumerate(terms) if term.frequency != 0 and term.radius > 2e-4
     ]
     for index in visual_indices:
         radius = terms[index].radius
         circle = DynamicGeometryObject2D(
-            lambda t, index=index, radius=radius: circle_polyline(chain_at(float(t))[index], radius),
+            lambda t, index=index, radius=radius: circle_polyline(
+                chain_at(float(t))[index], radius
+            ),
             style=circle_style,
             z_index=0,
         )
         arrow = DynamicGeometryObject2D(
             lambda t, index=index: arrow_polygon(
-                chain_at(float(t))[index], chain_at(float(t))[index+1]
+                chain_at(float(t))[index], chain_at(float(t))[index + 1]
             ),
             style=arrow_style,
             z_index=1,
         )
         children.extend((circle, arrow))
-    epicycles = Group2D(children, z_index=0)
+    epicycles = Group(children, z_index=0)
 
     full_trace = tuple(
-        epicycle_chain(terms, i/(TRACE_SAMPLES-1))[-1]
-        for i in range(TRACE_SAMPLES)
+        epicycle_chain(terms, i / (TRACE_SAMPLES - 1))[-1] for i in range(TRACE_SAMPLES)
     )
 
     def trace_geometry(time: float):
         phase = scene_phase(time)
-        end = max(1, min(TRACE_SAMPLES-1, round(phase*(TRACE_SAMPLES-1))))
-        points = tuple(point2(value) for value in full_trace[:end+1])
+        end = max(1, min(TRACE_SAMPLES - 1, round(phase * (TRACE_SAMPLES - 1))))
+        points = tuple(point2(value) for value in full_trace[: end + 1])
         if len(points) < 2:
             points = (points[0], points[0])
-        return Polyline(points)
+        return PolylineGeometry(points)
 
     trace = DynamicGeometryObject2D(
         trace_geometry,
@@ -185,17 +209,17 @@ def build_scene(
     )
 
     formula = Math(
-        'f(t) = sum_k c_k e^(2 pi i k t)',
+        "f(t) = sum_k c_k e^(2 pi i k t)",
         font_size=29,
         color=Color(223, 228, 240),
-        transform=affine2d(to=(0, 4.25)),
+        transform=affine2d(position=(0, 4.25)),
         z_index=10,
     )
     term_label = Math(
-        f'N = {len(visual_indices)}',
+        f"N = {len(visual_indices)}",
         font_size=21,
         color=Color(150, 163, 188),
-        transform=affine2d(to=(0, 3.72)),
+        transform=affine2d(position=(0, 3.72)),
         z_index=10,
     )
 
@@ -218,19 +242,40 @@ def build_scene(
     }
 
 
+def build_scene() -> Scene:
+    """Default scene used by `zanim preview/render`."""
+    scene, _ = _build_scene(SVG)
+    return scene
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Draw one closed SVG contour with Fourier epicycles")
-    parser.add_argument("--svg", type=Path, default=SVG, help="input SVG; the longest closed contour is used")
+    parser = argparse.ArgumentParser(
+        description="Draw one closed SVG contour with Fourier epicycles"
+    )
+    parser.add_argument(
+        "--svg", type=Path, default=SVG, help="input SVG; the longest closed contour is used"
+    )
     parser.add_argument("--output", type=Path, default=None)
-    parser.add_argument("--terms", type=int, default=TERM_COUNT, help="number of retained Fourier terms")
-    parser.add_argument("--samples", type=int, default=SAMPLE_COUNT, help="uniform arc-length samples for the DFT")
-    parser.add_argument("--duration", type=float, default=DRAW_DURATION, help="seconds for one complete drawing cycle")
+    parser.add_argument(
+        "--terms", type=int, default=TERM_COUNT, help="number of retained Fourier terms"
+    )
+    parser.add_argument(
+        "--samples", type=int, default=SAMPLE_COUNT, help="uniform arc-length samples for the DFT"
+    )
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=DRAW_DURATION,
+        help="seconds for one complete drawing cycle",
+    )
     parser.add_argument("--follow", action="store_true", help="camera follows the drawing tip")
     parser.add_argument("--follow-zoom", type=float, default=2.4, help="fixed zoom for follow mode")
-    parser.add_argument("--follow-lead", type=float, default=0.08, help="look-ahead in seconds for follow mode")
+    parser.add_argument(
+        "--follow-lead", type=float, default=0.08, help="look-ahead in seconds for follow mode"
+    )
     args = parser.parse_args()
 
-    scene, info = build_scene(
+    scene, info = _build_scene(
         args.svg.resolve(),
         sample_count=args.samples,
         term_count=args.terms,
@@ -243,7 +288,7 @@ def main() -> None:
     output = scene.render_video(output_path, fps=60, workers=8, verify_random_access=True)
     print(output)
     print(
-        f"duration={scene.timeline.cursor:.2f}s samples={info['samples']} "
+        f"duration={scene.duration:.2f}s samples={info['samples']} "
         f"terms={info['terms']} visible={info['visible_terms']} "
         f"trace={info['trace_samples']} follow={info['follow']} random-access=ok"
     )

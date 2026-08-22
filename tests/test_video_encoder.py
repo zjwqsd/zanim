@@ -10,10 +10,14 @@ class VideoEncoderTests(unittest.TestCase):
         self.assertEqual(
             args,
             [
-                "-c:v", "libx264",
-                "-crf", "18",
-                "-preset", "veryfast",
-                "-threads", "4",
+                "-c:v",
+                "libx264",
+                "-crf",
+                "18",
+                "-preset",
+                "veryfast",
+                "-threads",
+                "4",
             ],
         )
 

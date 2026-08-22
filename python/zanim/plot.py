@@ -4,14 +4,23 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .batch import BatchObject2D, LineSet
-from .geometry import Color, Geometry, Line, Object2D, Polygon, Polyline, StrokeStyle, Style
+from .geometry import (
+    Color,
+    Geometry,
+    LineGeometry,
+    Object2D,
+    PolygonGeometry,
+    PolylineGeometry,
+    StrokeStyle,
+    Style,
+)
 from .space import Transform2D, Vec2
 
 ScalarFunction = Callable[[float], float]
 
 
 @dataclass(frozen=True, slots=True)
-class Axes2D:
+class Axes:
     """Mathematical 2D axes with an explicit coordinate-to-scene mapping."""
 
     x_range: tuple[float, float]
@@ -64,15 +73,21 @@ class Axes2D:
         ends: list[Vec2] = []
         # Only draw an axis when zero is inside the corresponding range.
         if y0 <= 0 <= y1:
-            starts.append(self.c2p(x0, 0)); ends.append(self.c2p(x1, 0))
+            starts.append(self.c2p(x0, 0))
+            ends.append(self.c2p(x1, 0))
         if x0 <= 0 <= x1:
-            starts.append(self.c2p(0, y0)); ends.append(self.c2p(0, y1))
+            starts.append(self.c2p(0, y0))
+            ends.append(self.c2p(0, y1))
         if not starts:
-            raise ValueError("Axes2D axes_object requires x=0 or y=0 inside the configured ranges")
-        return BatchObject2D(LineSet(
-            tuple(starts), tuple(ends),
-            tuple(color for _ in starts), tuple(width for _ in starts),
-        ))
+            raise ValueError("Axes axes_object requires x=0 or y=0 inside the configured ranges")
+        return BatchObject2D(
+            LineSet(
+                tuple(starts),
+                tuple(ends),
+                tuple(color for _ in starts),
+                tuple(width for _ in starts),
+            )
+        )
 
     def grid_object(
         self,
@@ -92,17 +107,23 @@ class Axes2D:
         x = _first_multiple(x0, x_step)
         while x <= x1 + 1e-12:
             if abs(x) > 1e-12:
-                starts.append(self.c2p(x, y0)); ends.append(self.c2p(x, y1))
+                starts.append(self.c2p(x, y0))
+                ends.append(self.c2p(x, y1))
             x += x_step
         y = _first_multiple(y0, y_step)
         while y <= y1 + 1e-12:
             if abs(y) > 1e-12:
-                starts.append(self.c2p(x0, y)); ends.append(self.c2p(x1, y))
+                starts.append(self.c2p(x0, y))
+                ends.append(self.c2p(x1, y))
             y += y_step
-        return BatchObject2D(LineSet(
-            tuple(starts), tuple(ends),
-            tuple(color for _ in starts), tuple(width for _ in starts),
-        ))
+        return BatchObject2D(
+            LineSet(
+                tuple(starts),
+                tuple(ends),
+                tuple(color for _ in starts),
+                tuple(width for _ in starts),
+            )
+        )
 
     def plot(
         self,
@@ -118,12 +139,9 @@ class Axes2D:
         a, b = x_range or self.x_range
         if not a < b:
             raise ValueError("plot range must be increasing")
-        points = tuple(
-            self.c2p(x, float(function(x)))
-            for x in _linspace(a, b, samples)
-        )
+        points = tuple(self.c2p(x, float(function(x))) for x in _linspace(a, b, samples))
         return Object2D(
-            Polyline(points),
+            PolylineGeometry(points),
             style=Style(fill=None, stroke=StrokeStyle(color, stroke_width)),
         )
 
@@ -137,22 +155,23 @@ class Axes2D:
         buff: float = 0.16,
     ):
         """Return Typst math labels positioned at the positive axis ends."""
-        from .group import Group2D
+        from .group import Group
         from .typst import Math
+
         x0, x1 = self.x_range
         y0, y1 = self.y_range
         labels = []
         if y0 <= 0 <= y1:
             x_obj = Math(x_label, font_size=font_size, color=color)
             target = self.c2p(x1, 0)
-            x_obj.move_to(Vec2(target.x + x_obj.bounds().width/2 + buff, target.y))
+            x_obj.move_to(Vec2(target.x + x_obj.bounds().width / 2 + buff, target.y))
             labels.append(x_obj)
         if x0 <= 0 <= x1:
             y_obj = Math(y_label, font_size=font_size, color=color)
             target = self.c2p(0, y1)
-            y_obj.move_to(Vec2(target.x, target.y + y_obj.bounds().height/2 + buff))
+            y_obj.move_to(Vec2(target.x, target.y + y_obj.bounds().height / 2 + buff))
             labels.append(y_obj)
-        return Group2D(labels)
+        return Group(labels)
 
     def sample_function(
         self,
@@ -182,14 +201,14 @@ class Axes2D:
         *,
         baseline: float = 0.0,
         samples: int = 120,
-    ) -> Polygon:
+    ) -> PolygonGeometry:
         if lower > upper:
             lower, upper = upper, lower
         xs, ys = self.sample_function(function, lower, upper, samples=samples)
         points = [self.c2p(lower, baseline)]
         points.extend(self.c2p(x, y) for x, y in zip(xs, ys))
         points.append(self.c2p(upper, baseline))
-        return Polygon(tuple(points))
+        return PolygonGeometry(tuple(points))
 
     def integral_value(
         self,
@@ -223,8 +242,8 @@ class Axes2D:
         x: float,
         *,
         baseline: float = 0.0,
-    ) -> Line:
-        return Line(self.c2p(x, baseline), self.c2p(x, float(function(x))))
+    ) -> LineGeometry:
+        return LineGeometry(self.c2p(x, baseline), self.c2p(x, float(function(x))))
 
 
 class DynamicGeometryObject2D(Object2D):
@@ -245,7 +264,9 @@ class DynamicGeometryObject2D(Object2D):
         initial = provider(0.0)
         if not isinstance(initial, Geometry):
             raise TypeError("dynamic geometry provider must return a Zanim Geometry")
-        super().__init__(initial, transform=transform, style=style, opacity=opacity, z_index=z_index)
+        super().__init__(
+            initial, transform=transform, style=style, opacity=opacity, z_index=z_index
+        )
 
     def geometry_at(self, time: float):
         geometry = self.provider(float(time))
@@ -260,6 +281,7 @@ class DynamicGeometryObject2D(Object2D):
 
 def _first_multiple(low: float, step: float) -> float:
     from math import ceil
+
     return ceil(low / step) * step
 
 

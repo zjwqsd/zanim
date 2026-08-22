@@ -17,6 +17,7 @@ MatrixProvider = Callable[[float], Sequence[Sequence[Real]]]
 
 def _provider(value):
     from .value import ScalarValue
+
     if isinstance(value, ScalarValue):
         return value.value_at
     if callable(value):
@@ -77,8 +78,16 @@ class ObjectSlot(FormulaItem):
         if self.padding < 0 or self.padding * 2 >= min(self.box_width, self.box_height):
             raise ValueError("invalid ObjectSlot padding")
         if self.math_class not in {
-            "normal", "punctuation", "opening", "closing", "fence", "large",
-            "relation", "unary", "binary", "vary",
+            "normal",
+            "punctuation",
+            "opening",
+            "closing",
+            "fence",
+            "large",
+            "relation",
+            "unary",
+            "binary",
+            "vary",
         }:
             raise ValueError("invalid Typst math class for ObjectSlot")
 
@@ -134,13 +143,15 @@ class FormulaTemplate:
         self.items = tuple(items)
         self.gap = float(gap)
         self.font_size = float(
-            font_size if font_size is not None
+            font_size
+            if font_size is not None
             else max((getattr(item, "font_size", 44.0) for item in items), default=44.0)
         )
         self.color = color
         self._validate_slot_names()
 
         from ._formula_layout import compile_formula_layout
+
         self.layout = compile_formula_layout(
             self.items,
             gap=self.gap,
@@ -188,9 +199,7 @@ class FormulaTemplate:
             mounted: list[SceneObject] = []
 
             if isinstance(item, NumberSlot):
-                mounted.append(
-                    self._mount_number(scene, item, boxes[0], bindings, transform)
-                )
+                mounted.append(self._mount_number(scene, item, boxes[0], bindings, transform))
                 slots[item.name] = tuple(mounted)
 
             elif isinstance(item, MatrixSlot):
@@ -213,7 +222,8 @@ class FormulaTemplate:
                             font_size=item.font_size,
                             color=item.color,
                             align=item.align,
-                            transform=transform @ Transform2D.translation(box.center_x, box.center_y),
+                            transform=transform
+                            @ Transform2D.translation(box.center_x, box.center_y),
                         )
                     )
                 scene.add(*mounted)
@@ -232,7 +242,9 @@ class FormulaTemplate:
                 if not isinstance(obj, (Object2D, BatchObject2D, VectorObject2D)):
                     raise TypeError("ObjectSlot accepts Object2D, BatchObject2D, or VectorObject2D")
                 if obj.transform != Transform2D():
-                    raise ValueError("ObjectSlot currently requires bound object transform to be identity")
+                    raise ValueError(
+                        "ObjectSlot currently requires bound object transform to be identity"
+                    )
                 width, height = object_size(obj)
                 if width <= 1e-12 or height <= 1e-12:
                     raise ValueError("ObjectSlot cannot fit a zero-size object")
@@ -257,7 +269,9 @@ class FormulaTemplate:
         return FormulaInstance(tuple(all_objects), slots, self.width, self.height)
 
     @staticmethod
-    def _mount_number(scene, slot: NumberSlot, box, bindings, transform: Transform2D) -> DynamicNumber:
+    def _mount_number(
+        scene, slot: NumberSlot, box, bindings, transform: Transform2D
+    ) -> DynamicNumber:
         if slot.name not in bindings:
             raise KeyError(f"missing FormulaTemplate binding: {slot.name}")
         provider = _provider(bindings[slot.name])

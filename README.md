@@ -4,11 +4,79 @@ A compact Manim-style 2D/3D animation engine with Python authoring and a Zig 0.1
 
 Zanim keeps the renderer small and explicit while providing the authoring conveniences needed for real mathematical animation: geometry, groups/layout, timeline animation, camera motion, Typst text/math, dynamic formulas, plotting, batched visualization, and random-access video rendering.
 
+## Quick start
+
+A release wheel contains the Zig renderer; Zig is a build-time dependency, not a runtime requirement. Text/Math require Typst. Video/media workflows require the FFmpeg toolset (`ffmpeg` + `ffprobe`) on `PATH`, and MP4 export requires an FFmpeg build with `libx264`.
+
+Check the runtime first:
+
+```bash
+zanim info
+```
+
+A scene file is just ordinary top-level Python:
+
+```python
+from zanim import BLUE, Canvas, Circle, Scene
+
+scene = Scene(canvas=Canvas(1280, 720, 90), fps=60)
+circle = scene.add(Circle(1, fill=BLUE))
+circle.move(to=(2, 0), duration=2)
+```
+
+### Common constants
+
+Frequently used authoring values are available directly from `zanim` and are
+also collected in `zanim.constants`:
+
+```python
+from zanim import (
+    BLUE, GREEN, RED, YELLOW, ORANGE, PURPLE, PINK, CYAN,
+    WHITE, GRAY, MUTED, BLACK, TRANSPARENT,
+    ORIGIN, LEFT, RIGHT, UP, DOWN,
+    PI, TAU, DEGREES,
+    Color,
+)
+
+accent = BLUE
+soft_accent = BLUE.with_alpha(128)
+quarter_turn = 90 * DEGREES
+full_turn = TAU
+custom = Color(37, 121, 208)
+custom_alpha = Color(37, 121, 208, 140)
+```
+
+The default primary palette starts with `BLUE = Color(96, 166, 255)`,
+`GREEN = Color(82, 205, 150)`, and `RED = Color(245, 92, 105)`. These constants
+are immutable conveniences; `Color(...)` remains unrestricted for custom RGB/RGBA colors.
+
+No `main()` entry point, builder function or decorator is required. Use Preview while authoring and Render for files:
+
+```bash
+zanim preview hello.py
+zanim render hello.py -o hello.mp4
+zanim render hello.py --time 1.25 -o frame.png
+```
+
+In Jupyter, use the same Scene API and omit the output path to display the result inline:
+
+```python
+scene.render()                 # static -> PNG, animated -> MP4
+scene.render(time=1.25)        # one absolute-time PNG
+scene.render(start=2, end=5)   # inline MP4 interval
+```
+
+No notebook magics or separate authoring mode are required. `scene.preview()` remains the full interactive browser Preview used by normal Python/CLI workflows.
+
+Preview is random-access: jumping to `t=300` evaluates that absolute scene time directly rather than rendering the preceding five minutes. `zanim preview` tracks top-level variable identities and runtime clip call sites automatically; edit/save the file and press `↻` to re-execute it while preserving the selected time.
+
+By default source reload is available only on loopback Preview hosts. Exposing Preview with `--host 0.0.0.0` keeps rendering/inspection available but disables code reload unless `--allow-remote-reload` is explicitly supplied.
+
 ## Architecture
 
 ```text
 Authoring objects
-Object2D / BatchObject2D / DynamicBatchObject2D / VectorObject2D / RasterObject2D / Group2D / Camera2D / ScalarValue / AudioObject
+Object2D / BatchObject2D / DynamicBatchObject2D / VectorObject2D / RasterObject2D / Group / Camera2D / ScalarValue / AudioObject
         |
         | Scene + Timeline, evaluate(t)
         v
@@ -28,11 +96,13 @@ scene_wire.zig -> geometry / batch / vector / raster -> z2d
 Important boundaries:
 
 - `Scene` has one registry for visual objects, groups, media, audio, camera state, and animated scalar values.
-- `Group2D` is a lightweight authoring hierarchy. Group transforms, opacity, and z-index are composed into child leaves during `evaluate(t)`; Zig never receives a scene graph.
+- `Group` is a lightweight authoring hierarchy. Group transforms, opacity, and z-index are composed into child leaves during `evaluate(t)`; Zig never receives a scene graph.
 - `Camera2D` uses the same transform channel and is composed into every leaf snapshot.
 - `RenderSnapshot` is immutable and random-access: rendering frame `t` never depends on rendering frame `t-dt` first.
 - `z_index` plus insertion order defines one draw order across geometry, batch, vector, and raster representations.
 - Python owns animation and video orchestration. Zig only rasterizes already-evaluated values.
+
+The root `zanim` namespace is intentionally authoring-focused. Representation-level types such as `Object2D`, batch containers, vector documents, raster sources, timeline clips, and raw triangle meshes live in `zanim.geometry`, `zanim.batch`, `zanim.vector`, `zanim.raster`, `zanim.timeline`, and `zanim.mesh3d`.
 
 ### Random-access rendering
 
@@ -57,7 +127,9 @@ scene.preview()
 
 The preview provides exact-time input plus frame-grid scrubbing/playback, PNG export, interval MP4 export, and an object inspector for every registered item at the selected time. Browser playback consumes the renderer's RGB0 output directly through WebGL2; PNG is only encoded on demand for image export or the legacy image endpoint.
 
-For source-aware development, decorate the Scene builder with `@preview_source`. After editing and saving that file, press the `↻` button in Preview to explicitly rebuild the whole Scene from the current source. Reload is manual rather than file-watched: a successful rebuild starts a fresh preview cache and preserves the selected time, while a syntax/runtime error keeps the previous Scene alive and shows the traceback.
+When a file is launched through `zanim preview`, source awareness is automatic: module-level variables are mapped to registered objects by identity and Timeline clips are associated with the real runtime call site that created them. No decorator is required. After editing and saving, press `↻` to explicitly re-execute the whole file. Reload is manual rather than file-watched: a successful rebuild starts a fresh preview cache and preserves the selected time, while a syntax/runtime error keeps the previous Scene alive and shows the traceback.
+
+`@preview_source` remains available for advanced function-based builders. If you instead run a script directly with `python demo.py` and call `scene.preview()` at the bottom, global object names are still recoverable, but clips created before `preview()` cannot be retrospectively assigned reliable source lines.
 
 Rendered frames use two bounded storage roles. A small RGB0 hot working set is capped by memory (`hot_cache_mb=64` by default), while completed raster results are independently compressed with Zstandard level 1 into one session-local cold-cache file capped by `cold_cache_mb=1024`. The cold index, not the hot working set, defines the green rendered ranges in the timeline. Once the cold budget is full, background prefetch stops rather than letting disk use grow with scene duration. The cache file is deleted when the preview closes.
 
@@ -80,12 +152,17 @@ and low-level spatial helpers such as `shift`, `move_to`, `scale_about`, and `ro
 
 ### Initial-state sugar
 
+Public shapes are renderable objects directly: `Circle(...)`, `Square(...)`,
+`Line(...)`, `Polygon(...)`, and the other shape constructors can all be passed
+straight to `Scene.add()`. Low-level immutable geometry values live in
+`zanim.geometry` for dynamic/custom render representations.
+
 Simple objects do not need to spell out `Style` or `Transform2D` just to declare
 an initial visual state:
 
 ```python
-star = Object2D(
-    Polygon(star_points()),
+star = Polygon(
+    star_points(),
     stroke=WHITE,
     stroke_width=.045,
     position=(2, 0),
@@ -101,7 +178,7 @@ complete `style=Style(...)` form remains available, but mixing it with
 is the compact explicit way to change alpha:
 
 ```python
-Object2D(Circle(1), fill=BLUE.with_alpha(128), stroke=WHITE)
+Circle(1, fill=BLUE.with_alpha(128), stroke=WHITE)
 ```
 
 Initial transform sugar uses the same fixed affine convention as `affine2d()`:
@@ -112,8 +189,8 @@ Translation(position) @ Rotation(rotation) @ Shear(shear) @ Scale(scale)
 
 `position` is the local origin's location in the parent frame; it is not a visual
 bounds-center shortcut. Visual placement still uses `place(anchor=..., at=...)`.
-`Group2D` accepts the same `position/rotation/scale/shear` sugar, so kinematic
-frame offsets can be written directly as `Group2D(..., position=(L, 0))`. Mixing
+`Group` accepts the same `position/rotation/scale/shear` sugar, so kinematic
+frame offsets can be written directly as `Group(..., position=(L, 0))`. Mixing
 `transform=` with transform sugar is an error.
 
 After `Scene.add()`, bound objects provide the matching style timeline sugar:
@@ -135,9 +212,9 @@ The preferred authoring order is deliberately visible in code:
 ```python
 # 1. Declare visual objects.
 title = Text("Layout is data")
-square = Object2D(Square(1), style=Style.solid(BLUE))
-circle = Object2D(Circle(.5), style=Style.solid(ORANGE))
-group = Group2D([square, circle])
+square = Square(1, style=Style.solid(BLUE))
+circle = Circle(.5, style=Style.solid(ORANGE))
+group = Group([square, circle])
 
 # 2. Lay them out once, before they enter the Scene.
 header = scene.frame.top_region(height=1.2)
@@ -184,10 +261,10 @@ scene.layout(group, to=Column(gap=.35, at=content.center))
 those transforms in parallel. It does not create copies, retain a live layout
 constraint, or change object identity. Rotation and scale are preserved; the
 layout determines target translations from the objects' current authored bounds.
-For a `Group2D`, child layout coordinates are group-local, while the Group keeps
+For a `Group`, child layout coordinates are group-local, while the Group keeps
 its own independent transform.
 
-`Group2D.arrange()` / `arrange_in_grid()` remain compact one-time helpers, but the
+`Group.arrange()` / `arrange_in_grid()` remain compact one-time helpers, but the
 curated API examples prefer explicit layout specifications because their target
 position can be read directly from the code. See `examples/showcase/layout.py`
 for independent child motion followed by Row → Grid → Column layout transitions.
@@ -200,8 +277,8 @@ They are three different things.
 Before an object joins a Scene, ordinary mutation is layout/configuration:
 
 ```python
-box = Object2D(
-    Square(1),
+box = Square(
+    1,
     style=Style.outline(Color(120, 170, 255), 0.04),
     opacity=0,
 )
@@ -215,7 +292,7 @@ change roles at the lifetime boundary:
 
 ```python
 scene.wait(2)
-box = scene.add(box)  # raw Object2D -> BoundObject2D
+box = scene.add(box)  # declared shape -> Scene-bound handle
                      # box is absent for t < 2; lifetime begins at t = 2
 
 box.move(to=(3, 1))
@@ -225,16 +302,16 @@ box.opacity(to=.4)
 The handle does not replace the render object: `box.raw` is the exact object that
 was declared and registered. `scene.on(raw)` returns the same stable handle. For
 multiple objects, `a, b = scene.add(a, b)` returns handles in the same order. A
-bound `Group2D` exposes bound direct children through `group.children`.
+bound `Group` exposes bound direct children through `group.children`.
 
 This makes the phase distinction explicit in Python:
 
 ```text
-Object2D / Group2D     declare + layout
+Shape / Group        declare + layout
         |
         | scene.add()
         v
-BoundObject2D / BoundGroup2D     timeline operations
+BoundObject2D / BoundGroup     timeline operations
 ```
 
 Likewise, `Scene.remove()` ends lifetime at the current cursor. Lifetimes are
@@ -248,7 +325,7 @@ insert a hidden state before the clip:
 
 ```python
 label = Text("explicit", opacity=0)
-path = Object2D(Circle(1), trim=0)
+path = Circle(1, trim=0)
 math = Math("x^2", reveal=0)
 
 label, path, math = scene.add(label, path, math)
@@ -306,7 +383,7 @@ not need `scene.on(scene.camera)`. Its transform has a different, explicit
 meaning: **world -> view**. Common camera animation is authored directly:
 
 ```python
-scene.camera.affine(to=(-.3, -.08), scale=1.15, duration=1.3)
+scene.camera.affine(position=(-.3, -.08), scale=1.15, duration=1.3)
 scene.camera.pan(by=(1, 0))          # camera motion in Scene-world coordinates
 scene.camera.zoom(by=1.2)            # about view-space origin by default
 scene.camera.rotate_view(by=.2)      # exact rotation path, no midpoint shrink
@@ -323,11 +400,11 @@ constructor-like shorthands:
 
 ```python
 # Complete rigid pose. Equivalent to transform(to=SE2(...)).
-robot.pose(to=(3, 2), rotation=pi / 2)
+robot.pose(position=(3, 2), rotation=pi / 2)
 
 # Complete affine target, always composed in this fixed order:
 # Translation @ Rotation @ Shear @ Scale
-shape.affine(to=(-3, 0), rotation=.2, scale=1.5, shear=(.1, 0))
+shape.affine(position=(-3, 0), rotation=.2, scale=1.5, shear=(.1, 0))
 
 # The same pure constructors are available inside procedural motion.
 star.transform_function(
@@ -335,7 +412,7 @@ star.transform_function(
 )
 ```
 
-`pose()` and `affine()` both require `to=`. Omitted rotation/shear/scale use
+`pose()` and `affine()` both require `position=`. Omitted rotation/shear/scale use
 their identity values; they never inspect the current transform and silently
 preserve unspecified components. For relative motion, use `move`, `rotate`,
 `scale`, or the full `transform(..., by=..., frame=...)` API. Bound `move()` also
@@ -395,7 +472,7 @@ shown in `examples/showcase/state_model.py`.
 
 ## Frames and planar forward kinematics
 
-Nested `Group2D` objects form a genuine transform tree. A child transform is
+Nested `Group` objects form a genuine transform tree. A child transform is
 `T_parent_child`, so world pose is ordinary matrix composition:
 
 ```text
@@ -406,9 +483,9 @@ This is exactly open-chain forward kinematics. Revolute and prismatic joints are
 just local rigid transforms:
 
 ```python
-joint3 = Group2D([...], position=(L2, 0))
-joint2 = Group2D([..., joint3], position=(L1, 0))
-root = Group2D([link1, joint2])
+joint3 = Group([...], position=(L2, 0))
+joint2 = Group([..., joint3], position=(L1, 0))
+root = Group([link1, joint2])
 root = scene.add(root)
 joint2, joint3 = scene.on(joint2), scene.on(joint3)
 
@@ -513,6 +590,8 @@ Raster objects share the normal `transform`, `opacity`, `z_index`, bounds/layout
 `SceneRasterSource` renders any nested 2D `Scene` to a transparent, random-access RGBA source. `AlphaMaskSource` then combines two raster sources by alpha and supports time-dependent inversion and feathering. This is the common compositing boundary for shape masks, picture-in-picture, selective frame effects, and future blur/glow operations; geometry and vector renderers do not need mask-specific branches.
 
 ```python
+from zanim.raster import AlphaMaskSource, RasterObject2D, SceneRasterSource
+
 content = SceneRasterSource(content_scene)
 mask = SceneRasterSource(mask_scene)
 masked = RasterObject2D(AlphaMaskSource(content, mask), width=8)
@@ -523,62 +602,70 @@ masked = RasterObject2D(AlphaMaskSource(content, mask), width=8)
 - `Text` / `Math`: Typst -> SVG -> immutable `VectorDocument`.
 - `FormulaTemplate`: Typst owns mathematical layout while fixed slots hold high-frequency numbers or embedded Zanim objects.
 - `DynamicNumber` uses a cached Typst math glyph atlas; per-frame updates do not invoke Typst.
-- `Axes2D` supplies coordinate mapping, plotting, dynamic area geometry, and numerical integration.
-- `ScalarValue` is a random-access value source and can bind directly to `DynamicNumber` or formula slots.
+- `Axes` supplies coordinate mapping, plotting, dynamic area geometry, and numerical integration.
+- `ScalarValue` (`zanim.value`) is a low-level random-access value source and can bind directly to `DynamicNumber` or formula slots.
 
 ## Common objects
 
-Alongside raw primitives, the authoring layer includes `Dot`, `Arrow`, and `NumberLine` (with optional Typst tick labels). `Axes2D.axis_labels()` returns ordinary grouped math objects. More convenience objects should be added only when they remove repeated authoring work; they do not require new renderer mechanisms.
+Alongside raw primitives, the authoring layer includes `Dot`, `Arrow`, and `NumberLine` (with optional Typst tick labels). `Axes.axis_labels()` returns ordinary grouped math objects. More convenience objects should be added only when they remove repeated authoring work; they do not require new renderer mechanisms.
 
-## Setup and checks
+## Development
+
+A source checkout needs Zig 0.16 to build the native renderer:
 
 ```bash
 uv sync
-zig build
+zig build -Doptimize=ReleaseFast
 ./scripts/check.sh
+```
+
+Runtime rendering never invokes Zig. Platform wheels build the renderer once through the Hatch build hook and bundle it under `zanim/_native/`; Python verifies the native ABI when loading it. Build a local wheel with:
+
+```bash
+uv build --wheel
 ```
 
 ## Examples
 
-Examples are curated rather than accumulated. `examples/showcase/` is the shortest tour of the public authoring API; `examples/fun/` contains complete playful animations. JAnim API parity and Manim/3Blue1Brown reproductions remain separate reference suites. See [`examples/README.md`](examples/README.md) for the map.
+Examples are curated rather than accumulated. [`examples/showcase/`](examples/showcase/) is a 12-lesson executable tutorial; [`examples/extras/`](examples/extras/) contains larger end-to-end animations. See [`examples/README.md`](examples/README.md) for the map.
+
+Start the tutorial with the same product workflow used for your own scene files:
 
 ```bash
-uv run python examples/showcase/basics.py
-uv run python examples/showcase/timeline.py
-uv run python examples/showcase/math.py
-uv run python examples/showcase/batches.py
-uv run python examples/showcase/media.py
-uv run python examples/showcase/three_d.py
-uv run python examples/showcase/kinematics.py
-
-uv run python examples/fun/fourier_draw.py --terms 36
-uv run python examples/fun/neural_network.py
-uv run python examples/fun/mnist_training.py
+zanim preview examples/showcase/basics.py
 ```
 
-Videos are written under matching subdirectories in `media/`.
+Then continue in order through:
 
-### JAnim API-demonstration parity suite
+```text
+basics → state_model → layout → timeline → transforms → vectors
+       → math → batches → media → compositing → three_d → kinematics
+```
 
-`examples/janim_api/` reimplements the visible effects from JAnim's public API demonstration, including the four-panel 3D shapes example. It is intentionally an effect-parity/regression suite rather than an API translation:
+Each showcase file is a plain top-level Python script using only public authoring APIs. `zanim preview` provides object names, runtime source mapping and manual `↻` reload without requiring a wrapper function or decorator.
+
+The larger extras remain intentionally outside that teaching path:
+
+```bash
+uv run python examples/extras/fourier_draw.py --terms 36
+uv run python examples/extras/neural_network.py
+uv run python examples/extras/mnist_training.py
+```
+
+### JAnim effect-parity reference
+
+`examples/janim_api/` is retained only as a regression/reference suite for visible JAnim API-demonstration effects. It is not a compatibility promise and does not define Zanim's public API.
 
 ```bash
 PYTHONPATH=python uv run python -m examples.janim_api.suite all
-PYTHONPATH=python uv run python -m examples.janim_api.suite ThreeDShapesExample
 ```
-
-The suite covers geometry creation/morphing, rich text and Typst, complex-plane deformation, number planes, procedural dependent motion, marked points, pixel frame effects, alpha masks and representative 3D surface styles.
-
-### Manim / 3Blue1Brown reproductions
-
-`examples/manim_2026/` is kept as a separate reference suite for effect-oriented reproductions from the 3Blue1Brown video repository. It is useful for finding capability gaps without turning compatibility-specific ideas into core abstractions.
 
 ## Optional extras
 
 Task-specific features live outside the core authoring model when they do not justify a renderer or timeline primitive. Fourier SVG drawing is implemented in `zanim.extras.fourier` on top of the generic cubic-contour arc-length sampler in `zanim.path`:
 
 ```bash
-uv run python examples/fun/fourier_draw.py --svg assets/fourier_heart.svg --terms 36
+uv run python examples/extras/fourier_draw.py --svg examples/assets/fourier_heart.svg --terms 36
 ```
 
 The example selects one closed contour, computes its DFT, builds a head-to-tail epicycle chain, and draws the moving endpoint trace. The Fourier policy itself is not part of `Scene`, `Timeline`, or the Zig renderer.
@@ -589,6 +676,6 @@ Zanim uses one deterministic CPU render architecture for both 2D and 3D scene co
 
 The CPU 3D pipeline implements homogeneous frustum clipping, perspective/orthographic projection, back-face culling, a layer-local z-buffer, indexed vertex processing, perspective-correct smooth-normal interpolation, Lambert shading, and deterministic transparent-mesh sorting/source-over blending. Indexed meshes transform each unique vertex once per frame before triangle assembly. Because the renderer is stateless, video frames use the same worker-parallel pipeline as 2D scenes on Linux and Windows.
 
-Public building blocks include `Vec3`, `SO3`, `Transform3D`, `Camera3D`, `TriangleMesh`, `MeshObject3D`, `Box3D`, `Cube3D`, and `Surface3D`. The renderer stays below these semantics: authoring code never depends on rasterizer-specific types.
+The root authoring API includes `Vec3`, `SO3`, `Transform3D`, `Camera3D`, `Box3D`, `Cube3D`, and `Surface3D`; custom `TriangleMesh` / `MeshObject3D` construction lives in `zanim.mesh3d`. The renderer stays below these semantics: authoring code never depends on rasterizer-specific types.
 
 The curated syntax example is `examples/showcase/three_d.py`; the JAnim parity suite also contains a four-panel 3D shapes scene. Both use the same CPU renderer and ordinary Scene/Timeline semantics.

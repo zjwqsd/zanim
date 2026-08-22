@@ -1,5 +1,7 @@
 import unittest
-from zanim import BatchObject2D, CircleSet, Color, DynamicBatchObject2D, RectSet, Scene, Vec2
+
+from zanim import Color, Scene, Vec2
+from zanim.batch import BatchObject2D, CircleSet, DynamicBatchObject2D, RectSet
 
 
 class BatchTimelineTests(unittest.TestCase):
@@ -21,8 +23,8 @@ class BatchTimelineTests(unittest.TestCase):
         self.assertIsNone(end.target)
 
     def test_batch_clip_requires_compatible_batch_shape(self):
-        obj = BatchObject2D(RectSet((Vec2(),), (Vec2(1,1),), (Color(0,0,0),)))
-        target = CircleSet((Vec2(),), (1.0,), (Color(0,0,0),))
+        obj = BatchObject2D(RectSet((Vec2(),), (Vec2(1, 1),), (Color(0, 0, 0),)))
+        target = CircleSet((Vec2(),), (1.0,), (Color(0, 0, 0),))
         scene = Scene()
         scene.add(obj)
         with self.assertRaises(ValueError):
@@ -54,4 +56,5 @@ class BatchTimelineTests(unittest.TestCase):
             scene.batch(obj, to=initial)
 
 
-if __name__ == '__main__': unittest.main()
+if __name__ == "__main__":
+    unittest.main()

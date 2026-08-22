@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from math import ceil
 
 from .object import SceneObject2D
@@ -8,7 +8,7 @@ from .space import SE2, Transform2D, Vec2
 
 
 @dataclass(slots=True, init=False)
-class Group2D(SceneObject2D):
+class Group(SceneObject2D):
     """Lightweight authoring container.
 
     Groups own no renderer payload. A group's transform is rigorously the
@@ -17,7 +17,7 @@ class Group2D(SceneObject2D):
     the hierarchy to compose transforms/opacity/z-index into leaf snapshots.
     """
 
-    children: list[SceneObject2D]
+    _children: list[SceneObject2D]
     transform: Transform2D
     opacity: float
     z_index: int
@@ -39,17 +39,18 @@ class Group2D(SceneObject2D):
         transform_sugar = any(value is not None for value in (position, rotation, scale, shear))
         if transform is not None and transform_sugar:
             raise ValueError(
-                "Group2D accepts either transform= or position/rotation/scale/shear sugar, not both"
+                "Group accepts either transform= or position/rotation/scale/shear sugar, not both"
             )
         if transform is None:
             resolved_transform = (
                 affine2d(
-                    to=(0.0, 0.0) if position is None else position,
+                    position=(0.0, 0.0) if position is None else position,
                     rotation=0.0 if rotation is None else rotation,
                     scale=1.0 if scale is None else scale,
                     shear=(0.0, 0.0) if shear is None else shear,
                 )
-                if transform_sugar else Transform2D()
+                if transform_sugar
+                else Transform2D()
             )
         elif isinstance(transform, SE2):
             resolved_transform = transform.as_affine()
@@ -58,38 +59,45 @@ class Group2D(SceneObject2D):
         else:
             raise TypeError("transform must be Transform2D or SE2")
 
-        self.children = [] if children is None else children
+        self._children = [] if children is None else list(children)
         self.transform = resolved_transform
         self.opacity = float(opacity)
         self.z_index = int(z_index)
         self._validate_scene_state()
-        if any(not isinstance(child, SceneObject2D) for child in self.children):
-            raise TypeError("Group2D children must be SceneObject2D instances")
+        if any(not isinstance(child, SceneObject2D) for child in self._children):
+            raise TypeError("Group children must be SceneObject2D instances")
 
-    def add(self, *children: SceneObject2D) -> "Group2D":
+    @property
+    def children(self) -> tuple[SceneObject2D, ...]:
+        """Direct children in stable order; hierarchy is immutable after Scene.add()."""
+        return tuple(self._children)
+
+    def add(self, *children: SceneObject2D) -> "Group":
         self._require_layout_mutable()
         for child in children:
             if not isinstance(child, SceneObject2D):
-                raise TypeError("Group2D children must be SceneObject2D instances")
+                raise TypeError("Group children must be SceneObject2D instances")
             if child is self:
-                raise ValueError("Group2D cannot contain itself")
-            self.children.append(child)
+                raise ValueError("Group cannot contain itself")
+            self._children.append(child)
         return self
 
     def __iter__(self):
-        return iter(self.children)
+        return iter(self._children)
 
     def __len__(self) -> int:
-        return len(self.children)
+        return len(self._children)
 
     def __getitem__(self, index):
-        return self.children[index]
+        return self._children[index]
 
-    def arrange(self, direction: Vec2 = Vec2(1, 0), *, buff: float = 0.25, center: bool = True) -> "Group2D":
-        if not self.children:
+    def arrange(
+        self, direction: Vec2 = Vec2(1, 0), *, buff: float = 0.25, center: bool = True
+    ) -> "Group":
+        if not self._children:
             return self
         original_center = self.bounds().center
-        for previous, child in zip(self.children, self.children[1:]):
+        for previous, child in zip(self._children, self._children[1:]):
             child.next_to(previous, direction, buff)
             # Keep rows/columns visually aligned on the orthogonal center axis.
             if abs(direction.x) >= abs(direction.y):
@@ -99,7 +107,7 @@ class Group2D(SceneObject2D):
         if center:
             new_center = self.bounds().center
             delta = Vec2(original_center.x - new_center.x, original_center.y - new_center.y)
-            for child in self.children:
+            for child in self._children:
                 child.shift(delta)
         return self
 
@@ -110,12 +118,12 @@ class Group2D(SceneObject2D):
         cols: int | None = None,
         buff_x: float = 0.25,
         buff_y: float = 0.25,
-    ) -> "Group2D":
-        count = len(self.children)
+    ) -> "Group":
+        count = len(self._children)
         if count == 0:
             return self
         if rows is None and cols is None:
-            cols = int(ceil(count ** 0.5))
+            cols = int(ceil(count**0.5))
         if cols is None:
             if rows is None or rows <= 0:
                 raise ValueError("rows must be positive")
@@ -130,11 +138,11 @@ class Group2D(SceneObject2D):
             raise ValueError("grid buffers must be >= 0")
 
         center = self.bounds().center
-        cell_w = max(child.bounds().width for child in self.children)
-        cell_h = max(child.bounds().height for child in self.children)
+        cell_w = max(child.bounds().width for child in self._children)
+        cell_h = max(child.bounds().height for child in self._children)
         total_w = cols * cell_w + (cols - 1) * buff_x
         total_h = rows * cell_h + (rows - 1) * buff_y
-        for index, child in enumerate(self.children):
+        for index, child in enumerate(self._children):
             row, col = divmod(index, cols)
             target = Vec2(
                 center.x - total_w * 0.5 + cell_w * 0.5 + col * (cell_w + buff_x),

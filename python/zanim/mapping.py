@@ -28,8 +28,7 @@ def activation_colors(
     """Encode normalized activations primarily through opacity."""
     span = max_alpha - min_alpha
     return tuple(
-        Color(base.r, base.g, base.b, round(min_alpha + span * _clamp01(value)))
-        for value in values
+        Color(base.r, base.g, base.b, round(min_alpha + span * _clamp01(value))) for value in values
     )
 
 
@@ -88,7 +87,4 @@ def weight_widths(
     magnitude_scale = max(abs(v) for v in data) if scale is None else float(scale)
     if magnitude_scale <= 0:
         magnitude_scale = 1.0
-    return tuple(
-        minimum + (maximum - minimum) * _clamp01(abs(v) / magnitude_scale)
-        for v in data
-    )
+    return tuple(minimum + (maximum - minimum) * _clamp01(abs(v) / magnitude_scale) for v in data)

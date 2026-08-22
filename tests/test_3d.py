@@ -2,8 +2,17 @@ import math
 import unittest
 
 from zanim import (
-    Box3D, Camera3D, Canvas, Color, Cube3D, Easing, SO3, Scene, Surface3D,
-    Transform3D, Vec3,
+    SO3,
+    Box3D,
+    Camera3D,
+    Canvas,
+    Color,
+    Cube3D,
+    Easing,
+    Scene,
+    Surface3D,
+    Transform3D,
+    Vec3,
 )
 
 
@@ -39,7 +48,6 @@ class Space3DTests(unittest.TestCase):
 
 
 class Mesh3DTests(unittest.TestCase):
-
     def test_box_dimensions_and_mesh_reuse(self):
         a = Box3D(Vec3(1.0, 2.0, 3.0))
         b = Box3D(Vec3(4.0, 5.0, 6.0))
@@ -54,6 +62,7 @@ class Mesh3DTests(unittest.TestCase):
         self.assertAlmostEqual(max(xs) - min(xs), 1.0)
         self.assertAlmostEqual(max(ys) - min(ys), 2.0)
         self.assertAlmostEqual(max(zs) - min(zs), 3.0)
+
     def test_cube_is_indexed_flat_shaded_mesh(self):
         cube = Cube3D(2.0)
         self.assertEqual(len(cube.mesh.vertices), 24)

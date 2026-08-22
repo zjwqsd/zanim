@@ -1,21 +1,23 @@
 """A self-contained neural-network pulse built from batch geometry."""
+
 from __future__ import annotations
 
-from pathlib import Path
 import random
+from pathlib import Path
 
-from zanim import BatchObject2D, Canvas, CircleSet, Color, LineSet, Scene, Text, Vec2, affine2d
+from zanim import Canvas, Color, Scene, Text, Vec2, affine2d
+from zanim.batch import BatchObject2D, CircleSet, LineSet
 from zanim.mapping import activation_colors, activation_radii, signed_weight_colors, weight_widths
 
 ROOT = Path(__file__).resolve().parents[2]
-OUTPUT = ROOT / "media/fun/neural_network.mp4"
+OUTPUT = ROOT / "media/extras/neural_network.mp4"
 LAYERS = (6, 9, 7, 4)
 XPOS = (-5.4, -1.8, 1.8, 5.2)
 
 
 def layer_points(x: float, count: int) -> tuple[Vec2, ...]:
     step = 5.4 / max(1, count - 1)
-    return tuple(Vec2(x, 2.7 - i*step) for i in range(count))
+    return tuple(Vec2(x, 2.7 - i * step) for i in range(count))
 
 
 def transparent(colors: tuple[Color, ...]) -> tuple[Color, ...]:
@@ -44,22 +46,35 @@ def build_scene() -> Scene:
     node_targets = []
     for layer_index, centers in enumerate(points):
         values = tuple(rng.random() for _ in centers)
-        base = Color(80 + 40*layer_index, 150, 255 - 35*layer_index)
+        base = Color(80 + 40 * layer_index, 150, 255 - 35 * layer_index)
         fills = activation_colors(values, base=base, min_alpha=50, max_alpha=255)
         radii = activation_radii(values, minimum=0.13, maximum=0.23)
-        idle = CircleSet(centers, (0.14,)*len(centers), tuple(base.with_alpha(26) for _ in centers))
-        active = CircleSet(centers, radii, fills, tuple(Color(230, 238, 255, 170) for _ in centers), (0.018,)*len(centers))
+        idle = CircleSet(
+            centers, (0.14,) * len(centers), tuple(base.with_alpha(26) for _ in centers)
+        )
+        active = CircleSet(
+            centers,
+            radii,
+            fills,
+            tuple(Color(230, 238, 255, 170) for _ in centers),
+            (0.018,) * len(centers),
+        )
         node_objects.append(BatchObject2D(idle, z_index=2))
         node_targets.append(active)
 
     title = Text(
-        "Signals flow; geometry stays batched", font_size=31,
-        transform=affine2d(to=(0, 3.55)), opacity=0, z_index=10,
+        "Signals flow; geometry stays batched",
+        font_size=31,
+        transform=affine2d(position=(0, 3.55)),
+        opacity=0,
+        z_index=10,
     )
-    scene.add(*edge_objects, *node_objects, title)
-    edge_objects = [scene.on(obj) for obj in edge_objects]
-    node_objects = [scene.on(obj) for obj in node_objects]
-    title = scene.on(title)
+    edge_count = len(edge_objects)
+    node_count = len(node_objects)
+    handles = scene.add(*edge_objects, *node_objects, title)
+    edge_objects = list(handles[:edge_count])
+    node_objects = list(handles[edge_count : edge_count + node_count])
+    title = handles[-1]
     title.fade_in(duration=0.6)
 
     # Propagate left to right. Each layer transition is just two BatchClips.
@@ -67,7 +82,7 @@ def build_scene() -> Scene:
         with scene.parallel():
             node_objects[i].batch(to=node_targets[i], duration=0.55)
             edge_objects[i].batch(to=edge_targets[i], duration=0.75, at=0.25)
-            node_objects[i+1].batch(to=node_targets[i+1], duration=0.55, at=0.65)
+            node_objects[i + 1].batch(to=node_targets[i + 1], duration=0.55, at=0.65)
         scene.wait(0.12)
 
     # Emphasize the winning output neuron.
@@ -79,7 +94,7 @@ def build_scene() -> Scene:
         activation_radii(values, minimum=0.15, maximum=0.31),
         activation_colors(values, base=Color(255, 158, 82), min_alpha=65, max_alpha=255),
         tuple(Color(255, 240, 210, 240) for _ in out),
-        (0.026,)*len(out),
+        (0.026,) * len(out),
     )
     node_objects[-1].batch(to=final, duration=0.55)
     scene.wait(0.65)

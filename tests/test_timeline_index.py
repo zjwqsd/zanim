@@ -1,11 +1,11 @@
 import unittest
 
-from zanim import Circle, Object2D, Scene, Transform2D
+from zanim import Circle, Scene, Transform2D
 
 
 class TimelineIndexTests(unittest.TestCase):
     def test_same_channel_reverse_time_authoring_is_rejected(self):
-        obj = Object2D(Circle(1))
+        obj = Circle(1)
         scene = Scene()
         scene.add(obj)
         with self.assertRaisesRegex(ValueError, "chronological order"):
@@ -14,7 +14,7 @@ class TimelineIndexTests(unittest.TestCase):
                 scene.transform(obj, to=Transform2D.translation(1, 0), duration=1, at=0)
 
     def test_different_objects_may_use_arbitrary_at_offsets(self):
-        a, b = Object2D(Circle(1)), Object2D(Circle(1))
+        a, b = Circle(1), Circle(1)
         scene = Scene()
         scene.add(a, b)
         with scene.parallel():
@@ -24,5 +24,5 @@ class TimelineIndexTests(unittest.TestCase):
         self.assertAlmostEqual(scene.evaluate(2.5).objects[0].snapshot.transform.tx, 1.5)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -17,15 +17,25 @@ def render_snapshot_rgb0(buffer: bytearray, snapshot, canvas) -> None:
     encoded = encode_snapshot(snapshot)
     pixels = (ctypes.c_uint32 * pixel_count).from_buffer(buffer)
     result = load_library().zanim_render_scene_rgb0(
-        int(canvas.width), int(canvas.height), float(canvas.unit_size),
-        encoded.draw_array, len(encoded.draw_items),
-        encoded.object_array, len(encoded.objects),
-        encoded.batch_array, len(encoded.batches),
-        encoded.vector_array, len(encoded.vectors),
-        encoded.raster_array, len(encoded.rasters),
-        encoded.scene3d_array, len(encoded.scene3d_layers),
-        encoded.interpolation_array, len(encoded.interpolations),
-        pixels, pixel_count,
+        int(canvas.width),
+        int(canvas.height),
+        float(canvas.unit_size),
+        encoded.draw_array,
+        len(encoded.draw_items),
+        encoded.object_array,
+        len(encoded.objects),
+        encoded.batch_array,
+        len(encoded.batches),
+        encoded.vector_array,
+        len(encoded.vectors),
+        encoded.raster_array,
+        len(encoded.rasters),
+        encoded.scene3d_array,
+        len(encoded.scene3d_layers),
+        encoded.interpolation_array,
+        len(encoded.interpolations),
+        pixels,
+        pixel_count,
     )
     if result != 0:
         raise RuntimeError(f"Zig RGB0 scene renderer failed with status {result}")
@@ -41,15 +51,25 @@ def render_snapshot_rgba(buffer: bytearray, snapshot, canvas) -> None:
     encoded = encode_snapshot(snapshot)
     pixels = (ctypes.c_uint32 * pixel_count).from_buffer(buffer)
     result = load_library().zanim_render_scene_rgba0(
-        int(canvas.width), int(canvas.height), float(canvas.unit_size),
-        encoded.draw_array, len(encoded.draw_items),
-        encoded.object_array, len(encoded.objects),
-        encoded.batch_array, len(encoded.batches),
-        encoded.vector_array, len(encoded.vectors),
-        encoded.raster_array, len(encoded.rasters),
-        encoded.scene3d_array, len(encoded.scene3d_layers),
-        encoded.interpolation_array, len(encoded.interpolations),
-        pixels, pixel_count,
+        int(canvas.width),
+        int(canvas.height),
+        float(canvas.unit_size),
+        encoded.draw_array,
+        len(encoded.draw_items),
+        encoded.object_array,
+        len(encoded.objects),
+        encoded.batch_array,
+        len(encoded.batches),
+        encoded.vector_array,
+        len(encoded.vectors),
+        encoded.raster_array,
+        len(encoded.rasters),
+        encoded.scene3d_array,
+        len(encoded.scene3d_layers),
+        encoded.interpolation_array,
+        len(encoded.interpolations),
+        pixels,
+        pixel_count,
     )
     if result != 0:
         raise RuntimeError(f"Zig RGBA scene renderer failed with status {result}")
@@ -62,14 +82,23 @@ def render_snapshot(path: str | Path, snapshot, canvas) -> Path:
     encoded = encode_snapshot(snapshot)
     result = load_library().zanim_render_scene_frame(
         str(output).encode(),
-        int(canvas.width), int(canvas.height), float(canvas.unit_size),
-        encoded.draw_array, len(encoded.draw_items),
-        encoded.object_array, len(encoded.objects),
-        encoded.batch_array, len(encoded.batches),
-        encoded.vector_array, len(encoded.vectors),
-        encoded.raster_array, len(encoded.rasters),
-        encoded.scene3d_array, len(encoded.scene3d_layers),
-        encoded.interpolation_array, len(encoded.interpolations),
+        int(canvas.width),
+        int(canvas.height),
+        float(canvas.unit_size),
+        encoded.draw_array,
+        len(encoded.draw_items),
+        encoded.object_array,
+        len(encoded.objects),
+        encoded.batch_array,
+        len(encoded.batches),
+        encoded.vector_array,
+        len(encoded.vectors),
+        encoded.raster_array,
+        len(encoded.rasters),
+        encoded.scene3d_array,
+        len(encoded.scene3d_layers),
+        encoded.interpolation_array,
+        len(encoded.interpolations),
     )
     if result != 0:
         raise RuntimeError(f"Zig scene renderer failed with status {result}")
@@ -90,15 +119,27 @@ def pick_snapshot_object(snapshot, canvas, x: int, y: int) -> int | None:
     object_id = ctypes.c_uint32(0)
     object_ids = (ctypes.c_uint32 * len(encoded.draw_object_ids))(*encoded.draw_object_ids)
     result = load_library().zanim_pick_scene_object(
-        width, height, float(canvas.unit_size),
-        encoded.draw_array, object_ids, len(encoded.draw_items),
-        encoded.object_array, len(encoded.objects),
-        encoded.batch_array, len(encoded.batches),
-        encoded.vector_array, len(encoded.vectors),
-        encoded.raster_array, len(encoded.rasters),
-        encoded.scene3d_array, len(encoded.scene3d_layers),
-        encoded.interpolation_array, len(encoded.interpolations),
-        x, y, ctypes.byref(object_id),
+        width,
+        height,
+        float(canvas.unit_size),
+        encoded.draw_array,
+        object_ids,
+        len(encoded.draw_items),
+        encoded.object_array,
+        len(encoded.objects),
+        encoded.batch_array,
+        len(encoded.batches),
+        encoded.vector_array,
+        len(encoded.vectors),
+        encoded.raster_array,
+        len(encoded.rasters),
+        encoded.scene3d_array,
+        len(encoded.scene3d_layers),
+        encoded.interpolation_array,
+        len(encoded.interpolations),
+        x,
+        y,
+        ctypes.byref(object_id),
     )
     if result != 0:
         raise RuntimeError(f"Zig scene picker failed with status {result}")

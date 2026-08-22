@@ -10,30 +10,46 @@ That identity is exact for the constant-learning-rate SGD loop below.  The
 animation remains absolute-time/random-access: any frame can be evaluated in
 any order from the immutable epoch trace.
 """
+
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 import json
+import struct
+from dataclasses import dataclass
+from functools import lru_cache
 from math import ceil, floor
 from pathlib import Path
-import struct
 from time import perf_counter
-from functools import lru_cache
 
 import numpy as np
-
 from zanim import (
-    BatchObject2D, Canvas, CircleSet, Color, Column, DynamicBatchObject2D,
-    DynamicGeometryObject2D, DynamicNumber, Group2D,
-    LineSet, Math, NumberFormat, Object2D, Polyline, RectSet, Rectangle,
-    Scene, Style, Text, TOP, BOTTOM, Transform2D, Vec2, affine2d,
+    BOTTOM,
+    TOP,
+    Canvas,
+    Color,
+    Column,
+    DynamicNumber,
+    Group,
+    Math,
+    NumberFormat,
+    Rectangle,
+    Scene,
+    Style,
+    Text,
+    Transform2D,
+    Vec2,
+    affine2d,
 )
+from zanim.batch import BatchObject2D, CircleSet, DynamicBatchObject2D, LineSet, RectSet
+from zanim.geometry import PolylineGeometry
+from zanim.plot import DynamicGeometryObject2D
 
 ROOT = Path(__file__).resolve().parents[2]
-RAW = ROOT / "assets/MNIST/raw"
-OUTPUT = ROOT / "media/fun/mnist_training.mp4"
-BENCHMARK = ROOT / "media/fun/mnist_training_benchmark.json"
+EXAMPLES = Path(__file__).resolve().parents[1]
+RAW = EXAMPLES / "assets/MNIST/raw"
+OUTPUT = ROOT / "media/extras/mnist_training.mp4"
+BENCHMARK = ROOT / "media/extras/mnist_training_benchmark.json"
 
 TRAIN_IMG = RAW / "train-images-idx3-ubyte"
 TRAIN_LBL = RAW / "train-labels-idx1-ubyte"
@@ -177,27 +193,36 @@ class MLP:
 
 @dataclass(frozen=True, slots=True)
 class EpochTrace:
-    W1: np.ndarray             # [9, 784, 8], epoch boundaries
-    b1: np.ndarray             # [9, 8]
-    W2: np.ndarray             # [9, 8, 10]
-    b2: np.ndarray             # [9, 10]
-    G1: np.ndarray             # [8, 784, 8], sum of all batch dW1 in epoch
-    Gb1: np.ndarray            # [8, 8]
-    G2: np.ndarray             # [8, 8, 10]
-    Gb2: np.ndarray            # [8, 10]
-    mean_loss: np.ndarray      # [8]
-    train_accuracy: np.ndarray # [8]
+    W1: np.ndarray  # [9, 784, 8], epoch boundaries
+    b1: np.ndarray  # [9, 8]
+    W2: np.ndarray  # [9, 8, 10]
+    b2: np.ndarray  # [9, 10]
+    G1: np.ndarray  # [8, 784, 8], sum of all batch dW1 in epoch
+    Gb1: np.ndarray  # [8, 8]
+    G2: np.ndarray  # [8, 8, 10]
+    Gb2: np.ndarray  # [8, 10]
+    mean_loss: np.ndarray  # [8]
+    train_accuracy: np.ndarray  # [8]
     test_accuracy: np.ndarray  # [8]
-    samples: np.ndarray        # [8, 784], representative real samples
+    samples: np.ndarray  # [8, 784], representative real samples
     sample_labels: np.ndarray  # [8]
 
     @property
     def memory_bytes(self) -> int:
         arrays = (
-            self.W1, self.b1, self.W2, self.b2,
-            self.G1, self.Gb1, self.G2, self.Gb2,
-            self.mean_loss, self.train_accuracy, self.test_accuracy,
-            self.samples, self.sample_labels,
+            self.W1,
+            self.b1,
+            self.W2,
+            self.b2,
+            self.G1,
+            self.Gb1,
+            self.G2,
+            self.Gb2,
+            self.mean_loss,
+            self.train_accuracy,
+            self.test_accuracy,
+            self.samples,
+            self.sample_labels,
         )
         return int(sum(array.nbytes for array in arrays))
 
@@ -248,9 +273,9 @@ def train_with_epoch_trace(
     W1[0], b1[0], W2[0], b2[0] = mlp.W1, mlp.b1, mlp.W2, mlp.b2
 
     # Eight visually distinct real MNIST examples, one per epoch.
-    sample_indices = np.asarray([
-        int(np.flatnonzero(y_train == digit)[0]) for digit in range(epochs)
-    ])
+    sample_indices = np.asarray(
+        [int(np.flatnonzero(y_train == digit)[0]) for digit in range(epochs)]
+    )
     samples = X_train[sample_indices].astype(np.float32, copy=True)
     sample_labels = y_train[sample_indices].astype(np.int16, copy=True)
 
@@ -263,8 +288,8 @@ def train_with_epoch_trace(
         losses: list[float] = []
 
         for i in range(0, X_train.shape[0], batch_size):
-            Xb = X_train[i:i + batch_size]
-            yb = y_train[i:i + batch_size]
+            Xb = X_train[i : i + batch_size]
+            yb = y_train[i : i + batch_size]
             mlp.forward(Xb)
             losses.append(mlp.compute_loss(yb))
             mlp.backward(Xb, yb)
@@ -319,8 +344,14 @@ def train_with_epoch_trace(
     return TrainingResult(
         model=mlp,
         trace=EpochTrace(
-            W1=W1, b1=b1, W2=W2, b2=b2,
-            G1=G1, Gb1=Gb1, G2=G2, Gb2=Gb2,
+            W1=W1,
+            b1=b1,
+            W2=W2,
+            b2=b2,
+            G1=G1,
+            Gb1=Gb1,
+            G2=G2,
+            Gb2=Gb2,
             mean_loss=mean_loss,
             train_accuracy=train_accuracy,
             test_accuracy=test_accuracy,
@@ -358,9 +389,7 @@ def _input_centers() -> tuple[Vec2, ...]:
 
 def _filter_centers() -> tuple[Vec2, ...]:
     return tuple(
-        Vec2(-4.22 + 0.88 * col, 1.70 - 0.86 * row)
-        for row in range(4)
-        for col in range(2)
+        Vec2(-4.22 + 0.88 * col, 1.70 - 0.86 * row) for row in range(4) for col in range(2)
     )
 
 
@@ -397,10 +426,7 @@ def _filter_cells() -> tuple[Vec2, ...]:
 
 
 def _layer_centers(x: float, count: int, height: float) -> tuple[Vec2, ...]:
-    return tuple(
-        Vec2(x, 0.35 + height * (0.5 - i / (count - 1)))
-        for i in range(count)
-    )
+    return tuple(Vec2(x, 0.35 + height * (0.5 - i / (count - 1))) for i in range(count))
 
 
 class EpochVisual:
@@ -458,8 +484,10 @@ class EpochVisual:
     @lru_cache(maxsize=32)
     def _boundary_weights(self, index: int):
         return (
-            self.trace.W1[index], self.trace.b1[index],
-            self.trace.W2[index], self.trace.b2[index],
+            self.trace.W1[index],
+            self.trace.b1[index],
+            self.trace.W2[index],
+            self.trace.b2[index],
         )
 
     def weights_at(self, time: float):
@@ -594,9 +622,16 @@ class EpochVisual:
         return 0.18, False
 
     def _grown_lines(
-        self, starts: tuple[Vec2, ...], ends: tuple[Vec2, ...],
-        colors: tuple[Color, ...], widths: tuple[float, ...], progress: float,
-        *, reverse: bool = False, groups: int | None = None, group_size: int = 1,
+        self,
+        starts: tuple[Vec2, ...],
+        ends: tuple[Vec2, ...],
+        colors: tuple[Color, ...],
+        widths: tuple[float, ...],
+        progress: float,
+        *,
+        reverse: bool = False,
+        groups: int | None = None,
+        group_size: int = 1,
     ) -> LineSet:
         source = ends if reverse else starts
         target = starts if reverse else ends
@@ -679,7 +714,8 @@ class EpochVisual:
     def _hidden_gradient_filters(self, epoch: int) -> RectSet:
         base = self._gradient_filters(epoch)
         return RectSet(
-            base.centers, base.sizes,
+            base.centers,
+            base.sizes,
             tuple(color.with_alpha(0) for color in base.fills),
         )
 
@@ -740,8 +776,12 @@ class EpochVisual:
         colors = (CYAN.with_alpha(150),) * HIDDEN_SIZE
         widths = (0.012,) * HIDDEN_SIZE
         return self._grown_lines(
-            self.input_filter_starts, self.input_filter_ends, colors, widths,
-            progress, groups=HIDDEN_SIZE,
+            self.input_filter_starts,
+            self.input_filter_ends,
+            colors,
+            widths,
+            progress,
+            groups=HIDDEN_SIZE,
         )
 
     def forward_filter_hidden_lines(self, time: float) -> LineSet:
@@ -749,8 +789,12 @@ class EpochVisual:
         colors = (CYAN.with_alpha(180),) * HIDDEN_SIZE
         widths = (0.014,) * HIDDEN_SIZE
         return self._grown_lines(
-            self.filter_hidden_starts, self.filter_hidden_ends, colors, widths,
-            progress, groups=HIDDEN_SIZE,
+            self.filter_hidden_starts,
+            self.filter_hidden_ends,
+            colors,
+            widths,
+            progress,
+            groups=HIDDEN_SIZE,
         )
 
     def forward_w2_lines(self, time: float) -> LineSet:
@@ -764,8 +808,13 @@ class EpochVisual:
             boundary = epoch
         base = self._static_w2_lines(boundary)
         return self._grown_lines(
-            base.starts, base.ends, base.colors, base.widths, progress,
-            groups=HIDDEN_SIZE, group_size=OUTPUT_SIZE,
+            base.starts,
+            base.ends,
+            base.colors,
+            base.widths,
+            progress,
+            groups=HIDDEN_SIZE,
+            group_size=OUTPUT_SIZE,
         )
 
     def backward_w2_lines(self, time: float) -> LineSet:
@@ -787,8 +836,13 @@ class EpochVisual:
                 colors.append(base.colors[i])
                 widths.append(base.widths[i])
         return self._grown_lines(
-            tuple(starts), tuple(ends), tuple(colors), tuple(widths), progress,
-            groups=OUTPUT_SIZE, group_size=HIDDEN_SIZE,
+            tuple(starts),
+            tuple(ends),
+            tuple(colors),
+            tuple(widths),
+            progress,
+            groups=OUTPUT_SIZE,
+            group_size=HIDDEN_SIZE,
         )
 
     def backward_hidden_filter_lines(self, time: float) -> LineSet:
@@ -799,8 +853,13 @@ class EpochVisual:
         colors = tuple(PURPLE.with_alpha(round(55 + 190 * float(v / scale))) for v in g)
         widths = tuple(0.012 + 0.014 * float(v / scale) for v in g)
         return self._grown_lines(
-            self.filter_hidden_starts, self.filter_hidden_ends, colors, widths,
-            progress, reverse=True, groups=HIDDEN_SIZE,
+            self.filter_hidden_starts,
+            self.filter_hidden_ends,
+            colors,
+            widths,
+            progress,
+            reverse=True,
+            groups=HIDDEN_SIZE,
         )
 
     def backward_filter_input_lines(self, time: float) -> LineSet:
@@ -811,16 +870,20 @@ class EpochVisual:
         colors = tuple(ORANGE.with_alpha(round(45 + 185 * float(v / scale))) for v in g)
         widths = tuple(0.010 + 0.012 * float(v / scale) for v in g)
         return self._grown_lines(
-            self.input_filter_starts, self.input_filter_ends, colors, widths,
-            progress, reverse=True, groups=HIDDEN_SIZE,
+            self.input_filter_starts,
+            self.input_filter_ends,
+            colors,
+            widths,
+            progress,
+            reverse=True,
+            groups=HIDDEN_SIZE,
         )
 
     @lru_cache(maxsize=12)
     def _input_for_key(self, key: int, inference: bool) -> RectSet:
         x = self.inference.X[key] if inference else self.trace.samples[key]
         fills = tuple(
-            Color(round(20 + 230 * v), round(23 + 230 * v), round(31 + 220 * v))
-            for v in x
+            Color(round(20 + 230 * v), round(23 + 230 * v), round(31 + 220 * v)) for v in x
         )
         return RectSet(
             self.input_centers,
@@ -861,8 +924,11 @@ class EpochVisual:
             fills.append(base.with_alpha(round(28 + 220 * max(light * 0.45, activation))))
             strokes.append((ORANGE if backward else WHITE).with_alpha(round(90 + 150 * light)))
         return CircleSet(
-            self.hidden_centers, tuple(radii), tuple(fills),
-            tuple(strokes), (0.016,) * HIDDEN_SIZE,
+            self.hidden_centers,
+            tuple(radii),
+            tuple(fills),
+            tuple(strokes),
+            (0.016,) * HIDDEN_SIZE,
         )
 
     def output_nodes(self, time: float) -> CircleSet:
@@ -878,8 +944,11 @@ class EpochVisual:
             fills.append(base.with_alpha(round(26 + 225 * max(light * 0.42, activation))))
             strokes.append((PURPLE if backward else WHITE).with_alpha(round(85 + 155 * light)))
         return CircleSet(
-            self.output_centers, tuple(radii), tuple(fills),
-            tuple(strokes), (0.016,) * OUTPUT_SIZE,
+            self.output_centers,
+            tuple(radii),
+            tuple(fills),
+            tuple(strokes),
+            (0.016,) * OUTPUT_SIZE,
         )
 
     def probability_bars(self, time: float) -> RectSet:
@@ -892,9 +961,7 @@ class EpochVisual:
             width = 0.02 + 1.05 * float(probability) * reveal
             centers.append(Vec2(1.62 + width * 0.5, node.y))
             sizes.append(Vec2(width, 0.095))
-            fills.append(
-                (YELLOW if digit == pred else GREEN).with_alpha(round(205 * reveal))
-            )
+            fills.append((YELLOW if digit == pred else GREEN).with_alpha(round(205 * reveal)))
         return RectSet(tuple(centers), tuple(sizes), tuple(fills))
 
     def mean_loss_at(self, time: float) -> float:
@@ -933,20 +1000,20 @@ def _dynamic_number(
         number_format=NumberFormat(width=width, decimals=decimals, sign="space"),
         font_size=font_size,
         color=color,
-        transform=affine2d(to=at),
+        transform=affine2d(position=at),
         opacity=opacity,
         z_index=15,
     )
 
 
-def _curve(points: tuple[Vec2, ...], count: int) -> Polyline:
+def _curve(points: tuple[Vec2, ...], count: int) -> PolylineGeometry:
     if count <= 0:
-        return Polyline((points[0], points[0]))
+        return PolylineGeometry((points[0], points[0]))
     visible = points[:count]
-    return Polyline(visible if len(visible) >= 2 else (visible[0], visible[0]))
+    return PolylineGeometry(visible if len(visible) >= 2 else (visible[0], visible[0]))
 
 
-def build_scene(result: TrainingResult) -> Scene:
+def _build_scene(result: TrainingResult) -> Scene:
     trace = result.trace
     visual = EpochVisual(trace, result.inference)
     scene = Scene(canvas=Canvas(1920, 1080, 105), fps=60)
@@ -964,7 +1031,7 @@ def build_scene(result: TrainingResult) -> Scene:
         BatchObject2D(visual._gradient_filter_tile(0, i), opacity=0, z_index=4)
         for i in range(HIDDEN_SIZE)
     ]
-    gradient_filters = Group2D(gradient_tile_objects, z_index=4)
+    gradient_filters = Group(gradient_tile_objects, z_index=4)
     hidden = DynamicBatchObject2D(visual.hidden_nodes, z_index=6)
     output = DynamicBatchObject2D(visual.output_nodes, z_index=6)
     bars = DynamicBatchObject2D(visual.probability_bars, z_index=4)
@@ -982,7 +1049,8 @@ def build_scene(result: TrainingResult) -> Scene:
     title = Text("MNIST MLP · eight real training epochs", font_size=34, color=WHITE)
     subtitle = Text(
         "real NumPy training · each backward pass accumulates all 938 mini-batches",
-        font_size=20, color=MUTED,
+        font_size=20,
+        color=MUTED,
     )
     title.place(anchor=TOP, at=scene.frame.top + Vec2(0, -0.26))
     subtitle.place(anchor=TOP, at=title.anchor(BOTTOM) + Vec2(0, -0.10))
@@ -1009,9 +1077,8 @@ def build_scene(result: TrainingResult) -> Scene:
         digit_labels.append(label)
 
     # Right panel is exclusively metrics; formulas live in their own bottom strip.
-    metrics_frame = Object2D(
-        Rectangle(4.55, 3.25), position=(6.35, 1.40),
-        stroke=PANEL, stroke_width=0.012, z_index=8,
+    metrics_frame = Rectangle(
+        4.55, 3.25, position=(6.35, 1.4), stroke=PANEL, stroke_width=0.012, z_index=8
     )
     metrics_title = Text("training state", font_size=17, color=MUTED)
     metrics_title.place(anchor=TOP, at=Vec2(6.35, 3.00))
@@ -1030,10 +1097,16 @@ def build_scene(result: TrainingResult) -> Scene:
         item.place(anchor=TOP, at=Vec2(4.55, y))
         metric_labels.append(item)
 
-    epoch_num = _dynamic_number(visual.display_epoch, at=(7.72, 2.48), color=CYAN, width=2, decimals=0)
+    epoch_num = _dynamic_number(
+        visual.display_epoch, at=(7.72, 2.48), color=CYAN, width=2, decimals=0
+    )
     loss_num = _dynamic_number(visual.mean_loss_at, at=(7.72, 2.01), color=ORANGE, opacity=0)
-    train_num = _dynamic_number(visual.train_acc_at, at=(7.72, 1.54), color=CYAN, width=7, decimals=2, opacity=0)
-    test_num = _dynamic_number(visual.test_acc_at, at=(7.72, 1.07), color=GREEN, width=7, decimals=2, opacity=0)
+    train_num = _dynamic_number(
+        visual.train_acc_at, at=(7.72, 1.54), color=CYAN, width=7, decimals=2, opacity=0
+    )
+    test_num = _dynamic_number(
+        visual.test_acc_at, at=(7.72, 1.07), color=GREEN, width=7, decimals=2, opacity=0
+    )
     g1_num = _dynamic_number(visual.grad_norm_g1, at=(7.72, 0.60), color=PURPLE, opacity=0)
     g2_num = _dynamic_number(visual.grad_norm_g2, at=(7.72, 0.13), color=PURPLE, opacity=0)
 
@@ -1041,17 +1114,34 @@ def build_scene(result: TrainingResult) -> Scene:
     true_label = Text("true", font_size=15, color=MUTED)
     pred_label = Text("pred", font_size=15, color=MUTED, opacity=0)
     conf_label = Text("confidence %", font_size=15, color=MUTED, opacity=0)
-    for obj, y in zip((sample_label, true_label, pred_label, conf_label), (-0.55, -0.92, -1.29, -1.66)):
+    for obj, y in zip(
+        (sample_label, true_label, pred_label, conf_label), (-0.55, -0.92, -1.29, -1.66)
+    ):
         obj.place(anchor=TOP, at=Vec2(4.55, y))
 
-    true_num = _dynamic_number(lambda t: visual.sample_state(t)[3], at=(7.72, -0.99), color=YELLOW, width=2, decimals=0)
-    pred_num = _dynamic_number(lambda t: visual.sample_state(t)[4], at=(7.72, -1.36), color=GREEN, width=2, decimals=0, opacity=0)
-    conf_num = _dynamic_number(lambda t: visual.sample_state(t)[5] * 100, at=(7.72, -1.73), color=GREEN, width=7, decimals=2, opacity=0)
+    true_num = _dynamic_number(
+        lambda t: visual.sample_state(t)[3], at=(7.72, -0.99), color=YELLOW, width=2, decimals=0
+    )
+    pred_num = _dynamic_number(
+        lambda t: visual.sample_state(t)[4],
+        at=(7.72, -1.36),
+        color=GREEN,
+        width=2,
+        decimals=0,
+        opacity=0,
+    )
+    conf_num = _dynamic_number(
+        lambda t: visual.sample_state(t)[5] * 100,
+        at=(7.72, -1.73),
+        color=GREEN,
+        width=7,
+        decimals=2,
+        opacity=0,
+    )
 
     # Compact eight-point training curves.
-    graph_frame = Object2D(
-        Rectangle(4.55, 2.45), position=(6.35, -3.18),
-        stroke=PANEL, stroke_width=0.012, z_index=8,
+    graph_frame = Rectangle(
+        4.55, 2.45, position=(6.35, -3.18), stroke=PANEL, stroke_width=0.012, z_index=8
     )
     graph_title = Text("epoch summary", font_size=16, color=MUTED)
     graph_title.place(anchor=TOP, at=Vec2(6.35, -1.92))
@@ -1073,15 +1163,18 @@ def build_scene(result: TrainingResult) -> Scene:
     )
     loss_curve = DynamicGeometryObject2D(
         lambda t: _curve(loss_points, visual.completed_epochs(t)),
-        style=Style.outline(ORANGE, 0.028), z_index=10,
+        style=Style.outline(ORANGE, 0.028),
+        z_index=10,
     )
     train_curve = DynamicGeometryObject2D(
         lambda t: _curve(train_points, visual.completed_epochs(t)),
-        style=Style.outline(CYAN, 0.025), z_index=10,
+        style=Style.outline(CYAN, 0.025),
+        z_index=10,
     )
     test_curve = DynamicGeometryObject2D(
         lambda t: _curve(test_points, visual.completed_epochs(t)),
-        style=Style.outline(GREEN, 0.025), z_index=10,
+        style=Style.outline(GREEN, 0.025),
+        z_index=10,
     )
     loss_legend = Text("mean loss", font_size=13, color=ORANGE)
     acc_legend = Text("train / test accuracy", font_size=13, color=MUTED)
@@ -1089,33 +1182,53 @@ def build_scene(result: TrainingResult) -> Scene:
     acc_legend.place(anchor=TOP, at=Vec2(6.35, -3.38))
 
     # Dedicated formula strip: nothing else is allowed to occupy this region.
-    formula_frame = Object2D(
-        Rectangle(10.15, 1.45), position=(-2.55, -3.72),
-        stroke=PANEL, stroke_width=0.012, z_index=8,
+    formula_frame = Rectangle(
+        10.15, 1.45, position=(-2.55, -3.72), stroke=PANEL, stroke_width=0.012, z_index=8
     )
-    forward_formula = Group2D([
-        Text("FORWARD", font_size=15, color=CYAN),
-        Math("Z_1 = X W_1 + b_1", font_size=21, color=CYAN),
-        Math('Y_1 = sigma(Z_1)   comma   Y_2 = "softmax"(Y_1 W_2 + b_2)', font_size=20, color=GREEN),
-        Math("L = -log Y_(2,y)", font_size=20, color=ORANGE),
-    ], opacity=0, z_index=15)
+    forward_formula = Group(
+        [
+            Text("FORWARD", font_size=15, color=CYAN),
+            Math("Z_1 = X W_1 + b_1", font_size=21, color=CYAN),
+            Math(
+                'Y_1 = sigma(Z_1)   comma   Y_2 = "softmax"(Y_1 W_2 + b_2)',
+                font_size=20,
+                color=GREEN,
+            ),
+            Math("L = -log Y_(2,y)", font_size=20, color=ORANGE),
+        ],
+        opacity=0,
+        z_index=15,
+    )
     Column(gap=0.055, at=Vec2(-2.55, -3.72)).place(*forward_formula.children)
 
-    backward_formula = Group2D([
-        Text("BACKWARD · epoch aggregate", font_size=15, color=PURPLE),
-        Math('G_e = sum_(b in e) "grad"_W L_b = (W_e - W_(e+1)) / eta', font_size=21, color=PURPLE),
-        Text(
-            "all 938 mini-batches contribute; no per-batch gradient is animated",
-            font_size=15, color=MUTED,
-        ),
-    ], opacity=0, z_index=15)
+    backward_formula = Group(
+        [
+            Text("BACKWARD · epoch aggregate", font_size=15, color=PURPLE),
+            Math(
+                'G_e = sum_(b in e) "grad"_W L_b = (W_e - W_(e+1)) / eta',
+                font_size=21,
+                color=PURPLE,
+            ),
+            Text(
+                "all 938 mini-batches contribute; no per-batch gradient is animated",
+                font_size=15,
+                color=MUTED,
+            ),
+        ],
+        opacity=0,
+        z_index=15,
+    )
     Column(gap=0.075, at=Vec2(-2.55, -3.72)).place(*backward_formula.children)
 
-    update_formula = Group2D([
-        Text("UPDATE", font_size=15, color=YELLOW),
-        Math("W_(e+1) = W_e - eta G_e", font_size=24, color=YELLOW),
-        Math("Delta W_e = -eta G_e", font_size=20, color=WHITE),
-    ], opacity=0, z_index=15)
+    update_formula = Group(
+        [
+            Text("UPDATE", font_size=15, color=YELLOW),
+            Math("W_(e+1) = W_e - eta G_e", font_size=24, color=YELLOW),
+            Math("Delta W_e = -eta G_e", font_size=20, color=WHITE),
+        ],
+        opacity=0,
+        z_index=15,
+    )
     Column(gap=0.085, at=Vec2(-2.55, -3.72)).place(*update_formula.children)
 
     # During update the actual W1 map and the actual accumulated gradient map
@@ -1131,18 +1244,57 @@ def build_scene(result: TrainingResult) -> Scene:
     next_weight_label.place(anchor=BOTTOM, at=Vec2(WEIGHT_SLOT_CENTER.x, 1.73))
 
     scene.add(
-        pixels, weight_filters, gradient_filters, hidden, output, bars,
-        f_input_filter, f_filter_hidden, f_w2,
-        b_w2, b_hidden_filter, b_filter_input,
-        title, subtitle, input_label, filters_label, hidden_label, output_label,
-        *filter_numbers, *digit_labels,
-        metrics_frame, metrics_title, *metric_labels,
-        epoch_num, loss_num, train_num, test_num, g1_num, g2_num,
-        sample_label, true_label, pred_label, conf_label, true_num, pred_num, conf_num,
-        graph_frame, graph_title, loss_curve, train_curve, test_curve,
-        loss_legend, acc_legend,
-        formula_frame, forward_formula, backward_formula, update_formula,
-        weight_slot_label, grad_slot_label, plus_label, next_weight_label,
+        pixels,
+        weight_filters,
+        gradient_filters,
+        hidden,
+        output,
+        bars,
+        f_input_filter,
+        f_filter_hidden,
+        f_w2,
+        b_w2,
+        b_hidden_filter,
+        b_filter_input,
+        title,
+        subtitle,
+        input_label,
+        filters_label,
+        hidden_label,
+        output_label,
+        *filter_numbers,
+        *digit_labels,
+        metrics_frame,
+        metrics_title,
+        *metric_labels,
+        epoch_num,
+        loss_num,
+        train_num,
+        test_num,
+        g1_num,
+        g2_num,
+        sample_label,
+        true_label,
+        pred_label,
+        conf_label,
+        true_num,
+        pred_num,
+        conf_num,
+        graph_frame,
+        graph_title,
+        loss_curve,
+        train_curve,
+        test_curve,
+        loss_legend,
+        acc_legend,
+        formula_frame,
+        forward_formula,
+        backward_formula,
+        update_formula,
+        weight_slot_label,
+        grad_slot_label,
+        plus_label,
+        next_weight_label,
     )
 
     forward_formula = scene.on(forward_formula)
@@ -1156,7 +1308,9 @@ def build_scene(result: TrainingResult) -> Scene:
     pred_num = scene.on(pred_num)
     conf_num = scene.on(conf_num)
     loss_label, train_label, test_label = (
-        scene.on(metric_labels[1]), scene.on(metric_labels[2]), scene.on(metric_labels[3])
+        scene.on(metric_labels[1]),
+        scene.on(metric_labels[2]),
+        scene.on(metric_labels[3]),
     )
     g1_label, g2_label = scene.on(metric_labels[4]), scene.on(metric_labels[5])
     loss_num = scene.on(loss_num)
@@ -1201,7 +1355,8 @@ def build_scene(result: TrainingResult) -> Scene:
             # order as the backward wave reaches W1.
             for order, tile in enumerate(reversed(gradient_tiles)):
                 tile.opacity(
-                    to=1.0, duration=0.18,
+                    to=1.0,
+                    duration=0.18,
                     at=start + FORWARD_LOCAL_END + 0.50 + 0.065 * order,
                 )
             for handle in gradient_metric_handles:
@@ -1242,12 +1397,8 @@ def build_scene(result: TrainingResult) -> Scene:
                     handle.opacity(to=0.0, duration=0.10, at=start + EPOCH_DURATION - 0.12)
 
             # Return the newly updated W1 map to the network for the next epoch.
-            weight_filters.transform(
-                to=Transform2D(), duration=0.40, at=start + UPDATE_LOCAL_END
-            )
-            gradient_filters.transform(
-                to=Transform2D(), duration=0.30, at=start + UPDATE_LOCAL_END
-            )
+            weight_filters.transform(to=Transform2D(), duration=0.40, at=start + UPDATE_LOCAL_END)
+            gradient_filters.transform(to=Transform2D(), duration=0.30, at=start + UPDATE_LOCAL_END)
             if epoch < EPOCHS - 1:
                 # While the parent group is fully transparent, switch all eight
                 # retained tiles to the next epoch in zero-duration BatchClips
@@ -1257,7 +1408,8 @@ def build_scene(result: TrainingResult) -> Scene:
                     tile.opacity(to=0.0, duration=0.0, at=switch_at)
                     tile.batch(
                         to=visual._gradient_filter_tile(epoch + 1, i),
-                        duration=0.0, at=switch_at,
+                        duration=0.0,
+                        at=switch_at,
                     )
                 gradient_filters.opacity(to=1.0, duration=0.0, at=switch_at + 0.01)
             next_weight_label.opacity(to=0.0, duration=0.12, at=start + UPDATE_LOCAL_END + 0.12)
@@ -1272,8 +1424,32 @@ def build_scene(result: TrainingResult) -> Scene:
                 handle.opacity(to=1.0, duration=0.12, at=start + 1.12)
                 handle.opacity(to=0.0, duration=0.10, at=start + 1.90)
 
-    scene.wait(FINAL_END - scene.timeline.cursor)
+    scene.wait(FINAL_END - scene.duration)
     return scene
+
+
+def _prepare_training_result(*, verbose: bool = False) -> TrainingResult:
+    for path in (TRAIN_IMG, TRAIN_LBL, TEST_IMG, TEST_LBL):
+        if not path.exists():
+            raise FileNotFoundError(f"missing MNIST asset: {path}")
+
+    if verbose:
+        print("Loading MNIST...")
+    X_train = load_images(TRAIN_IMG)
+    y_train = load_labels(TRAIN_LBL)
+    X_test = load_images(TEST_IMG)
+    y_test = load_labels(TEST_LBL)
+
+    if verbose:
+        print("Training the real 784→8→10 NumPy MLP...")
+    result = train_with_epoch_trace(X_train, y_train, X_test, y_test)
+    del X_train, y_train, X_test, y_test
+    return result
+
+
+def build_scene() -> Scene:
+    """Complete default MNIST demo used by `zanim preview/render`."""
+    return _build_scene(_prepare_training_result())
 
 
 def random_access_probe(scene: Scene) -> None:
@@ -1329,34 +1505,25 @@ def benchmark_dict(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Real MNIST MLP training visualized epoch by epoch")
+    parser = argparse.ArgumentParser(
+        description="Real MNIST MLP training visualized epoch by epoch"
+    )
     parser.add_argument("--output", type=Path, default=OUTPUT)
     parser.add_argument("--benchmark", type=Path, default=BENCHMARK)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--fps", type=int, default=60)
-    parser.add_argument("--dry-run", action="store_true", help="train/build/probe without encoding video")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="train/build/probe without encoding video"
+    )
     args = parser.parse_args()
 
-    for path in (TRAIN_IMG, TRAIN_LBL, TEST_IMG, TEST_LBL):
-        if not path.exists():
-            raise FileNotFoundError(f"missing MNIST asset: {path}")
-
-    print("Loading MNIST...")
-    X_train = load_images(TRAIN_IMG)
-    y_train = load_labels(TRAIN_LBL)
-    X_test = load_images(TEST_IMG)
-    y_test = load_labels(TEST_LBL)
-
-    print("Training the real 784→8→10 NumPy MLP...")
-    result = train_with_epoch_trace(X_train, y_train, X_test, y_test)
+    result = _prepare_training_result(verbose=True)
     print(
         f"training={result.train_seconds:.3f}s "
-        f"epoch_trace={result.trace.memory_bytes/(1024*1024):.2f} MiB "
+        f"epoch_trace={result.trace.memory_bytes / (1024 * 1024):.2f} MiB "
         f"train_acc={result.final_train_accuracy:.4f} test_acc={result.final_test_accuracy:.4f}"
     )
-    del X_train, y_train, X_test, y_test
-
-    scene = build_scene(result)
+    scene = _build_scene(result)
     random_access_probe(scene)
     print("random-access probe: OK")
 

@@ -4,17 +4,18 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from zanim import Canvas, Circle, Object2D, Scene, Transform2D
+from zanim import Canvas, Circle, Scene, Transform2D
 
 
 class RenderSelectionTests(unittest.TestCase):
     def test_static_scene_render_selects_frame_zero(self):
         scene = Scene()
-        scene.add(Object2D(Circle(1)))
+        scene.add(Circle(1))
         target = Path("static.png")
-        with patch.object(Scene, "render_frame", return_value=target) as frame, patch.object(
-            Scene, "render_video"
-        ) as video:
+        with (
+            patch.object(Scene, "render_frame", return_value=target) as frame,
+            patch.object(Scene, "render_video") as video,
+        ):
             self.assertEqual(scene.render(target), target)
             frame.assert_called_once_with(target, 0.0)
             video.assert_not_called()
@@ -43,7 +44,7 @@ class RenderSelectionTests(unittest.TestCase):
 
     def test_segment_video_evaluates_only_requested_times(self):
         scene = Scene(canvas=Canvas(64, 64, 10), fps=10)
-        circle = Object2D(Circle(1))
+        circle = Circle(1)
         scene.add(circle)
         scene.transform(circle, to=Transform2D.translation(2, 0), duration=2)
 
@@ -60,10 +61,18 @@ class RenderSelectionTests(unittest.TestCase):
             self.assertTrue(output.is_file())
             proc = subprocess.run(
                 [
-                    "ffprobe", "-v", "error", "-show_entries", "format=duration",
-                    "-of", "default=nw=1:nk=1", str(output),
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=nw=1:nk=1",
+                    str(output),
                 ],
-                check=True, capture_output=True, text=True,
+                check=True,
+                capture_output=True,
+                text=True,
             )
             self.assertAlmostEqual(float(proc.stdout.strip()), 0.5, places=2)
 

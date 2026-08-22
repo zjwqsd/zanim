@@ -9,13 +9,20 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from ..errors import MediaError
+from ..runtime import require_video_encoder
+
 
 def _x264_encoder_args(*, crf: int, preset: str, encoder_threads: int) -> list[str]:
     return [
-        "-c:v", "libx264",
-        "-crf", str(crf),
-        "-preset", preset,
-        "-threads", str(encoder_threads),
+        "-c:v",
+        "libx264",
+        "-crf",
+        str(crf),
+        "-preset",
+        preset,
+        "-threads",
+        str(encoder_threads),
     ]
 
 
@@ -66,23 +73,33 @@ def _render_visual(
             return
         frame = frame_provider(sample_time)
         if len(frame) != len(buffer):
-            raise ValueError(
-                f"frame provider returned {len(frame)} bytes; expected {len(buffer)}"
-            )
+            raise ValueError(f"frame provider returned {len(frame)} bytes; expected {len(buffer)}")
         buffer[:] = frame
 
     selected = _selected_frame_indices(frame_count)
     expected: dict[int, str] = {}
+    ffmpeg = require_video_encoder()
     proc = subprocess.Popen(
         [
-            "ffmpeg", "-y", "-loglevel", "error",
-            "-f", "rawvideo", "-pixel_format", "rgb0",
-            "-video_size", f"{width}x{height}", "-framerate", str(fps),
-            "-i", "-",
-            *_x264_encoder_args(
-                crf=crf, preset=preset, encoder_threads=encoder_threads
-            ),
-            "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "rawvideo",
+            "-pixel_format",
+            "rgb0",
+            "-video_size",
+            f"{width}x{height}",
+            "-framerate",
+            str(fps),
+            "-i",
+            "-",
+            *_x264_encoder_args(crf=crf, preset=preset, encoder_threads=encoder_threads),
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
             str(output),
         ],
         stdin=subprocess.PIPE,
@@ -105,18 +122,14 @@ def _render_visual(
 
                 next_index = index + workers
                 if next_index < frame_count:
-                    futures[slot] = pool.submit(
-                        render_index, buffers[slot], next_index
-                    )
+                    futures[slot] = pool.submit(render_index, buffers[slot], next_index)
         finally:
             proc.stdin.close()
 
     if proc.wait() != 0:
-        raise RuntimeError("ffmpeg/libx264 video encoding failed")
+        raise MediaError("FFmpeg/libx264 video encoding failed; see FFmpeg stderr above")
     if verify_random_access:
-        _verify_random_access(
-            scene, start=start, fps=fps, selected=selected, expected=expected
-        )
+        _verify_random_access(scene, start=start, fps=fps, selected=selected, expected=expected)
 
 
 def render_video(
@@ -142,7 +155,7 @@ def render_video(
     if encoder_threads <= 0:
         raise ValueError("encoder_threads must be positive")
 
-    scene_duration = float(scene.timeline.cursor)
+    scene_duration = scene.duration
     if scene_duration <= 0:
         raise ValueError("scene duration must be positive")
 
@@ -153,18 +166,9 @@ def render_video(
     if end <= start:
         raise ValueError("end must be greater than start")
     if end > scene_duration + 1e-12:
-        raise ValueError(
-            f"end ({end:.12g}) exceeds scene duration ({scene_duration:.12g})"
-        )
+        raise ValueError(f"end ({end:.12g}) exceeds scene duration ({scene_duration:.12g})")
     end = min(end, scene_duration)
     duration = end - start
-
-    subprocess.run(
-        ["zig", "build", "-Doptimize=ReleaseFast"],
-        cwd=Path(__file__).resolve().parents[3],
-        check=True,
-        stdout=subprocess.DEVNULL,
-    )
 
     output = Path(path).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -210,11 +214,29 @@ def render_video(
             muxed = temp / "muxed.mp4"
             subprocess.run(
                 [
-                    "ffmpeg", "-y", "-loglevel", "error",
-                    "-i", str(visual), "-i", str(rendered_audio),
-                    "-map", "0:v:0", "-map", "1:a:0",
-                    "-c:v", "copy", "-c:a", "aac", "-b:a", audio_bitrate,
-                    "-t", f"{duration:.12g}", "-movflags", "+faststart", str(muxed),
+                    require_video_encoder(),
+                    "-y",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    str(visual),
+                    "-i",
+                    str(rendered_audio),
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    "1:a:0",
+                    "-c:v",
+                    "copy",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    audio_bitrate,
+                    "-t",
+                    f"{duration:.12g}",
+                    "-movflags",
+                    "+faststart",
+                    str(muxed),
                 ],
                 check=True,
             )

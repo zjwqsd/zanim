@@ -8,4 +8,4 @@ media/
 .DS_Store
 .tools/
 
-assets/MNIST/
+examples/assets/MNIST/

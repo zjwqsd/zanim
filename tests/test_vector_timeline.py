@@ -1,4 +1,5 @@
 import unittest
+
 from zanim import Easing, Scene
 from zanim.vector import VectorDocument, VectorObject2D
 
@@ -25,5 +26,5 @@ class VectorTimelineTests(unittest.TestCase):
         self.assertEqual(clip.span.start, 1.0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

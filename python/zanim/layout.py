@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from math import ceil
 from typing import Protocol
 
-from .space import Transform2D, Vec2
+from .space import Point2, Transform2D, Vec2, as_vec2
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,13 +213,14 @@ def _place_block(
     centers: tuple[Vec2, ...],
     *,
     anchor: Anchor | Vec2,
-    at: Vec2,
+    at: Point2,
 ) -> tuple[Vec2, ...]:
     from .bounds import Bounds2D
 
-    if not isinstance(at, Vec2):
-        raise TypeError("layout at= must be Vec2")
-    bounds = Bounds2D.union(*(_translated_bounds(obj, center) for obj, center in zip(objects, centers)))
+    at = as_vec2(at, name="at")
+    bounds = Bounds2D.union(
+        *(_translated_bounds(obj, center) for obj, center in zip(objects, centers))
+    )
     a = _anchor(anchor)
     block_anchor = Vec2(
         bounds.center.x + a.x * bounds.width * 0.5,
@@ -258,7 +259,7 @@ class Row(_LayoutBase):
 
     gap: float = 0.25
     anchor: Anchor | Vec2 = CENTER
-    at: Vec2 = Vec2()
+    at: Point2 = Vec2()
     align: Anchor | Vec2 = CENTER
 
     def _centers(self, objects: tuple) -> tuple[Vec2, ...]:
@@ -282,7 +283,7 @@ class Column(_LayoutBase):
 
     gap: float = 0.25
     anchor: Anchor | Vec2 = CENTER
-    at: Vec2 = Vec2()
+    at: Point2 = Vec2()
     align: Anchor | Vec2 = CENTER
 
     def _centers(self, objects: tuple) -> tuple[Vec2, ...]:
@@ -308,13 +309,13 @@ class Grid(_LayoutBase):
     cols: int | None = None
     gap: float | Vec2 = 0.25
     anchor: Anchor | Vec2 = CENTER
-    at: Vec2 = Vec2()
+    at: Point2 = Vec2()
 
     def _centers(self, objects: tuple) -> tuple[Vec2, ...]:
         count = len(objects)
         rows, cols = self.rows, self.cols
         if rows is None and cols is None:
-            cols = int(ceil(count ** 0.5))
+            cols = int(ceil(count**0.5))
         if cols is None:
             if rows is None or rows <= 0:
                 raise ValueError("rows must be positive")
@@ -340,8 +341,10 @@ class Grid(_LayoutBase):
         centers = []
         for index, _obj in enumerate(objects):
             row, col = divmod(index, cols)
-            centers.append(Vec2(
-                -total_w * 0.5 + cell_w * 0.5 + col * (cell_w + gap_x),
-                total_h * 0.5 - cell_h * 0.5 - row * (cell_h + gap_y),
-            ))
+            centers.append(
+                Vec2(
+                    -total_w * 0.5 + cell_w * 0.5 + col * (cell_w + gap_x),
+                    total_h * 0.5 - cell_h * 0.5 - row * (cell_h + gap_y),
+                )
+            )
         return _place_block(objects, tuple(centers), anchor=self.anchor, at=self.at)

@@ -1,7 +1,9 @@
 import math
 import unittest
 
-from zanim import Circle, Linear2D, Object2D, Polygon, Rectangle, SE2, Transform2D, Vec2
+from zanim import SE2, Circle, Polygon, Rectangle, Transform2D, Vec2
+from zanim.geometry import Object2D
+from zanim.space import Linear2D
 
 
 class LinearObjectTransformTests(unittest.TestCase):
@@ -24,7 +26,7 @@ class LinearObjectTransformTests(unittest.TestCase):
         self.assertEqual(obj.local_to_world(Vec2(1, 0)), Vec2(6, 3))
 
     def test_arbitrary_linear_map_is_supported(self):
-        obj = Object2D(Circle(1))
+        obj = Circle(1)
         linear = Linear2D(1.2, -0.4, 0.7, 0.9)
         obj.apply_linear_local(linear)
         expected = linear.apply(Vec2(2, -1))

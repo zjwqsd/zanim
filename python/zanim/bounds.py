@@ -38,15 +38,19 @@ class Bounds2D:
     def expanded(self, amount: float) -> "Bounds2D":
         if amount < 0 and (-2 * amount > self.width or -2 * amount > self.height):
             raise ValueError("bounds contraction is too large")
-        return Bounds2D(self.left - amount, self.bottom - amount, self.right + amount, self.top + amount)
+        return Bounds2D(
+            self.left - amount, self.bottom - amount, self.right + amount, self.top + amount
+        )
 
     @staticmethod
     def union(*bounds: "Bounds2D") -> "Bounds2D":
         if not bounds:
             raise ValueError("Bounds2D.union requires at least one bounds")
         return Bounds2D(
-            min(b.left for b in bounds), min(b.bottom for b in bounds),
-            max(b.right for b in bounds), max(b.top for b in bounds),
+            min(b.left for b in bounds),
+            min(b.bottom for b in bounds),
+            max(b.right for b in bounds),
+            max(b.top for b in bounds),
         )
 
 
@@ -55,17 +59,22 @@ def _points_bounds(points) -> Bounds2D:
     if not pts:
         raise ValueError("cannot bound an empty point set")
     return Bounds2D(
-        min(p.x for p in pts), min(p.y for p in pts),
-        max(p.x for p in pts), max(p.y for p in pts),
+        min(p.x for p in pts),
+        min(p.y for p in pts),
+        max(p.x for p in pts),
+        max(p.y for p in pts),
     )
 
 
 def _cubic_bounds(cubic, transform: Transform2D) -> Bounds2D:
-    from .geometry import CubicBezier
+    from .geometry import CubicBezierGeometry
     from .vector import VectorContour, VectorPath, vector_path_bounds
-    seg = CubicBezier(
-        transform.apply(cubic.p0), transform.apply(cubic.p1),
-        transform.apply(cubic.p2), transform.apply(cubic.p3),
+
+    seg = CubicBezierGeometry(
+        transform.apply(cubic.p0),
+        transform.apply(cubic.p1),
+        transform.apply(cubic.p2),
+        transform.apply(cubic.p3),
     )
     left, bottom, right, top = vector_path_bounds(VectorPath((VectorContour((seg,), False),)))
     return Bounds2D(left, bottom, right, top)
@@ -73,108 +82,143 @@ def _cubic_bounds(cubic, transform: Transform2D) -> Bounds2D:
 
 def _geometry_bounds(geometry, transform: Transform2D) -> Bounds2D:
     from .geometry import (
-        Arc, Circle, CubicBezier, Ellipse, Line, Polygon, Polyline,
-        Rectangle, RegularPolygon, Square,
+        ArcGeometry,
+        CircleGeometry,
+        CubicBezierGeometry,
+        EllipseGeometry,
+        LineGeometry,
+        PolygonGeometry,
+        PolylineGeometry,
+        RectangleGeometry,
+        RegularPolygonGeometry,
+        SquareGeometry,
     )
-    if isinstance(geometry, Line):
+
+    if isinstance(geometry, LineGeometry):
         return _points_bounds((transform.apply(geometry.start), transform.apply(geometry.end)))
-    if isinstance(geometry, (Polyline, Polygon)):
+    if isinstance(geometry, (PolylineGeometry, PolygonGeometry)):
         return _points_bounds(transform.apply(p) for p in geometry.points)
-    if isinstance(geometry, Rectangle):
+    if isinstance(geometry, RectangleGeometry):
         hx, hy = geometry.width * 0.5, geometry.height * 0.5
         return _points_bounds(transform.apply(Vec2(x, y)) for x in (-hx, hx) for y in (-hy, hy))
-    if isinstance(geometry, Square):
+    if isinstance(geometry, SquareGeometry):
         h = geometry.side * 0.5
         return _points_bounds(transform.apply(Vec2(x, y)) for x in (-h, h) for y in (-h, h))
-    if isinstance(geometry, Circle):
+    if isinstance(geometry, CircleGeometry):
         cx, cy = transform.tx, transform.ty
         ex = geometry.radius * sqrt(transform.xx**2 + transform.xy**2)
         ey = geometry.radius * sqrt(transform.yx**2 + transform.yy**2)
         return Bounds2D(cx - ex, cy - ey, cx + ex, cy + ey)
-    if isinstance(geometry, Ellipse):
+    if isinstance(geometry, EllipseGeometry):
         cx, cy = transform.tx, transform.ty
-        ex = sqrt((transform.xx * geometry.radius_x)**2 + (transform.xy * geometry.radius_y)**2)
-        ey = sqrt((transform.yx * geometry.radius_x)**2 + (transform.yy * geometry.radius_y)**2)
+        ex = sqrt((transform.xx * geometry.radius_x) ** 2 + (transform.xy * geometry.radius_y) ** 2)
+        ey = sqrt((transform.yx * geometry.radius_x) ** 2 + (transform.yy * geometry.radius_y) ** 2)
         return Bounds2D(cx - ex, cy - ey, cx + ex, cy + ey)
-    if isinstance(geometry, Arc):
-        count = max(16, int(abs(geometry.sweep_angle) / (2*pi) * 96) + 2)
+    if isinstance(geometry, ArcGeometry):
+        count = max(16, int(abs(geometry.sweep_angle) / (2 * pi) * 96) + 2)
         points = (
-            transform.apply(Vec2(
-                geometry.radius * cos(geometry.start_angle + geometry.sweep_angle * i / (count - 1)),
-                geometry.radius * sin(geometry.start_angle + geometry.sweep_angle * i / (count - 1)),
-            ))
+            transform.apply(
+                Vec2(
+                    geometry.radius
+                    * cos(geometry.start_angle + geometry.sweep_angle * i / (count - 1)),
+                    geometry.radius
+                    * sin(geometry.start_angle + geometry.sweep_angle * i / (count - 1)),
+                )
+            )
             for i in range(count)
         )
         return _points_bounds(points)
-    if isinstance(geometry, RegularPolygon):
+    if isinstance(geometry, RegularPolygonGeometry):
         return _points_bounds(
-            transform.apply(Vec2(
-                geometry.radius * cos(geometry.phase + 2*pi*i/geometry.sides),
-                geometry.radius * sin(geometry.phase + 2*pi*i/geometry.sides),
-            )) for i in range(geometry.sides)
+            transform.apply(
+                Vec2(
+                    geometry.radius * cos(geometry.phase + 2 * pi * i / geometry.sides),
+                    geometry.radius * sin(geometry.phase + 2 * pi * i / geometry.sides),
+                )
+            )
+            for i in range(geometry.sides)
         )
-    if isinstance(geometry, CubicBezier):
+    if isinstance(geometry, CubicBezierGeometry):
         return _cubic_bounds(geometry, transform)
     raise TypeError(f"unsupported geometry for bounds: {type(geometry).__name__}")
 
 
 def _batch_bounds(batch, transform: Transform2D) -> Bounds2D:
     from .batch import CircleSet, LineSet, RectSet
+
     if isinstance(batch, LineSet):
-        return _points_bounds(transform.apply(p) for pair in zip(batch.starts, batch.ends) for p in pair)
+        return _points_bounds(
+            transform.apply(p) for pair in zip(batch.starts, batch.ends) for p in pair
+        )
     if isinstance(batch, CircleSet):
         pieces = []
         for center, radius in zip(batch.centers, batch.radii):
             c = transform.apply(center)
             ex = radius * sqrt(transform.xx**2 + transform.xy**2)
             ey = radius * sqrt(transform.yx**2 + transform.yy**2)
-            pieces.append(Bounds2D(c.x-ex, c.y-ey, c.x+ex, c.y+ey))
+            pieces.append(Bounds2D(c.x - ex, c.y - ey, c.x + ex, c.y + ey))
         return Bounds2D.union(*pieces)
     if isinstance(batch, RectSet):
         pieces = []
         for center, size in zip(batch.centers, batch.sizes):
-            hx, hy = size.x*0.5, size.y*0.5
-            pieces.append(_points_bounds(
-                transform.apply(Vec2(center.x+x, center.y+y))
-                for x in (-hx, hx) for y in (-hy, hy)
-            ))
+            hx, hy = size.x * 0.5, size.y * 0.5
+            pieces.append(
+                _points_bounds(
+                    transform.apply(Vec2(center.x + x, center.y + y))
+                    for x in (-hx, hx)
+                    for y in (-hy, hy)
+                )
+            )
         return Bounds2D.union(*pieces)
     raise TypeError(f"unsupported batch for bounds: {type(batch).__name__}")
 
 
 def _vector_bounds(document, transform: Transform2D) -> Bounds2D:
-    from .geometry import CubicBezier
+    from .geometry import CubicBezierGeometry
     from .vector import VectorContour, VectorPath, vector_path_bounds
+
     if not document.paths:
         p = transform.apply(Vec2())
         return Bounds2D(p.x, p.y, p.x, p.y)
     pieces = []
     for path in document.paths:
         contours = tuple(
-            VectorContour(tuple(CubicBezier(
-                transform.apply(s.p0), transform.apply(s.p1),
-                transform.apply(s.p2), transform.apply(s.p3),
-            ) for s in contour.segments), contour.closed)
+            VectorContour(
+                tuple(
+                    CubicBezierGeometry(
+                        transform.apply(s.p0),
+                        transform.apply(s.p1),
+                        transform.apply(s.p2),
+                        transform.apply(s.p3),
+                    )
+                    for s in contour.segments
+                ),
+                contour.closed,
+            )
             for contour in path.contours
         )
-        left, bottom, right, top = vector_path_bounds(VectorPath(contours, path.fill, path.stroke, path.group))
+        left, bottom, right, top = vector_path_bounds(
+            VectorPath(contours, path.fill, path.stroke, path.group)
+        )
         pieces.append(Bounds2D(left, bottom, right, top))
     return Bounds2D.union(*pieces)
-
 
 
 def _interpolated_batch_bounds(source, target, alpha: float, transform: Transform2D) -> Bounds2D:
     from .batch import CircleSet, LineSet, RectSet
 
     t = max(0.0, min(1.0, float(alpha)))
-    mix = lambda a, b: a + (b - a) * t
-    mix_point = lambda a, b: Vec2(mix(a.x, b.x), mix(a.y, b.y))
+
+    def mix(a, b):
+        return a + (b - a) * t
+
+    def mix_point(a, b):
+        return Vec2(mix(a.x, b.x), mix(a.y, b.y))
+
     if isinstance(source, LineSet) and isinstance(target, LineSet):
         return _points_bounds(
             transform.apply(point)
-            for a, b in zip(
-                (*source.starts, *source.ends), (*target.starts, *target.ends)
-            )
+            for a, b in zip((*source.starts, *source.ends), (*target.starts, *target.ends))
             for point in (mix_point(a, b),)
         )
     if isinstance(source, CircleSet) and isinstance(target, CircleSet):
@@ -196,10 +240,13 @@ def _interpolated_batch_bounds(source, target, alpha: float, transform: Transfor
             center = mix_point(a_center, b_center)
             size = mix_point(a_size, b_size)
             hx, hy = size.x * 0.5, size.y * 0.5
-            pieces.append(_points_bounds(
-                transform.apply(Vec2(center.x + x, center.y + y))
-                for x in (-hx, hx) for y in (-hy, hy)
-            ))
+            pieces.append(
+                _points_bounds(
+                    transform.apply(Vec2(center.x + x, center.y + y))
+                    for x in (-hx, hx)
+                    for y in (-hy, hy)
+                )
+            )
         return Bounds2D.union(*pieces)
     raise TypeError("batch interpolation endpoints must have the same geometry kind")
 
@@ -227,19 +274,18 @@ def bounds_from_snapshot(snapshot, transform: Transform2D = Transform2D()) -> Bo
         return _vector_bounds(snapshot.document, transform)
     if isinstance(snapshot, RasterSnapshot):
         hx, hy = snapshot.width * 0.5, snapshot.height * 0.5
-        return _points_bounds(
-            transform.apply(Vec2(x, y)) for x in (-hx, hx) for y in (-hy, hy)
-        )
+        return _points_bounds(transform.apply(Vec2(x, y)) for x in (-hx, hx) for y in (-hy, hy))
     raise TypeError(f"snapshot has no 2D bounds: {type(snapshot).__name__}")
+
 
 def bounds_of(obj, extra_transform: Transform2D = Transform2D()) -> Bounds2D:
     from .batch import BatchObject2D
     from .geometry import Object2D
-    from .group import Group2D
+    from .group import Group
     from .raster import RasterObject2D
     from .vector import VectorObject2D
 
-    if isinstance(obj, Group2D):
+    if isinstance(obj, Group):
         if not obj.children:
             p = (extra_transform @ obj.transform).apply(Vec2())
             return Bounds2D(p.x, p.y, p.x, p.y)
@@ -254,7 +300,5 @@ def bounds_of(obj, extra_transform: Transform2D = Transform2D()) -> Bounds2D:
         return _vector_bounds(obj.document, transform)
     if isinstance(obj, RasterObject2D):
         hx, hy = obj.width * 0.5, obj.height * 0.5
-        return _points_bounds(
-            transform.apply(Vec2(x, y)) for x in (-hx, hx) for y in (-hy, hy)
-        )
+        return _points_bounds(transform.apply(Vec2(x, y)) for x in (-hx, hx) for y in (-hy, hy))
     raise TypeError(f"object has no 2D bounds: {type(obj).__name__}")

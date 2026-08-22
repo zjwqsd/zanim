@@ -1,7 +1,8 @@
 import math
 import unittest
 
-from zanim import Canvas, Linear2D, Transform2D, Vec2
+from zanim import Canvas, Transform2D, Vec2
+from zanim.space import Linear2D
 
 
 class CoordinateSystemTests(unittest.TestCase):
@@ -34,8 +35,6 @@ class CoordinateSystemTests(unittest.TestCase):
         self.assertAlmostEqual(origin.y, 3)
         self.assertAlmostEqual(x_axis.x, 2)
         self.assertAlmostEqual(x_axis.y, 4)
-
-
 
 
 if __name__ == "__main__":

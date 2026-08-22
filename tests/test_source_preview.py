@@ -9,20 +9,19 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from zanim import Canvas, Circle, Color, Object2D, Scene, Style, Transform2D, preview_source
+from zanim import Canvas, Circle, Color, Scene, Style, Transform2D
 from zanim.preview import PreviewServer, PreviewSession
-from zanim.source import get_preview_source, reload_preview_source
-
-
+from zanim.source import get_preview_source, preview_source, reload_preview_source
 
 
 def _write_reload_module(path: Path, *, duration: float) -> None:
     source = (
-        "from zanim import Canvas, Circle, Color, Object2D, Scene, Style, Transform2D, preview_source\n\n"
+        "from zanim import Canvas, Circle, Scene, Style, Color, Transform2D\n"
+        "from zanim.source import preview_source\n\n"
         "@preview_source\n"
         "def build_scene() -> Scene:\n"
         "    scene = Scene(canvas=Canvas(80, 48, 12), fps=10)\n"
-        "    marker = Object2D(Circle(1), style=Style(fill=Color(230, 90, 90)))\n"
+        "    marker = Circle(1, style=Style(fill=Color(230, 90, 90)))\n"
         "    marker = scene.add(marker)\n"
         f"    marker.transform(to=Transform2D.translation(1, 0), duration={duration!r})\n"
         "    return scene\n"
@@ -33,7 +32,7 @@ def _write_reload_module(path: Path, *, duration: float) -> None:
 @preview_source
 def build_source_scene() -> Scene:
     scene = Scene(canvas=Canvas(80, 48, 12), fps=10)
-    marker = Object2D(Circle(1), style=Style(fill=Color(230, 90, 90)))
+    marker = Circle(1, style=Style(fill=Color(230, 90, 90)))
     marker = scene.add(marker)
     marker.transform(to=Transform2D.translation(1, 0), duration=1.0)
     return scene
@@ -49,12 +48,12 @@ class PreviewSourceTests(unittest.TestCase):
         registered = scene._require_registered(marker_id)
         self.assertEqual(source.primary_name(registered.object_id), "marker")
 
-        clip = scene.timeline.clips[0]
+        clip = scene._timeline.clips[0]
         span = source.clip_source(clip)
         self.assertIsNotNone(span)
         assert span is not None
         lines = source.text.splitlines()
-        block = "\n".join(lines[span.start_line - 1:span.end_line])
+        block = "\n".join(lines[span.start_line - 1 : span.end_line])
         self.assertIn("marker.transform", block)
 
     def test_reload_supports_builder_defined_as_main_module(self):
@@ -87,7 +86,7 @@ class PreviewSourceTests(unittest.TestCase):
         try:
             info = session.inspect_time(0.5)
             marker = next(item for item in info["objects"] if item["name"] == "marker")
-            self.assertEqual(marker["type"], "Object2D")
+            self.assertEqual(marker["type"], "Circle")
             self.assertEqual(len(marker["active_clips"]), 1)
             source = marker["active_clips"][0]["source"]
             self.assertIsNotNone(source)
@@ -134,8 +133,12 @@ class PreviewSourceTests(unittest.TestCase):
             try:
                 module = importlib.import_module(name)
                 server = PreviewServer(
-                    module.build_scene(), host="127.0.0.1", port=0,
-                    hot_cache_mb=1, cold_cache_mb=1, prefetch_workers=1,
+                    module.build_scene(),
+                    host="127.0.0.1",
+                    port=0,
+                    hot_cache_mb=1,
+                    cold_cache_mb=1,
+                    prefetch_workers=1,
                 ).start(open_browser=False)
                 old_tempdir = Path(server.session._tempdir.name)
                 server.session.raw_time(0.0)
@@ -182,11 +185,12 @@ class PreviewSourceTests(unittest.TestCase):
             demo = package / "demo.py"
             demo.write_text(
                 "from .helper import DURATION\n"
-                "from zanim import Canvas, Circle, Object2D, Scene, preview_source\n\n"
+                "from zanim import Canvas, Circle, Scene\n"
+                "from zanim.source import preview_source\n\n"
                 "@preview_source\n"
                 "def build_scene():\n"
                 "    scene = Scene(canvas=Canvas(80, 48, 12), fps=10)\n"
-                "    marker = scene.add(Object2D(Circle(1)))\n"
+                "    marker = scene.add(Circle(1))\n"
                 "    marker.opacity(to=0.5, duration=DURATION)\n"
                 "    return scene\n",
                 encoding="utf-8",
@@ -208,7 +212,7 @@ class PreviewSourceTests(unittest.TestCase):
                     sys.modules.pop(name, None)
                 sys.path.remove(str(root))
 
-    def test_reload_rejects_removed_decorator_and_keeps_old_scene(self):
+    def test_reload_can_drop_optional_decorator(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             name = "zanim_reload_decorator_fixture"
@@ -220,17 +224,23 @@ class PreviewSourceTests(unittest.TestCase):
                 scene = module.build_scene()
                 source = path.read_text(encoding="utf-8").replace("@preview_source\n", "")
                 path.write_text(source, encoding="utf-8")
-                with self.assertRaisesRegex(RuntimeError, "must remain decorated"):
-                    reload_preview_source(scene)
-                self.assertAlmostEqual(scene.duration, 1.0)
-                self.assertIsNotNone(get_preview_source(scene))
+                reloaded = reload_preview_source(scene)
+                self.assertAlmostEqual(reloaded.duration, 1.0)
+                info = get_preview_source(reloaded)
+                self.assertIsNotNone(info)
+                assert info is not None
+                # Runtime clip source tracking remains available even when the
+                # builder no longer opts into local-variable capture.
+                self.assertTrue(
+                    all(info.clip_source(c) is not None for c in reloaded._timeline.clips)
+                )
             finally:
                 sys.modules.pop(name, None)
                 sys.path.remove(str(root))
 
     def test_undecorated_scene_has_no_source_metadata(self):
         scene = Scene(canvas=Canvas(80, 48, 12), fps=10)
-        scene.add(Object2D(Circle(1), style=Style(fill=Color(230, 90, 90))))
+        scene.add(Circle(1, style=Style(fill=Color(230, 90, 90))))
         session = PreviewSession(scene, hot_cache_mb=1, prefetch_workers=1)
         try:
             self.assertFalse(session.metadata()["source_available"])

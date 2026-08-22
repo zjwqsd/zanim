@@ -1,5 +1,5 @@
 {
-  "benchmark": "examples/fun/mnist_training.py",
+  "benchmark": "examples/extras/mnist_training.py",
   "purpose": "Stable end-to-end Zanim performance baseline for a real in-process MNIST training visualization.",
   "environment": {
     "cpu": "Intel Core i9-14900HX",

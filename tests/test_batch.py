@@ -1,6 +1,8 @@
 import unittest
 
-from zanim import BatchObject2D, CircleSet, Color, LineSet, Linear2D, RectSet, Transform2D, Vec2
+from zanim import Color, Transform2D, Vec2
+from zanim.batch import BatchObject2D, CircleSet, LineSet, RectSet
+from zanim.space import Linear2D
 
 
 class BatchGeometryTests(unittest.TestCase):
@@ -14,9 +16,7 @@ class BatchGeometryTests(unittest.TestCase):
             radii=(0.2, 0.4),
             fills=(Color(10, 20, 30), Color(40, 50, 60)),
         )
-        rects = RectSet(
-            centers=(Vec2(),), sizes=(Vec2(1, 2),), fills=(Color(1, 2, 3),)
-        )
+        rects = RectSet(centers=(Vec2(),), sizes=(Vec2(1, 2),), fills=(Color(1, 2, 3),))
         self.assertEqual(len(circles), 2)
         self.assertEqual(len(rects), 1)
 

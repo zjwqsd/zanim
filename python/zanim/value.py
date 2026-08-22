@@ -18,9 +18,7 @@ class ScalarValue:
 
     def __setattr__(self, name: str, value) -> None:
         if not name.startswith("_") and getattr(self, "_zanim_scene_registered", False):
-            raise RuntimeError(
-                f"cannot assign {name!r} after Scene.add(); use Scene.value(...)"
-            )
+            raise RuntimeError(f"cannot assign {name!r} after Scene.add(); use Scene.value(...)")
         object.__setattr__(self, name, value)
 
     def _mark_scene_registered(self) -> None:

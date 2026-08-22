@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 import subprocess
 import tempfile
+from pathlib import Path
+
+from ..runtime import require_ffmpeg
 
 
 def _atempo_chain(speed: float) -> list[float]:
@@ -25,10 +27,7 @@ def _render_segment(
     obj, clip, output: Path, play_duration: float, sample_rate: int, *, scene_start: float
 ) -> None:
     source_start = clip.source_time(scene_start)
-    base = (
-        f"aresample={sample_rate},"
-        "aformat=sample_fmts=fltp:channel_layouts=stereo"
-    )
+    base = f"aresample={sample_rate},aformat=sample_fmts=fltp:channel_layouts=stereo"
 
     if clip.loop:
         assert clip.source_duration is not None
@@ -63,17 +62,36 @@ def _render_segment(
 
     subprocess.run(
         [
-            "ffmpeg", "-y", "-loglevel", "error", "-i", str(obj.source.path),
-            "-filter_complex", filters, "-map", "[out]",
-            "-t", f"{play_duration:.12g}",
-            "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le", str(output),
+            require_ffmpeg(),
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(obj.source.path),
+            "-filter_complex",
+            filters,
+            "-map",
+            "[out]",
+            "-t",
+            f"{play_duration:.12g}",
+            "-ar",
+            str(sample_rate),
+            "-ac",
+            "2",
+            "-c:a",
+            "pcm_s16le",
+            str(output),
         ],
         check=True,
     )
 
 
 def render_audio_mix(
-    scene, path: str | Path, duration: float, *, start: float = 0.0,
+    scene,
+    path: str | Path,
+    duration: float,
+    *,
+    start: float = 0.0,
     sample_rate: int = 48_000,
 ) -> Path | None:
     """Render one absolute Scene timeline interval into a finite PCM WAV."""
@@ -102,34 +120,45 @@ def render_audio_mix(
         for index, (obj, clip, track_start, track_end) in enumerate(tracks):
             segment = temp / f"segment-{index:04d}.wav"
             _render_segment(
-                obj, clip, segment, track_end - track_start, sample_rate,
+                obj,
+                clip,
+                segment,
+                track_end - track_start,
+                sample_rate,
                 scene_start=track_start,
             )
             segment_paths.append(segment)
             starts.append(track_start - start)
 
-        cmd = ["ffmpeg", "-y", "-loglevel", "error"]
+        cmd = [require_ffmpeg(), "-y", "-loglevel", "error"]
         for segment in segment_paths:
             cmd += ["-i", str(segment)]
         filters: list[str] = []
         labels: list[str] = []
         for index, relative_start in enumerate(starts):
             delay_samples = max(0, round(relative_start * sample_rate))
-            filters.append(
-                f"[{index}:a]adelay={delay_samples}S:all=1,asetpts=N/SR/TB[a{index}]"
-            )
+            filters.append(f"[{index}:a]adelay={delay_samples}S:all=1,asetpts=N/SR/TB[a{index}]")
             labels.append(f"[a{index}]")
         filters.append(
-            "".join(labels)
-            + f"amix=inputs={len(labels)}:duration=longest:normalize=0,"
-              f"apad=pad_dur={duration:.12g},atrim=duration={duration:.12g},"
-              "asetpts=N/SR/TB[mix]"
+            "".join(labels) + f"amix=inputs={len(labels)}:duration=longest:normalize=0,"
+            f"apad=pad_dur={duration:.12g},atrim=duration={duration:.12g},"
+            "asetpts=N/SR/TB[mix]"
         )
         mixed = temp / "mix.wav"
         cmd += [
-            "-filter_complex", ";".join(filters), "-map", "[mix]",
-            "-t", f"{duration:.12g}",
-            "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le", str(mixed),
+            "-filter_complex",
+            ";".join(filters),
+            "-map",
+            "[mix]",
+            "-t",
+            f"{duration:.12g}",
+            "-ar",
+            str(sample_rate),
+            "-ac",
+            "2",
+            "-c:a",
+            "pcm_s16le",
+            str(mixed),
         ]
         subprocess.run(cmd, check=True)
         mixed.replace(output)

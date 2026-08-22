@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-and-wheel:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.12", "3.13"]
+        include:
+          - os: ubuntu-latest
+            venv_python: .wheel-venv/bin/python
+          - os: windows-latest
+            venv_python: .wheel-venv/Scripts/python.exe
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - uses: typst-community/setup-typst@v4
+
+      - name: Install FFmpeg (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: choco install ffmpeg --no-progress -y
+
+      - name: Source checks
+        shell: bash
+        run: |
+          uv sync --python ${{ matrix.python }}
+          ./scripts/check.sh
+
+      - name: Build platform wheel
+        shell: bash
+        run: uv build --wheel
+
+      - name: Clean-install wheel
+        shell: bash
+        run: |
+          uv venv .wheel-venv --python ${{ matrix.python }}
+          uv pip install --python "${{ matrix.venv_python }}" dist/*.whl
+          "${{ matrix.venv_python }}" -m zanim.cli info
+          "${{ matrix.venv_python }}" scripts/wheel_smoke.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ runner.os }}-py${{ matrix.python }}
+          path: dist/*.whl

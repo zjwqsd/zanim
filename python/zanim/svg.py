@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from math import radians, tan
-from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
+from math import radians, tan
+from pathlib import Path
 
 from ._svg_path import parse_path_data
-from .geometry import Color, CubicBezier, StrokeStyle
+from .geometry import Color, CubicBezierGeometry, StrokeStyle
 from .space import Transform2D
 from .vector import VectorContour, VectorDocument, VectorPath
 
@@ -32,9 +32,7 @@ def _parse_transform(value: str | None) -> Transform2D:
             if len(args) == 3:
                 cx, cy = args[1], args[2]
                 local = (
-                    Transform2D.translation(cx, cy)
-                    @ rotation
-                    @ Transform2D.translation(-cx, -cy)
+                    Transform2D.translation(cx, cy) @ rotation @ Transform2D.translation(-cx, -cy)
                 )
             else:
                 local = rotation
@@ -54,7 +52,7 @@ def _apply_transform(
     return tuple(
         VectorContour(
             tuple(
-                CubicBezier(
+                CubicBezierGeometry(
                     transform.apply(segment.p0),
                     transform.apply(segment.p1),
                     transform.apply(segment.p2),
@@ -79,9 +77,9 @@ def _parse_color(value: str | None, default: Color | None) -> Color | None:
         if len(hex_value) == 3:
             hex_value = "".join(ch * 2 for ch in hex_value)
         if len(hex_value) == 6:
-            return Color(*(int(hex_value[i:i + 2], 16) for i in (0, 2, 4)))
+            return Color(*(int(hex_value[i : i + 2], 16) for i in (0, 2, 4)))
         if len(hex_value) == 8:
-            return Color(*(int(hex_value[i:i + 2], 16) for i in (0, 2, 4, 6)))
+            return Color(*(int(hex_value[i : i + 2], 16) for i in (0, 2, 4, 6)))
     if value.startswith("rgb("):
         values = [float(x) for x in _NUMBER_RE.findall(value)]
         if len(values) >= 3:
@@ -236,9 +234,8 @@ def load_svg(source: str | Path, *, unit_scale: float = 1 / 72.0) -> VectorDocum
 
     render_element(root, Transform2D(), Color(0, 0, 0), None, 1.0)
 
-    final = (
-        Transform2D.scaling(unit_scale, -unit_scale)
-        @ Transform2D.translation(-(x0 + width / 2), -(y0 + height / 2))
+    final = Transform2D.scaling(unit_scale, -unit_scale) @ Transform2D.translation(
+        -(x0 + width / 2), -(y0 + height / 2)
     )
     paths = [
         VectorPath(

@@ -51,9 +51,15 @@ class Vec3:
 class SO3:
     """A proper 3×3 rotation matrix with group-preserving interpolation."""
 
-    m00: float = 1.0; m01: float = 0.0; m02: float = 0.0
-    m10: float = 0.0; m11: float = 1.0; m12: float = 0.0
-    m20: float = 0.0; m21: float = 0.0; m22: float = 1.0
+    m00: float = 1.0
+    m01: float = 0.0
+    m02: float = 0.0
+    m10: float = 0.0
+    m11: float = 1.0
+    m12: float = 0.0
+    m20: float = 0.0
+    m21: float = 0.0
+    m22: float = 1.0
 
     def __post_init__(self) -> None:
         values = tuple(value for row in self.as_rows() for value in row)
@@ -75,9 +81,15 @@ class SO3:
         c, s = cos(radians), sin(radians)
         q = 1.0 - c
         return SO3(
-            c + x*x*q, x*y*q - z*s, x*z*q + y*s,
-            y*x*q + z*s, c + y*y*q, y*z*q - x*s,
-            z*x*q - y*s, z*y*q + x*s, c + z*z*q,
+            c + x * x * q,
+            x * y * q - z * s,
+            x * z * q + y * s,
+            y * x * q + z * s,
+            c + y * y * q,
+            y * z * q - x * s,
+            z * x * q - y * s,
+            z * y * q + x * s,
+            c + z * z * q,
         )
 
     @staticmethod
@@ -94,43 +106,49 @@ class SO3:
 
     @staticmethod
     def from_quaternion(w: float, x: float, y: float, z: float) -> "SO3":
-        norm = sqrt(w*w + x*x + y*y + z*z)
+        norm = sqrt(w * w + x * x + y * y + z * z)
         if norm <= 1e-15:
             raise ValueError("SO3 quaternion must be non-zero")
         w, x, y, z = w / norm, x / norm, y / norm, z / norm
         return SO3(
-            1 - 2*(y*y + z*z), 2*(x*y - z*w), 2*(x*z + y*w),
-            2*(x*y + z*w), 1 - 2*(x*x + z*z), 2*(y*z - x*w),
-            2*(x*z - y*w), 2*(y*z + x*w), 1 - 2*(x*x + y*y),
+            1 - 2 * (y * y + z * z),
+            2 * (x * y - z * w),
+            2 * (x * z + y * w),
+            2 * (x * y + z * w),
+            1 - 2 * (x * x + z * z),
+            2 * (y * z - x * w),
+            2 * (x * z - y * w),
+            2 * (y * z + x * w),
+            1 - 2 * (x * x + y * y),
         )
 
     @property
     def determinant(self) -> float:
         return (
-            self.m00 * (self.m11*self.m22 - self.m12*self.m21)
-            - self.m01 * (self.m10*self.m22 - self.m12*self.m20)
-            + self.m02 * (self.m10*self.m21 - self.m11*self.m20)
+            self.m00 * (self.m11 * self.m22 - self.m12 * self.m21)
+            - self.m01 * (self.m10 * self.m22 - self.m12 * self.m20)
+            + self.m02 * (self.m10 * self.m21 - self.m11 * self.m20)
         )
 
     def __matmul__(self, other: "SO3") -> "SO3":
         a, b = self, other
         return SO3(
-            a.m00*b.m00 + a.m01*b.m10 + a.m02*b.m20,
-            a.m00*b.m01 + a.m01*b.m11 + a.m02*b.m21,
-            a.m00*b.m02 + a.m01*b.m12 + a.m02*b.m22,
-            a.m10*b.m00 + a.m11*b.m10 + a.m12*b.m20,
-            a.m10*b.m01 + a.m11*b.m11 + a.m12*b.m21,
-            a.m10*b.m02 + a.m11*b.m12 + a.m12*b.m22,
-            a.m20*b.m00 + a.m21*b.m10 + a.m22*b.m20,
-            a.m20*b.m01 + a.m21*b.m11 + a.m22*b.m21,
-            a.m20*b.m02 + a.m21*b.m12 + a.m22*b.m22,
+            a.m00 * b.m00 + a.m01 * b.m10 + a.m02 * b.m20,
+            a.m00 * b.m01 + a.m01 * b.m11 + a.m02 * b.m21,
+            a.m00 * b.m02 + a.m01 * b.m12 + a.m02 * b.m22,
+            a.m10 * b.m00 + a.m11 * b.m10 + a.m12 * b.m20,
+            a.m10 * b.m01 + a.m11 * b.m11 + a.m12 * b.m21,
+            a.m10 * b.m02 + a.m11 * b.m12 + a.m12 * b.m22,
+            a.m20 * b.m00 + a.m21 * b.m10 + a.m22 * b.m20,
+            a.m20 * b.m01 + a.m21 * b.m11 + a.m22 * b.m21,
+            a.m20 * b.m02 + a.m21 * b.m12 + a.m22 * b.m22,
         )
 
     def apply(self, vector: Vec3) -> Vec3:
         return Vec3(
-            self.m00*vector.x + self.m01*vector.y + self.m02*vector.z,
-            self.m10*vector.x + self.m11*vector.y + self.m12*vector.z,
-            self.m20*vector.x + self.m21*vector.y + self.m22*vector.z,
+            self.m00 * vector.x + self.m01 * vector.y + self.m02 * vector.z,
+            self.m10 * vector.x + self.m11 * vector.y + self.m12 * vector.z,
+            self.m20 * vector.x + self.m21 * vector.y + self.m22 * vector.z,
         )
 
     def as_rows(self) -> tuple[tuple[float, float, float], ...]:
@@ -166,34 +184,46 @@ class SO3:
             x = (self.m02 + self.m20) / s
             y = (self.m12 + self.m21) / s
             z = 0.25 * s
-        norm = sqrt(w*w + x*x + y*y + z*z)
+        norm = sqrt(w * w + x * x + y * y + z * z)
         return w / norm, x / norm, y / norm, z / norm
 
     def slerp(self, other: "SO3", alpha: float) -> "SO3":
         t = max(0.0, min(1.0, float(alpha)))
         q0 = self.as_quaternion()
         q1 = other.as_quaternion()
-        dot = sum(a*b for a, b in zip(q0, q1))
+        dot = sum(a * b for a, b in zip(q0, q1))
         if dot < 0.0:
             q1 = tuple(-v for v in q1)
             dot = -dot
         dot = max(-1.0, min(1.0, dot))
         if dot > 0.9995:
-            q = tuple(a + t*(b-a) for a, b in zip(q0, q1))
+            q = tuple(a + t * (b - a) for a, b in zip(q0, q1))
         else:
             theta = acos(dot)
             sin_theta = sin(theta)
             a_weight = sin((1.0 - t) * theta) / sin_theta
             b_weight = sin(t * theta) / sin_theta
-            q = tuple(a_weight*a + b_weight*b for a, b in zip(q0, q1))
+            q = tuple(a_weight * a + b_weight * b for a, b in zip(q0, q1))
         return SO3.from_quaternion(*q)
 
     def to_transform3d(self) -> "Transform3D":
         return Transform3D(
-            self.m00, self.m01, self.m02, 0.0,
-            self.m10, self.m11, self.m12, 0.0,
-            self.m20, self.m21, self.m22, 0.0,
-            0.0, 0.0, 0.0, 1.0,
+            self.m00,
+            self.m01,
+            self.m02,
+            0.0,
+            self.m10,
+            self.m11,
+            self.m12,
+            0.0,
+            self.m20,
+            self.m21,
+            self.m22,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
         )
 
 
@@ -201,30 +231,42 @@ class SO3:
 class Transform3D:
     """Row-major affine 4x4 transform acting on column vectors."""
 
-    m00: float = 1.0; m01: float = 0.0; m02: float = 0.0; m03: float = 0.0
-    m10: float = 0.0; m11: float = 1.0; m12: float = 0.0; m13: float = 0.0
-    m20: float = 0.0; m21: float = 0.0; m22: float = 1.0; m23: float = 0.0
-    m30: float = 0.0; m31: float = 0.0; m32: float = 0.0; m33: float = 1.0
+    m00: float = 1.0
+    m01: float = 0.0
+    m02: float = 0.0
+    m03: float = 0.0
+    m10: float = 0.0
+    m11: float = 1.0
+    m12: float = 0.0
+    m13: float = 0.0
+    m20: float = 0.0
+    m21: float = 0.0
+    m22: float = 1.0
+    m23: float = 0.0
+    m30: float = 0.0
+    m31: float = 0.0
+    m32: float = 0.0
+    m33: float = 1.0
 
     def __matmul__(self, other: "Transform3D") -> "Transform3D":
         a, b = self, other
         return Transform3D(
-            a.m00*b.m00 + a.m01*b.m10 + a.m02*b.m20 + a.m03*b.m30,
-            a.m00*b.m01 + a.m01*b.m11 + a.m02*b.m21 + a.m03*b.m31,
-            a.m00*b.m02 + a.m01*b.m12 + a.m02*b.m22 + a.m03*b.m32,
-            a.m00*b.m03 + a.m01*b.m13 + a.m02*b.m23 + a.m03*b.m33,
-            a.m10*b.m00 + a.m11*b.m10 + a.m12*b.m20 + a.m13*b.m30,
-            a.m10*b.m01 + a.m11*b.m11 + a.m12*b.m21 + a.m13*b.m31,
-            a.m10*b.m02 + a.m11*b.m12 + a.m12*b.m22 + a.m13*b.m32,
-            a.m10*b.m03 + a.m11*b.m13 + a.m12*b.m23 + a.m13*b.m33,
-            a.m20*b.m00 + a.m21*b.m10 + a.m22*b.m20 + a.m23*b.m30,
-            a.m20*b.m01 + a.m21*b.m11 + a.m22*b.m21 + a.m23*b.m31,
-            a.m20*b.m02 + a.m21*b.m12 + a.m22*b.m22 + a.m23*b.m32,
-            a.m20*b.m03 + a.m21*b.m13 + a.m22*b.m23 + a.m23*b.m33,
-            a.m30*b.m00 + a.m31*b.m10 + a.m32*b.m20 + a.m33*b.m30,
-            a.m30*b.m01 + a.m31*b.m11 + a.m32*b.m21 + a.m33*b.m31,
-            a.m30*b.m02 + a.m31*b.m12 + a.m32*b.m22 + a.m33*b.m32,
-            a.m30*b.m03 + a.m31*b.m13 + a.m32*b.m23 + a.m33*b.m33,
+            a.m00 * b.m00 + a.m01 * b.m10 + a.m02 * b.m20 + a.m03 * b.m30,
+            a.m00 * b.m01 + a.m01 * b.m11 + a.m02 * b.m21 + a.m03 * b.m31,
+            a.m00 * b.m02 + a.m01 * b.m12 + a.m02 * b.m22 + a.m03 * b.m32,
+            a.m00 * b.m03 + a.m01 * b.m13 + a.m02 * b.m23 + a.m03 * b.m33,
+            a.m10 * b.m00 + a.m11 * b.m10 + a.m12 * b.m20 + a.m13 * b.m30,
+            a.m10 * b.m01 + a.m11 * b.m11 + a.m12 * b.m21 + a.m13 * b.m31,
+            a.m10 * b.m02 + a.m11 * b.m12 + a.m12 * b.m22 + a.m13 * b.m32,
+            a.m10 * b.m03 + a.m11 * b.m13 + a.m12 * b.m23 + a.m13 * b.m33,
+            a.m20 * b.m00 + a.m21 * b.m10 + a.m22 * b.m20 + a.m23 * b.m30,
+            a.m20 * b.m01 + a.m21 * b.m11 + a.m22 * b.m21 + a.m23 * b.m31,
+            a.m20 * b.m02 + a.m21 * b.m12 + a.m22 * b.m22 + a.m23 * b.m32,
+            a.m20 * b.m03 + a.m21 * b.m13 + a.m22 * b.m23 + a.m23 * b.m33,
+            a.m30 * b.m00 + a.m31 * b.m10 + a.m32 * b.m20 + a.m33 * b.m30,
+            a.m30 * b.m01 + a.m31 * b.m11 + a.m32 * b.m21 + a.m33 * b.m31,
+            a.m30 * b.m02 + a.m31 * b.m12 + a.m32 * b.m22 + a.m33 * b.m32,
+            a.m30 * b.m03 + a.m31 * b.m13 + a.m32 * b.m23 + a.m33 * b.m33,
         )
 
     @staticmethod
@@ -257,10 +299,22 @@ class Transform3D:
     def from_so3(rotation: SO3, translation: Vec3 = Vec3()) -> "Transform3D":
         result = rotation.to_transform3d()
         return Transform3D(
-            result.m00, result.m01, result.m02, translation.x,
-            result.m10, result.m11, result.m12, translation.y,
-            result.m20, result.m21, result.m22, translation.z,
-            0.0, 0.0, 0.0, 1.0,
+            result.m00,
+            result.m01,
+            result.m02,
+            translation.x,
+            result.m10,
+            result.m11,
+            result.m12,
+            translation.y,
+            result.m20,
+            result.m21,
+            result.m22,
+            translation.z,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
         )
 
     def translate(self, x: float, y: float, z: float) -> "Transform3D":
@@ -279,13 +333,13 @@ class Transform3D:
         return self @ Transform3D.rotation_z(radians)
 
     def apply(self, point: Vec3) -> Vec3:
-        x = self.m00*point.x + self.m01*point.y + self.m02*point.z + self.m03
-        y = self.m10*point.x + self.m11*point.y + self.m12*point.z + self.m13
-        z = self.m20*point.x + self.m21*point.y + self.m22*point.z + self.m23
-        w = self.m30*point.x + self.m31*point.y + self.m32*point.z + self.m33
+        x = self.m00 * point.x + self.m01 * point.y + self.m02 * point.z + self.m03
+        y = self.m10 * point.x + self.m11 * point.y + self.m12 * point.z + self.m13
+        z = self.m20 * point.x + self.m21 * point.y + self.m22 * point.z + self.m23
+        w = self.m30 * point.x + self.m31 * point.y + self.m32 * point.z + self.m33
         if abs(w) <= 1e-15:
             raise ValueError("Transform3D produced a point at infinity")
-        return Vec3(x/w, y/w, z/w)
+        return Vec3(x / w, y / w, z / w)
 
     def as_rows(self) -> tuple[tuple[float, float, float, float], ...]:
         return (

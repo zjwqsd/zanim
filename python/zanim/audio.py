@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 
 class AudioSource:
@@ -12,11 +12,23 @@ class AudioSource:
             raise FileNotFoundError(self.path)
         proc = subprocess.run(
             [
-                "ffprobe", "-v", "error", "-select_streams", "a:0",
-                "-show_entries", "stream=duration", "-show_entries", "format=duration",
-                "-of", "json", str(self.path),
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=duration",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "json",
+                str(self.path),
             ],
-            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
         )
         data = json.loads(proc.stdout)
         streams = data.get("streams") or []
@@ -35,9 +47,7 @@ class AudioObject:
 
     def __setattr__(self, name: str, value) -> None:
         if not name.startswith("_") and getattr(self, "_zanim_scene_registered", False):
-            raise RuntimeError(
-                f"cannot assign {name!r} after Scene.add(); audio state is frozen"
-            )
+            raise RuntimeError(f"cannot assign {name!r} after Scene.add(); audio state is frozen")
         object.__setattr__(self, name, value)
 
     def _mark_scene_registered(self) -> None:

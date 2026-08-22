@@ -3,16 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from .geometry import Color, CubicBezier, StrokeStyle
+from .geometry import Color, CubicBezierGeometry, StrokeStyle
 from .object import SceneObject2D
-from .space import Linear2D, SE2, Transform2D, Vec2
+from .space import SE2, Linear2D, Transform2D, Vec2
 
 
 @dataclass(frozen=True, slots=True)
 class VectorContour:
     """One SVG-like contour normalized to cubic Bezier segments."""
 
-    segments: tuple[CubicBezier, ...]
+    segments: tuple[CubicBezierGeometry, ...]
     closed: bool = True
 
     def __post_init__(self) -> None:
@@ -97,7 +97,6 @@ class VectorObject2D(SceneObject2D):
         return self
 
 
-
 class DynamicVectorObject2D(VectorObject2D):
     """VectorObject2D whose immutable document is a pure function of time."""
 
@@ -116,7 +115,9 @@ class DynamicVectorObject2D(VectorObject2D):
         initial = provider(0.0)
         if not isinstance(initial, VectorDocument):
             raise TypeError("dynamic vector provider must return VectorDocument")
-        super().__init__(document=initial, transform=transform, reveal=reveal, opacity=opacity, z_index=z_index)
+        super().__init__(
+            document=initial, transform=transform, reveal=reveal, opacity=opacity, z_index=z_index
+        )
 
     def document_at(self, time: float) -> VectorDocument:
         value = self.provider(float(time))
@@ -154,14 +155,18 @@ def map_vector_document(
             tuple(
                 VectorContour(
                     tuple(
-                        CubicBezier(mapped(seg.p0), mapped(seg.p1), mapped(seg.p2), mapped(seg.p3))
+                        CubicBezierGeometry(
+                            mapped(seg.p0), mapped(seg.p1), mapped(seg.p2), mapped(seg.p3)
+                        )
                         for seg in contour.segments
                     ),
                     contour.closed,
                 )
                 for contour in path.contours
             ),
-            fill=path.fill, stroke=path.stroke, group=path.group,
+            fill=path.fill,
+            stroke=path.stroke,
+            group=path.group,
         )
         for path in document.paths
     )
@@ -173,7 +178,7 @@ def map_vector_document(
     bottom = min(b[1] for b in bounds)
     top = max(b[3] for b in bounds)
     return VectorDocument(
-        paths, max(1e-9, right-left), max(1e-9, top-bottom), document.group_count
+        paths, max(1e-9, right - left), max(1e-9, top - bottom), document.group_count
     )
 
 
@@ -189,21 +194,21 @@ def _cubic_axis_bounds(p0: float, p1: float, p2: float, p3: float) -> tuple[floa
             t = -c / b
             if 0.0 < t < 1.0:
                 u = 1.0 - t
-                values.append(u**3*p0 + 3*u*u*t*p1 + 3*u*t*t*p2 + t**3*p3)
+                values.append(u**3 * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t**3 * p3)
     else:
-        disc = b*b - 4.0*a*c
+        disc = b * b - 4.0 * a * c
         if disc >= 0.0:
-            root = disc ** 0.5
-            for t in ((-b-root)/(2*a), (-b+root)/(2*a)):
+            root = disc**0.5
+            for t in ((-b - root) / (2 * a), (-b + root) / (2 * a)):
                 if 0.0 < t < 1.0:
                     u = 1.0 - t
-                    values.append(u**3*p0 + 3*u*u*t*p1 + 3*u*t*t*p2 + t**3*p3)
+                    values.append(u**3 * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t**3 * p3)
     return min(values), max(values)
 
 
 def vector_path_bounds(path: VectorPath) -> tuple[float, float, float, float]:
-    left = bottom = float('inf')
-    right = top = float('-inf')
+    left = bottom = float("inf")
+    right = top = float("-inf")
     for contour in path.contours:
         for seg in contour.segments:
             x0, x1 = _cubic_axis_bounds(seg.p0.x, seg.p1.x, seg.p2.x, seg.p3.x)
@@ -218,6 +223,8 @@ def vector_document_bounds(document: VectorDocument) -> tuple[float, float, floa
         return (0.0, 0.0, 0.0, 0.0)
     bounds = [vector_path_bounds(path) for path in document.paths]
     return (
-        min(b[0] for b in bounds), min(b[1] for b in bounds),
-        max(b[2] for b in bounds), max(b[3] for b in bounds),
+        min(b[0] for b in bounds),
+        min(b[1] for b in bounds),
+        max(b[2] for b in bounds),
+        max(b[3] for b in bounds),
     )

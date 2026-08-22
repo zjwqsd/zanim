@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 import ctypes
-from dataclasses import dataclass
 import threading
 import weakref
+from dataclasses import dataclass
 
 from .abi import (
     WireBatch,
+    WireCamera3D,
     WireDrawItem,
     WireInterpolation,
+    WireMesh3D,
     WireObject,
     WireRaster,
-    WireCamera3D,
-    WireMesh3D,
     WireScene3DLayer,
     WireVectorObject,
     WireVectorPath,
@@ -32,8 +32,16 @@ def _pack_rgba(color) -> int:
 
 def _wire_object(snapshot):
     from ..geometry import (
-        Arc, Circle, CubicBezier, Ellipse, Line, Polygon, Polyline,
-        Rectangle, RegularPolygon, Square,
+        ArcGeometry,
+        CircleGeometry,
+        CubicBezierGeometry,
+        EllipseGeometry,
+        LineGeometry,
+        PolygonGeometry,
+        PolylineGeometry,
+        RectangleGeometry,
+        RegularPolygonGeometry,
+        SquareGeometry,
     )
 
     geometry = snapshot.geometry
@@ -41,42 +49,48 @@ def _wire_object(snapshot):
     points_array = None
     point_count = 0
 
-    if isinstance(geometry, Line):
+    if isinstance(geometry, LineGeometry):
         kind = 0
         params[:4] = [geometry.start.x, geometry.start.y, geometry.end.x, geometry.end.y]
-    elif isinstance(geometry, Polyline):
+    elif isinstance(geometry, PolylineGeometry):
         kind = 1
         flat = [value for point in geometry.points for value in (point.x, point.y)]
         points_array = (ctypes.c_double * len(flat))(*flat)
         point_count = len(geometry.points)
-    elif isinstance(geometry, Polygon):
+    elif isinstance(geometry, PolygonGeometry):
         kind = 2
         flat = [value for point in geometry.points for value in (point.x, point.y)]
         points_array = (ctypes.c_double * len(flat))(*flat)
         point_count = len(geometry.points)
-    elif isinstance(geometry, Rectangle):
+    elif isinstance(geometry, RectangleGeometry):
         kind = 3
         params[:2] = [geometry.width, geometry.height]
-    elif isinstance(geometry, Square):
+    elif isinstance(geometry, SquareGeometry):
         kind = 4
         params[0] = geometry.side
-    elif isinstance(geometry, Circle):
+    elif isinstance(geometry, CircleGeometry):
         kind = 5
         params[0] = geometry.radius
-    elif isinstance(geometry, Ellipse):
+    elif isinstance(geometry, EllipseGeometry):
         kind = 6
         params[:2] = [geometry.radius_x, geometry.radius_y]
-    elif isinstance(geometry, Arc):
+    elif isinstance(geometry, ArcGeometry):
         kind = 7
         params[:3] = [geometry.radius, geometry.start_angle, geometry.sweep_angle]
-    elif isinstance(geometry, RegularPolygon):
+    elif isinstance(geometry, RegularPolygonGeometry):
         kind = 8
         params[:3] = [float(geometry.sides), geometry.radius, geometry.phase]
-    elif isinstance(geometry, CubicBezier):
+    elif isinstance(geometry, CubicBezierGeometry):
         kind = 9
         params[:] = [
-            geometry.p0.x, geometry.p0.y, geometry.p1.x, geometry.p1.y,
-            geometry.p2.x, geometry.p2.y, geometry.p3.x, geometry.p3.y,
+            geometry.p0.x,
+            geometry.p0.y,
+            geometry.p1.x,
+            geometry.p1.y,
+            geometry.p2.x,
+            geometry.p2.y,
+            geometry.p3.x,
+            geometry.p3.y,
         ]
     else:
         raise TypeError(
@@ -91,10 +105,18 @@ def _wire_object(snapshot):
         else ctypes.POINTER(ctypes.c_double)()
     )
     wire = WireObject(
-        kind, *params, points_ptr, point_count,
-        transform.xx, transform.xy, transform.yx, transform.yy,
-        transform.tx, transform.ty,
-        int(style.fill is not None), _pack_rgba(style.fill) if style.fill is not None else 0,
+        kind,
+        *params,
+        points_ptr,
+        point_count,
+        transform.xx,
+        transform.xy,
+        transform.yx,
+        transform.yy,
+        transform.tx,
+        transform.ty,
+        int(style.fill is not None),
+        _pack_rgba(style.fill) if style.fill is not None else 0,
         int(style.stroke is not None),
         _pack_rgba(style.stroke.color) if style.stroke is not None else 0,
         style.stroke.width if style.stroke is not None else 0.0,
@@ -168,9 +190,12 @@ def _batch_storage(batch_geometry):
         fills = [_pack_rgba(color) for color in batch_geometry.fills]
         strokes = (
             [_pack_rgba(color) for color in batch_geometry.stroke_colors]
-            if batch_geometry.stroke_colors is not None else None
+            if batch_geometry.stroke_colors is not None
+            else None
         )
-        widths = list(batch_geometry.stroke_widths) if batch_geometry.stroke_widths is not None else None
+        widths = (
+            list(batch_geometry.stroke_widths) if batch_geometry.stroke_widths is not None else None
+        )
     elif isinstance(batch_geometry, RectSet):
         kind = 2
         flat = [
@@ -181,9 +206,12 @@ def _batch_storage(batch_geometry):
         fills = [_pack_rgba(color) for color in batch_geometry.fills]
         strokes = (
             [_pack_rgba(color) for color in batch_geometry.stroke_colors]
-            if batch_geometry.stroke_colors is not None else None
+            if batch_geometry.stroke_colors is not None
+            else None
         )
-        widths = list(batch_geometry.stroke_widths) if batch_geometry.stroke_widths is not None else None
+        widths = (
+            list(batch_geometry.stroke_widths) if batch_geometry.stroke_widths is not None else None
+        )
     else:
         raise TypeError(f"unsupported batch geometry: {type(batch_geometry).__name__}")
 
@@ -200,7 +228,9 @@ def _wire_batch(snapshot, target=None, alpha: float = 0.0):
     data, fills, strokes, widths, kind = _batch_storage(snapshot.batch)
     target_data = target_fills = target_strokes = target_widths = None
     if target is not None:
-        target_data, target_fills, target_strokes, target_widths, target_kind = _batch_storage(target.batch)
+        target_data, target_fills, target_strokes, target_widths, target_kind = _batch_storage(
+            target.batch
+        )
         if target_kind != kind or len(target.batch) != len(snapshot.batch):
             raise ValueError("batch transition endpoints are incompatible")
 
@@ -208,17 +238,33 @@ def _wire_batch(snapshot, target=None, alpha: float = 0.0):
     null_f64 = ctypes.POINTER(ctypes.c_double)
     transform = snapshot.transform
     return WireBatch(
-        kind, len(snapshot.batch),
+        kind,
+        len(snapshot.batch),
         ctypes.cast(data, ctypes.POINTER(ctypes.c_double)),
         ctypes.cast(fills, ctypes.POINTER(ctypes.c_uint32)) if fills is not None else null_u32(),
-        ctypes.cast(strokes, ctypes.POINTER(ctypes.c_uint32)) if strokes is not None else null_u32(),
+        ctypes.cast(strokes, ctypes.POINTER(ctypes.c_uint32))
+        if strokes is not None
+        else null_u32(),
         ctypes.cast(widths, ctypes.POINTER(ctypes.c_double)) if widths is not None else null_f64(),
-        ctypes.cast(target_data, ctypes.POINTER(ctypes.c_double)) if target_data is not None else null_f64(),
-        ctypes.cast(target_fills, ctypes.POINTER(ctypes.c_uint32)) if target_fills is not None else null_u32(),
-        ctypes.cast(target_strokes, ctypes.POINTER(ctypes.c_uint32)) if target_strokes is not None else null_u32(),
-        ctypes.cast(target_widths, ctypes.POINTER(ctypes.c_double)) if target_widths is not None else null_f64(),
+        ctypes.cast(target_data, ctypes.POINTER(ctypes.c_double))
+        if target_data is not None
+        else null_f64(),
+        ctypes.cast(target_fills, ctypes.POINTER(ctypes.c_uint32))
+        if target_fills is not None
+        else null_u32(),
+        ctypes.cast(target_strokes, ctypes.POINTER(ctypes.c_uint32))
+        if target_strokes is not None
+        else null_u32(),
+        ctypes.cast(target_widths, ctypes.POINTER(ctypes.c_double))
+        if target_widths is not None
+        else null_f64(),
         float(alpha),
-        transform.xx, transform.xy, transform.yx, transform.yy, transform.tx, transform.ty,
+        transform.xx,
+        transform.xy,
+        transform.yx,
+        transform.yy,
+        transform.tx,
+        transform.ty,
         float(snapshot.opacity),
     )
 
@@ -240,12 +286,18 @@ def _vector_storage(document):
         count = 0
         for contour in path.contours:
             for segment in contour.segments:
-                flat.extend((
-                    segment.p0.x, segment.p0.y,
-                    segment.p1.x, segment.p1.y,
-                    segment.p2.x, segment.p2.y,
-                    segment.p3.x, segment.p3.y,
-                ))
+                flat.extend(
+                    (
+                        segment.p0.x,
+                        segment.p0.y,
+                        segment.p1.x,
+                        segment.p1.y,
+                        segment.p2.x,
+                        segment.p2.y,
+                        segment.p3.x,
+                        segment.p3.y,
+                    )
+                )
                 count += 1
             ends.append(count)
             closed.append(int(contour.closed))
@@ -254,18 +306,21 @@ def _vector_storage(document):
         end_array = (ctypes.c_uint32 * len(ends))(*ends)
         closed_array = (ctypes.c_uint8 * len(closed))(*closed)
         keepalive.extend((segment_array, end_array, closed_array))
-        wires.append(WireVectorPath(
-            count,
-            ctypes.cast(segment_array, ctypes.POINTER(ctypes.c_double)),
-            len(ends),
-            ctypes.cast(end_array, ctypes.POINTER(ctypes.c_uint32)),
-            ctypes.cast(closed_array, ctypes.POINTER(ctypes.c_uint8)),
-            int(path.fill is not None), _pack_rgba(path.fill) if path.fill is not None else 0,
-            int(path.stroke is not None),
-            _pack_rgba(path.stroke.color) if path.stroke is not None else 0,
-            path.stroke.width if path.stroke is not None else 0.0,
-            path.group,
-        ))
+        wires.append(
+            WireVectorPath(
+                count,
+                ctypes.cast(segment_array, ctypes.POINTER(ctypes.c_double)),
+                len(ends),
+                ctypes.cast(end_array, ctypes.POINTER(ctypes.c_uint32)),
+                ctypes.cast(closed_array, ctypes.POINTER(ctypes.c_uint8)),
+                int(path.fill is not None),
+                _pack_rgba(path.fill) if path.fill is not None else 0,
+                int(path.stroke is not None),
+                _pack_rgba(path.stroke.color) if path.stroke is not None else 0,
+                path.stroke.width if path.stroke is not None else 0.0,
+                path.group,
+            )
+        )
 
     path_array = (WireVectorPath * len(wires))(*wires) if wires else None
     if path_array is not None:
@@ -281,11 +336,16 @@ def _wire_vector(snapshot):
     return WireVectorObject(
         len(snapshot.document.paths),
         ctypes.cast(path_array, ctypes.POINTER(WireVectorPath))
-        if path_array is not None else ctypes.POINTER(WireVectorPath)(),
+        if path_array is not None
+        else ctypes.POINTER(WireVectorPath)(),
         snapshot.document.group_count,
         snapshot.reveal,
-        transform.xx, transform.xy, transform.yx, transform.yy,
-        transform.tx, transform.ty,
+        transform.xx,
+        transform.xy,
+        transform.yx,
+        transform.yy,
+        transform.tx,
+        transform.ty,
         float(snapshot.opacity),
     ), keepalive
 
@@ -296,9 +356,17 @@ def _wire_raster(snapshot):
     transform = snapshot.transform
     wire = WireRaster(
         ctypes.cast(pixel_array, ctypes.POINTER(ctypes.c_uint8)),
-        frame.width, frame.height, snapshot.width, snapshot.height,
-        transform.xx, transform.xy, transform.yx, transform.yy,
-        transform.tx, transform.ty, float(snapshot.opacity),
+        frame.width,
+        frame.height,
+        snapshot.width,
+        snapshot.height,
+        transform.xx,
+        transform.xy,
+        transform.yx,
+        transform.yy,
+        transform.tx,
+        transform.ty,
+        float(snapshot.opacity),
     )
     return wire, pixel_array
 
@@ -316,12 +384,12 @@ class _Mesh3DStorage:
             if entry is not None and entry[0]() is mesh:
                 return entry[1]
 
-            positions = (ctypes.c_float * (len(mesh.vertices) * 3))(*(
-                value for vertex in mesh.vertices for value in (vertex.x, vertex.y, vertex.z)
-            ))
-            normals = (ctypes.c_float * (len(mesh.normals) * 3))(*(
-                value for normal in mesh.normals for value in (normal.x, normal.y, normal.z)
-            ))
+            positions = (ctypes.c_float * (len(mesh.vertices) * 3))(
+                *(value for vertex in mesh.vertices for value in (vertex.x, vertex.y, vertex.z))
+            )
+            normals = (ctypes.c_float * (len(mesh.normals) * 3))(
+                *(value for normal in mesh.normals for value in (normal.x, normal.y, normal.z))
+            )
             indices = (ctypes.c_uint32 * len(mesh.indices))(*mesh.indices)
             value = (positions, normals, indices)
             key = id(mesh)
@@ -343,10 +411,18 @@ _MESH3D_STORAGE = _Mesh3DStorage()
 
 def _wire_camera3d(camera) -> WireCamera3D:
     return WireCamera3D(
-        camera.position.x, camera.position.y, camera.position.z,
-        camera.target.x, camera.target.y, camera.target.z,
-        camera.up.x, camera.up.y, camera.up.z,
-        camera.fov_y_degrees, camera.near, camera.far,
+        camera.position.x,
+        camera.position.y,
+        camera.position.z,
+        camera.target.x,
+        camera.target.y,
+        camera.target.z,
+        camera.up.x,
+        camera.up.y,
+        camera.up.z,
+        camera.fov_y_degrees,
+        camera.near,
+        camera.far,
         0.0 if camera.orthographic_height is None else camera.orthographic_height,
         0 if camera.orthographic_height is None else 1,
     )
@@ -362,8 +438,11 @@ def _wire_mesh3d(render_mesh):
         len(mesh.vertices),
         ctypes.cast(positions, ctypes.POINTER(ctypes.c_float)),
         ctypes.cast(normals, ctypes.POINTER(ctypes.c_float)),
-        len(mesh.indices), ctypes.cast(indices, ctypes.POINTER(ctypes.c_uint32)),
-        matrix, _pack_rgba(snapshot.color), float(snapshot.opacity),
+        len(mesh.indices),
+        ctypes.cast(indices, ctypes.POINTER(ctypes.c_uint32)),
+        matrix,
+        _pack_rgba(snapshot.color),
+        float(snapshot.opacity),
     )
     return wire, (positions, normals, indices, matrix)
 
@@ -384,7 +463,8 @@ def _wire_scene3d(snapshot):
     layer = WireScene3DLayer(
         _wire_camera3d(camera),
         ctypes.cast(mesh_array, ctypes.POINTER(WireMesh3D))
-        if mesh_array is not None else ctypes.POINTER(WireMesh3D)(),
+        if mesh_array is not None
+        else ctypes.POINTER(WireMesh3D)(),
         len(meshes),
     )
     return layer, tuple(keepalive)
@@ -486,7 +566,8 @@ def encode_snapshot(snapshot, *, include_object_ids: bool = False) -> EncodedSce
             0 if kind in (DRAW_INTERPOLATION, DRAW_SCENE3D) else object_id
             for _, object_id, kind, _ in ordered
         ]
-        if include_object_ids else None
+        if include_object_ids
+        else None
     )
 
     draw_array = (WireDrawItem * len(draw_items))(*draw_items) if draw_items else None
@@ -494,17 +575,40 @@ def encode_snapshot(snapshot, *, include_object_ids: bool = False) -> EncodedSce
     batch_array = (WireBatch * len(batches))(*batches) if batches else None
     vector_array = (WireVectorObject * len(vectors))(*vectors) if vectors else None
     raster_array = (WireRaster * len(rasters))(*rasters) if rasters else None
-    scene3d_array = (WireScene3DLayer * len(scene3d_layers))(*scene3d_layers) if scene3d_layers else None
+    scene3d_array = (
+        (WireScene3DLayer * len(scene3d_layers))(*scene3d_layers) if scene3d_layers else None
+    )
     interpolation_array = (
-        (WireInterpolation * len(interpolations))(*interpolations)
-        if interpolations else None
+        (WireInterpolation * len(interpolations))(*interpolations) if interpolations else None
     )
     keepalive.extend(
-        item for item in (draw_array, object_array, batch_array, vector_array, raster_array, scene3d_array, interpolation_array)
+        item
+        for item in (
+            draw_array,
+            object_array,
+            batch_array,
+            vector_array,
+            raster_array,
+            scene3d_array,
+            interpolation_array,
+        )
         if item is not None
     )
     return EncodedScene(
-        draw_items, draw_object_ids, objects, batches, vectors, rasters, scene3d_layers, interpolations,
-        draw_array, object_array, batch_array, vector_array, raster_array, scene3d_array, interpolation_array,
+        draw_items,
+        draw_object_ids,
+        objects,
+        batches,
+        vectors,
+        rasters,
+        scene3d_layers,
+        interpolations,
+        draw_array,
+        object_array,
+        batch_array,
+        vector_array,
+        raster_array,
+        scene3d_array,
+        interpolation_array,
         keepalive,
     )

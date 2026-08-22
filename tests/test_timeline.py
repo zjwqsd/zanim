@@ -3,12 +3,11 @@ import unittest
 from zanim import (
     Circle,
     Easing,
-    Object2D,
     Scene,
     Square,
-    Timeline,
     Transform2D,
 )
+from zanim.timeline import Timeline
 
 
 class TimelineTests(unittest.TestCase):
@@ -28,7 +27,7 @@ class TimelineTests(unittest.TestCase):
 
 class SceneTimelineTests(unittest.TestCase):
     def test_transform_clip_mutates_authoring_object_but_history_is_reconstructed(self):
-        obj = Object2D(Square(2), transform=Transform2D.translation(1, 0))
+        obj = Square(2, transform=Transform2D.translation(1, 0))
         scene = Scene()
         scene.add(obj)
         target = Transform2D.translation(5, 2)
@@ -42,7 +41,7 @@ class SceneTimelineTests(unittest.TestCase):
         self.assertEqual(mid, Transform2D.translation(3, 1))
 
     def test_successive_transform_clips_are_seekable(self):
-        obj = Object2D(Square(2))
+        obj = Square(2)
         scene = Scene()
         scene.add(obj)
         t1 = Transform2D.translation(2, 0)
@@ -59,8 +58,8 @@ class SceneTimelineTests(unittest.TestCase):
         self.assertEqual(scene.evaluate(0.5).objects[0].snapshot.transform.tx, 1)
 
     def test_interpolation_is_transient_and_does_not_mutate_endpoints(self):
-        a = Object2D(Square(2), transform=Transform2D.translation(-2, 0))
-        b = Object2D(Circle(1), transform=Transform2D.translation(2, 0))
+        a = Square(2, transform=Transform2D.translation(-2, 0))
+        b = Circle(1, transform=Transform2D.translation(2, 0))
         scene = Scene()
         scene.add(a, b)
         a_before, b_before = a.transform, b.transform
@@ -80,7 +79,7 @@ class SceneTimelineTests(unittest.TestCase):
 
     def test_scene_requires_registered_objects(self):
         scene = Scene()
-        obj = Object2D(Square(1))
+        obj = Square(1)
         with self.assertRaises(ValueError):
             scene.transform(obj, to=Transform2D.translation(1, 0))
 
@@ -88,9 +87,10 @@ class SceneTimelineTests(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+
 class TimelineRandomAccessTests(unittest.TestCase):
     def test_evaluation_order_does_not_change_results(self):
-        obj = Object2D(Square(1))
+        obj = Square(1)
         scene = Scene()
         scene.add(obj)
         scene.transform(obj, to=Transform2D.translation(2, 0), duration=1, easing=Easing.LINEAR)
@@ -100,36 +100,37 @@ class TimelineRandomAccessTests(unittest.TestCase):
         self.assertEqual(values[1], values[4])
         self.assertEqual(scene.evaluate(0.2).objects[0].snapshot.transform, values[0])
 
+
 class ReplacementTimelineTests(unittest.TestCase):
     def test_replace_hands_off_lifetime_without_mutating_endpoints(self):
-        source = Object2D(Square(1), transform=Transform2D.translation(-2, 0))
-        target = Object2D(Circle(1), transform=Transform2D.translation(2, 0))
+        source = Square(1, transform=Transform2D.translation(-2, 0))
+        target = Circle(1, transform=Transform2D.translation(2, 0))
         source_before = source.transform
         target_before = target.transform
         scene = Scene()
         scene.add(source)
-        scene.wait(.5)
+        scene.wait(0.5)
         target_handle = scene.replace(source, target, duration=1.0, easing=Easing.LINEAR)
 
         self.assertEqual(source.transform, source_before)
         self.assertEqual(target.transform, target_before)
-        self.assertEqual(len(scene.evaluate(.49).objects), 1)
+        self.assertEqual(len(scene.evaluate(0.49).objects), 1)
         middle = scene.evaluate(1.0)
         self.assertEqual(middle.objects, ())
         self.assertEqual(len(middle.transients), 1)
-        self.assertAlmostEqual(middle.transients[0].alpha, .5)
+        self.assertAlmostEqual(middle.transients[0].alpha, 0.5)
         end = scene.evaluate(1.5)
         self.assertEqual(len(end.objects), 1)
         self.assertEqual(end.objects[0].snapshot.transform, target_before)
         self.assertEqual(end.transients, ())
         self.assertIs(target_handle.raw, target)
-        clip = scene.timeline.clips[-1]
-        self.assertEqual(clip.span.start, .5)
+        clip = scene._timeline.clips[-1]
+        self.assertEqual(clip.span.start, 0.5)
         self.assertEqual(clip.span.end, 1.5)
 
     def test_replace_requires_unadded_target(self):
-        a = Object2D(Square(1))
-        b = Object2D(Circle(1))
+        a = Square(1)
+        b = Circle(1)
         scene = Scene()
         scene.add(a, b)
         with self.assertRaisesRegex(ValueError, "must not already"):

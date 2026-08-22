@@ -3,19 +3,8 @@ from __future__ import annotations
 from math import cos, sin, tau
 from typing import Callable
 
-from zanim import (
-    Camera3D,
-    Canvas,
-    Color,
-    Easing,
-    MeshObject3D,
-    Object2D,
-    Rectangle,
-    Scene,
-    Transform3D,
-    TriangleMesh,
-    Vec3,
-)
+from zanim import Camera3D, Canvas, Color, Easing, Rectangle, Scene, Transform3D, Vec3
+from zanim.mesh3d import MeshObject3D, TriangleMesh
 
 # This is intentionally an effect-level recreation of JAnim's
 # ThreeDShapesExample, not a surface-style compatibility layer.
@@ -56,11 +45,15 @@ class _Grid:
         j_count = self.nv if self.periodic_v else self.nv - 1
         for j in range(j_count):
             for i in range(self.nu):
-                yield i, j, (
-                    self.idx(i, j),
-                    self.idx(i + 1, j),
-                    self.idx(i, j + 1),
-                    self.idx(i + 1, j + 1),
+                yield (
+                    i,
+                    j,
+                    (
+                        self.idx(i, j),
+                        self.idx(i + 1, j),
+                        self.idx(i, j + 1),
+                        self.idx(i + 1, j + 1),
+                    ),
                 )
 
 
@@ -86,14 +79,17 @@ def _checker_meshes(grid: _Grid) -> tuple[TriangleMesh, TriangleMesh]:
             out_n.append(grid.normals[index])
         out_i.extend((base, base + 2, base + 1, base + 1, base + 2, base + 3))
     return tuple(
-        TriangleMesh(tuple(vertices[k]), tuple(normals[k]), tuple(indices[k]))
-        for k in range(2)
+        TriangleMesh(tuple(vertices[k]), tuple(normals[k]), tuple(indices[k])) for k in range(2)
     )  # type: ignore[return-value]
 
 
 def _ribbon_segment(
-    vertices: list[Vec3], normals: list[Vec3], indices: list[int],
-    a: Vec3, b: Vec3, width: float,
+    vertices: list[Vec3],
+    normals: list[Vec3],
+    indices: list[int],
+    a: Vec3,
+    b: Vec3,
+    width: float,
 ) -> None:
     delta = b - a
     if delta.length <= 1e-9:
@@ -110,12 +106,22 @@ def _ribbon_segment(
         vertices.extend(quad)
         normals.extend((normal,) * 4)
         # Double-sided ribbons keep the line visible as the object rotates.
-        indices.extend((
-            base, base + 1, base + 2,
-            base, base + 2, base + 3,
-            base + 2, base + 1, base,
-            base + 3, base + 2, base,
-        ))
+        indices.extend(
+            (
+                base,
+                base + 1,
+                base + 2,
+                base,
+                base + 2,
+                base + 3,
+                base + 2,
+                base + 1,
+                base,
+                base + 3,
+                base + 2,
+                base,
+            )
+        )
 
 
 def _wire_mesh(grid: _Grid, width: float = 0.025) -> TriangleMesh:
@@ -127,7 +133,9 @@ def _wire_mesh(grid: _Grid, width: float = 0.025) -> TriangleMesh:
     for j in range(grid.nv):
         for i in range(grid.nu):
             _ribbon_segment(
-                vertices, normals, indices,
+                vertices,
+                normals,
+                indices,
                 grid.points[grid.idx(i, j)],
                 grid.points[grid.idx(i + 1, j)],
                 width,
@@ -139,7 +147,9 @@ def _wire_mesh(grid: _Grid, width: float = 0.025) -> TriangleMesh:
     for i in range(0, grid.nu, step):
         for j in range(j_count):
             _ribbon_segment(
-                vertices, normals, indices,
+                vertices,
+                normals,
+                indices,
                 grid.points[grid.idx(i, j)],
                 grid.points[grid.idx(i, j + 1)],
                 width,
@@ -190,7 +200,9 @@ def _torus_grid() -> _Grid:
             cos(tau * v) * sin(tau * u),
             sin(tau * v),
         ),
-        nu=28, nv=14, periodic_v=True,
+        nu=28,
+        nv=14,
+        periodic_v=True,
     )
 
 
@@ -199,7 +211,9 @@ def _cylinder_grid() -> _Grid:
     return _Grid(
         lambda u, v: Vec3(radius * cos(tau * u), height * (v - 0.5), radius * sin(tau * u)),
         lambda u, v: Vec3(cos(tau * u), 0, sin(tau * u)),
-        nu=28, nv=9, periodic_v=False,
+        nu=28,
+        nv=9,
+        periodic_v=False,
     )
 
 
@@ -213,7 +227,9 @@ def _cone_grid() -> _Grid:
             radius * (0.025 + 0.975 * v) * sin(tau * u),
         ),
         lambda u, v: Vec3(height * cos(tau * u), radius, height * sin(tau * u)),
-        nu=28, nv=9, periodic_v=False,
+        nu=28,
+        nv=9,
+        periodic_v=False,
     )
 
 
@@ -225,11 +241,23 @@ def _style_objects(grid: _Grid, style_name: str, transform: Transform3D) -> list
             MeshObject3D(b, transform=transform, color=Color(105, 177, 255), opacity=0.0),
         ]
     if style_name == "wire":
-        return [MeshObject3D(_wire_mesh(grid), transform=transform, color=Color(104, 178, 255), opacity=0.0)]
+        return [
+            MeshObject3D(
+                _wire_mesh(grid), transform=transform, color=Color(104, 178, 255), opacity=0.0
+            )
+        ]
     if style_name == "smooth":
-        return [MeshObject3D(_smooth_mesh(grid), transform=transform, color=Color(88, 166, 242), opacity=0.0)]
+        return [
+            MeshObject3D(
+                _smooth_mesh(grid), transform=transform, color=Color(88, 166, 242), opacity=0.0
+            )
+        ]
     if style_name == "dots":
-        return [MeshObject3D(_dot_mesh(grid), transform=transform, color=Color(125, 188, 255), opacity=0.0)]
+        return [
+            MeshObject3D(
+                _dot_mesh(grid), transform=transform, color=Color(125, 188, 255), opacity=0.0
+            )
+        ]
     raise ValueError(style_name)
 
 
@@ -255,10 +283,15 @@ def build_three_d_shapes_example() -> Scene:
     )
     backgrounds = (Color(0, 0, 34), Color(0, 0, 51), Color(0, 0, 51), Color(0, 0, 34))
     for center, color in zip(centers, backgrounds):
-        scene.add(Object2D(
-            Rectangle(panel_w + 0.01, panel_h + 0.01),
-            position=(center.x, center.y), fill=color, z_index=-10,
-        ))
+        scene.add(
+            Rectangle(
+                panel_w + 0.01,
+                panel_h + 0.01,
+                position=(center.x, center.y),
+                fill=color,
+                z_index=-10,
+            )
+        )
 
     styles = ("checker", "wire", "smooth", "dots")
     grids = (_torus_grid(), _cylinder_grid(), _cone_grid())

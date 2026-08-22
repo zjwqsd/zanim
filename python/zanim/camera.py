@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
 
 from .object import SceneObject2D
-from .space import SE2, Transform2D, Vec2, affine2d, pose2d
+from .space import SE2, Point2, Transform2D, affine2d, as_vec2, pose2d
 from .timeline import Easing
 
 if TYPE_CHECKING:
@@ -48,16 +48,6 @@ class Camera2D(SceneObject2D):
             raise RuntimeError("Camera2D animation requires a Scene-bound camera")
         return self._scene
 
-    @staticmethod
-    def _point(value: Vec2 | tuple[float, float], *, name: str) -> Vec2:
-        if isinstance(value, Vec2):
-            return value
-        if isinstance(value, tuple) and len(value) == 2:
-            x, y = value
-            if isinstance(x, (int, float)) and isinstance(y, (int, float)):
-                return Vec2(float(x), float(y))
-        raise TypeError(f"{name} must be Vec2 or a numeric (x, y) tuple")
-
     @property
     def is_dynamic(self) -> bool:
         return self.transform_provider is not None
@@ -82,14 +72,12 @@ class Camera2D(SceneObject2D):
         at: float = 0.0,
     ):
         """Animate to one complete ``world -> view`` transform."""
-        return self._require_scene().transform(
-            self, to=to, duration=duration, easing=easing, at=at
-        )
+        return self._require_scene().transform(self, to=to, duration=duration, easing=easing, at=at)
 
     def pose(
         self,
         *,
-        to: Vec2 | tuple[float, float],
+        position: Point2,
         rotation: float = 0.0,
         duration: float | None = None,
         easing: Easing = Easing.SMOOTHSTEP,
@@ -97,25 +85,29 @@ class Camera2D(SceneObject2D):
     ):
         """Animate to a complete rigid ``world -> view`` pose."""
         return self.transform_to(
-            pose2d(to=to, rotation=rotation),
-            duration=duration, easing=easing, at=at,
+            pose2d(position=position, rotation=rotation),
+            duration=duration,
+            easing=easing,
+            at=at,
         )
 
     def affine(
         self,
         *,
-        to: Vec2 | tuple[float, float],
+        position: Point2,
         rotation: float = 0.0,
         scale: float | tuple[float, float] = 1.0,
-        shear: Vec2 | tuple[float, float] = (0.0, 0.0),
+        shear: Point2 = (0.0, 0.0),
         duration: float | None = None,
         easing: Easing = Easing.SMOOTHSTEP,
         at: float = 0.0,
     ):
         """Animate to ``Translation @ Rotation @ Shear @ Scale`` in view space."""
         return self.transform_to(
-            affine2d(to=to, rotation=rotation, scale=scale, shear=shear),
-            duration=duration, easing=easing, at=at,
+            affine2d(position=position, rotation=rotation, scale=scale, shear=shear),
+            duration=duration,
+            easing=easing,
+            at=at,
         )
 
     def transform_function(
@@ -134,7 +126,7 @@ class Camera2D(SceneObject2D):
     def pan(
         self,
         *,
-        by: Vec2 | tuple[float, float],
+        by: Point2,
         duration: float | None = None,
         easing: Easing = Easing.SMOOTHSTEP,
         at: float = 0.0,
@@ -144,18 +136,20 @@ class Camera2D(SceneObject2D):
         With ``V`` the current world-to-view transform, camera motion ``d``
         produces ``V' = V @ Translation(-d)``.
         """
-        d = self._point(by, name="by")
+        d = as_vec2(by, name="by")
         current = self.transform
         return self.transform_function(
             lambda a: current @ Transform2D.translation(-d.x * a, -d.y * a),
-            duration=duration, easing=easing, at=at,
+            duration=duration,
+            easing=easing,
+            at=at,
         )
 
     def zoom(
         self,
         *,
         by: float,
-        about: Vec2 | tuple[float, float] = (0.0, 0.0),
+        about: Point2 = (0.0, 0.0),
         duration: float | None = None,
         easing: Easing = Easing.SMOOTHSTEP,
         at: float = 0.0,
@@ -164,7 +158,7 @@ class Camera2D(SceneObject2D):
         factor = float(by)
         if factor <= 0.0:
             raise ValueError("camera zoom factor must be > 0")
-        center = self._point(about, name="about")
+        center = as_vec2(about, name="about")
         current = self.transform
 
         def provider(a: float) -> Transform2D:
@@ -176,15 +170,13 @@ class Camera2D(SceneObject2D):
                 @ current
             )
 
-        return self.transform_function(
-            provider, duration=duration, easing=easing, at=at
-        )
+        return self.transform_function(provider, duration=duration, easing=easing, at=at)
 
     def rotate_view(
         self,
         *,
         by: float,
-        about: Vec2 | tuple[float, float] = (0.0, 0.0),
+        about: Point2 = (0.0, 0.0),
         duration: float | None = None,
         easing: Easing = Easing.SMOOTHSTEP,
         at: float = 0.0,
@@ -195,7 +187,7 @@ class Camera2D(SceneObject2D):
         world-to-view transform. The path uses exact rotations rather than
         affine coefficient interpolation, so it never shrinks midway.
         """
-        center = self._point(about, name="about")
+        center = as_vec2(about, name="about")
         angle = float(by)
         current = self.transform
 
@@ -207,6 +199,4 @@ class Camera2D(SceneObject2D):
                 @ current
             )
 
-        return self.transform_function(
-            provider, duration=duration, easing=easing, at=at
-        )
+        return self.transform_function(provider, duration=duration, easing=easing, at=at)

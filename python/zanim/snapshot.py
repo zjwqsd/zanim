@@ -4,13 +4,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .batch import BatchGeometry, BatchObject2D
-from .geometry import Color, Geometry, Object2D, Style
-from .space import Transform2D
-from .raster import RasterFrame, RasterObject2D
-from .vector import VectorDocument, VectorObject2D
 from .camera3d import Camera3D
+from .geometry import Color, Geometry, Object2D, Style
 from .mesh3d import MeshObject3D, TriangleMesh
+from .raster import RasterFrame, RasterObject2D
+from .space import Transform2D
 from .space3d import Transform3D, Vec3
+from .vector import VectorDocument, VectorObject2D
 
 if TYPE_CHECKING:
     from .interpolation import ObjectInterpolation
@@ -34,7 +34,9 @@ class ObjectSnapshot:
 
     @staticmethod
     def from_object(obj: Object2D) -> "ObjectSnapshot":
-        return ObjectSnapshot(obj.geometry, obj.transform, obj.style, obj.opacity, obj.z_index, obj.trim)
+        return ObjectSnapshot(
+            obj.geometry, obj.transform, obj.style, obj.opacity, obj.z_index, obj.trim
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,8 +105,14 @@ class Camera3DSnapshot:
     @staticmethod
     def from_camera(camera: Camera3D) -> "Camera3DSnapshot":
         return Camera3DSnapshot(
-            camera.position, camera.target, camera.up, camera.fov_y_degrees,
-            camera.near, camera.far, camera.orthographic_height, camera.layer_z_index,
+            camera.position,
+            camera.target,
+            camera.up,
+            camera.fov_y_degrees,
+            camera.near,
+            camera.far,
+            camera.orthographic_height,
+            camera.layer_z_index,
         )
 
 

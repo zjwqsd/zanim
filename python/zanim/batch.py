@@ -5,7 +5,7 @@ from typing import Callable
 
 from .geometry import Color
 from .object import SceneObject2D
-from .space import Linear2D, SE2, Transform2D, Vec2
+from .space import SE2, Linear2D, Transform2D, Vec2
 
 
 def _same_length(name: str, n: int, values: tuple[object, ...]) -> None:
@@ -132,6 +132,7 @@ class BatchObject2D(SceneObject2D):
     def apply_se2_world(self, rigid: SE2) -> "BatchObject2D":
         self.transform = rigid.as_affine() @ self.transform
         return self
+
 
 class DynamicBatchObject2D(BatchObject2D):
     """Persistent batch whose complete geometry is a pure function of absolute time.
