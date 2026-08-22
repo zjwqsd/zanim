@@ -71,6 +71,7 @@ class Scene:
     _next_object_id: int = field(default=1, init=False, repr=False)
     _world_space_spans: dict[int, list[tuple[float, float]]] = field(default_factory=dict, init=False, repr=False)
     _handles: dict[int, object] = field(default_factory=dict, init=False, repr=False)
+    _preview_source_info: object | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         # Camera uses the reserved id 0 so ordinary insertion order remains 1+.

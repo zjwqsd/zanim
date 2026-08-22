@@ -6,7 +6,7 @@ from pathlib import Path
 
 from zanim import (
     BOTTOM, CENTER, Canvas, Color, Dot, Group2D, Line, Object2D, ORIGIN, RIGHT, SE2,
-    Scene, Text, TOP, Vec2,
+    Scene, Text, TOP, Vec2, preview_source,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +23,7 @@ def link(length: float, color: Color) -> Object2D:
     return Object2D(Line(ORIGIN, Vec2(length, 0)), stroke=color, stroke_width=0.07)
 
 
+@preview_source
 def build_scene() -> Scene:
     scene = Scene(canvas=Canvas(1280, 720, 92), fps=60)
 
@@ -75,7 +76,7 @@ def build_scene() -> Scene:
         )
         joint3.transform_function(
             lambda a: home3
-            @ SE2(translation=0.65 * (0.5 - 0.5 * cos(4 * pi * a)) * RIGHT)
+            @ SE2(translation=0.65 * (0.5 - 0.5 * cos(2 * pi * a)) * RIGHT)
         )
 
     scene.wait(0.5)

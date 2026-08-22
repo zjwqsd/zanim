@@ -162,6 +162,76 @@ def _vector_bounds(document, transform: Transform2D) -> Bounds2D:
     return Bounds2D.union(*pieces)
 
 
+
+def _interpolated_batch_bounds(source, target, alpha: float, transform: Transform2D) -> Bounds2D:
+    from .batch import CircleSet, LineSet, RectSet
+
+    t = max(0.0, min(1.0, float(alpha)))
+    mix = lambda a, b: a + (b - a) * t
+    mix_point = lambda a, b: Vec2(mix(a.x, b.x), mix(a.y, b.y))
+    if isinstance(source, LineSet) and isinstance(target, LineSet):
+        return _points_bounds(
+            transform.apply(point)
+            for a, b in zip(
+                (*source.starts, *source.ends), (*target.starts, *target.ends)
+            )
+            for point in (mix_point(a, b),)
+        )
+    if isinstance(source, CircleSet) and isinstance(target, CircleSet):
+        pieces = []
+        for a_center, b_center, a_radius, b_radius in zip(
+            source.centers, target.centers, source.radii, target.radii
+        ):
+            center = transform.apply(mix_point(a_center, b_center))
+            radius = mix(a_radius, b_radius)
+            ex = radius * sqrt(transform.xx**2 + transform.xy**2)
+            ey = radius * sqrt(transform.yx**2 + transform.yy**2)
+            pieces.append(Bounds2D(center.x - ex, center.y - ey, center.x + ex, center.y + ey))
+        return Bounds2D.union(*pieces)
+    if isinstance(source, RectSet) and isinstance(target, RectSet):
+        pieces = []
+        for a_center, b_center, a_size, b_size in zip(
+            source.centers, target.centers, source.sizes, target.sizes
+        ):
+            center = mix_point(a_center, b_center)
+            size = mix_point(a_size, b_size)
+            hx, hy = size.x * 0.5, size.y * 0.5
+            pieces.append(_points_bounds(
+                transform.apply(Vec2(center.x + x, center.y + y))
+                for x in (-hx, hx) for y in (-hy, hy)
+            ))
+        return Bounds2D.union(*pieces)
+    raise TypeError("batch interpolation endpoints must have the same geometry kind")
+
+
+def bounds_from_render_item(item, transform: Transform2D = Transform2D()) -> Bounds2D:
+    """Bounds of one evaluated 2D Render* item, including BatchClip interpolation."""
+    from .snapshot import RenderBatch
+
+    if isinstance(item, RenderBatch) and item.target is not None:
+        return _interpolated_batch_bounds(
+            item.snapshot.batch, item.target.batch, item.alpha, transform
+        )
+    return bounds_from_snapshot(item.snapshot, transform)
+
+
+def bounds_from_snapshot(snapshot, transform: Transform2D = Transform2D()) -> Bounds2D:
+    """Bounds of one evaluated 2D render snapshot under an extra transform."""
+    from .snapshot import BatchSnapshot, ObjectSnapshot, RasterSnapshot, VectorSnapshot
+
+    if isinstance(snapshot, ObjectSnapshot):
+        return _geometry_bounds(snapshot.geometry, transform)
+    if isinstance(snapshot, BatchSnapshot):
+        return _batch_bounds(snapshot.batch, transform)
+    if isinstance(snapshot, VectorSnapshot):
+        return _vector_bounds(snapshot.document, transform)
+    if isinstance(snapshot, RasterSnapshot):
+        hx, hy = snapshot.width * 0.5, snapshot.height * 0.5
+        return _points_bounds(
+            transform.apply(Vec2(x, y)) for x in (-hx, hx) for y in (-hy, hy)
+        )
+    raise TypeError(f"snapshot has no 2D bounds: {type(snapshot).__name__}")
+
 def bounds_of(obj, extra_transform: Transform2D = Transform2D()) -> Bounds2D:
     from .batch import BatchObject2D
     from .geometry import Object2D

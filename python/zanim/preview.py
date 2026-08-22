@@ -6,6 +6,7 @@ import math
 import queue
 import tempfile
 import threading
+import traceback
 import webbrowser
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ import zstandard as zstd
 
 from .audio import AudioObject
 from .batch import BatchObject2D, DynamicBatchObject2D
+from .bounds import Bounds2D, bounds_from_render_item
 from .camera import Camera2D
 from .geometry import Object2D
 from .group import Group2D
@@ -33,8 +35,10 @@ from .snapshot import (
     VectorSnapshot,
 )
 from .timeline import PlaybackClip
+from .source import get_preview_source, reload_preview_source
 from .value import ScalarValue
 from .vector import VectorObject2D
+from .space import Transform2D
 
 
 _HTML = Path(__file__).with_name("_preview.html")
@@ -230,6 +234,7 @@ class PreviewSession:
         prefetch_workers: int = 2,
     ) -> None:
         self.scene = scene
+        self.source_info = get_preview_source(scene)
         self.fps = max(1, int(scene.fps))
         self.duration = max(0.0, float(scene.timeline.cursor))
         self.frame_count = max(1, math.ceil(self.duration * self.fps - 1e-12))
@@ -561,11 +566,13 @@ class PreviewSession:
             if key != object_id:
                 continue
             span = clip.span
+            source = None if self.source_info is None else self.source_info.clip_source(clip)
             item = {
                 "type": type(clip).__name__,
                 "start": span.start,
                 "end": span.end,
                 "duration": span.duration,
+                "source": None if source is None else source.as_dict(),
             }
             all_clips.append(item)
             if span.contains(time_value):
@@ -573,13 +580,56 @@ class PreviewSession:
                 active.append({**item, "progress": max(0.0, min(1.0, progress))})
         return all_clips, active
 
-    def inspect_time(self, value: float) -> dict:
+    def inspect_time(self, value: float, *, frame_object_ids=()) -> dict:
         t = self.clamp_time(value)
+        requested_frames = {int(object_id) for object_id in frame_object_ids}
         index = self.frame_for_time(t)
         snapshot = self._snapshot_at_time(t)
         rendered = {}
         for item in (*snapshot.objects, *snapshot.batches, *snapshot.vectors, *snapshot.rasters, *snapshot.meshes3d):
-            rendered[item.object_id] = item.snapshot
+            rendered[item.object_id] = item
+
+        def local_bounds_at(registered) -> Bounds2D | None:
+            obj = registered.object_ref
+            if not isinstance(obj, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, Group2D)):
+                return None
+            if not isinstance(obj, Group2D):
+                rendered_item = rendered.get(registered.object_id)
+                return None if rendered_item is None else bounds_from_render_item(rendered_item)
+
+            pieces: list[Bounds2D] = []
+            group_id = registered.object_id
+            for leaf in self.scene._registry:
+                if group_id not in leaf.parent_ids:
+                    continue
+                rendered_item = rendered.get(leaf.object_id)
+                if rendered_item is None:
+                    continue
+                relative = Transform2D()
+                group_index = leaf.parent_ids.index(group_id)
+                for parent_id in leaf.parent_ids[group_index + 1:]:
+                    parent = self.scene._by_id[parent_id]
+                    if not isinstance(parent.initial, NodeSnapshot):
+                        continue
+                    relative = relative @ self.scene._transform_at(
+                        parent_id, parent.initial.transform, t
+                    )
+                initial = leaf.initial
+                if not isinstance(initial, (ObjectSnapshot, BatchSnapshot, VectorSnapshot, RasterState)):
+                    continue
+                relative = relative @ self.scene._transform_at(
+                    leaf.object_id, initial.transform, t
+                )
+                pieces.append(bounds_from_render_item(rendered_item, relative))
+            return Bounds2D.union(*pieces) if pieces else Bounds2D(0.0, 0.0, 0.0, 0.0)
+
+        def bounds_dict(bounds: Bounds2D | None):
+            if bounds is None:
+                return None
+            return {
+                "left": bounds.left, "bottom": bounds.bottom,
+                "right": bounds.right, "top": bounds.top,
+            }
 
         objects: list[dict] = []
         for registered in self.scene._registry:
@@ -588,8 +638,11 @@ class PreviewSession:
             alive = self.scene._is_alive(registered, t)
             lifetime_start, lifetime_end = self.scene._effective_lifetime(registered)
             clips, active = self._clips_for(object_id, t)
+            if not alive:
+                active = []
             info = {
                 "id": object_id,
+                "name": None if self.source_info is None else self.source_info.primary_name(object_id),
                 "type": type(obj).__name__,
                 "alive": alive,
                 "parents": list(registered.parent_ids),
@@ -597,11 +650,22 @@ class PreviewSession:
                 "active_clips": active,
                 "clips": clips,
                 "clip_count": len(clips),
+                "frameable": alive and isinstance(
+                    obj, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, Group2D)
+                ),
+                "local_bounds": (
+                    bounds_dict(local_bounds_at(registered))
+                    if alive and object_id in requested_frames else None
+                ),
                 "state": {},
             }
             state = info["state"]
+            if not alive:
+                objects.append(info)
+                continue
             initial = registered.initial
-            rendered_state = rendered.get(object_id)
+            rendered_item = rendered.get(object_id)
+            rendered_state = None if rendered_item is None else rendered_item.snapshot
             if isinstance(initial, (ObjectSnapshot, BatchSnapshot, VectorSnapshot, RasterState, NodeSnapshot)):
                 if isinstance(obj, Camera2D) and obj.is_dynamic:
                     local = obj.transform_at(t, initial.transform)
@@ -609,7 +673,6 @@ class PreviewSession:
                     local = self.scene._transform_at(object_id, initial.transform, t)
                 state["local_transform"] = self._transform2d(local)
                 state["opacity"] = self.scene._opacity_at(object_id, initial.opacity, t)
-                state["z_index"] = initial.z_index
                 if alive and isinstance(
                     obj, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, Group2D)
                 ):
@@ -619,73 +682,101 @@ class PreviewSession:
                 if rendered_state is not None and hasattr(rendered_state, "transform"):
                     state["render_transform"] = self._transform2d(rendered_state.transform)
                     state["render_opacity"] = rendered_state.opacity
-                    state["render_z_index"] = rendered_state.z_index
             if isinstance(obj, Object2D):
-                state["geometry"] = type(initial.geometry).__name__
                 state["trim"] = self.scene._path_trim_at(object_id, initial.trim, t)
                 style = self.scene._style_at(object_id, initial.style, t)
-                state["fill"] = (
-                    None if style.fill is None
-                    else [style.fill.r, style.fill.g, style.fill.b, style.fill.a]
-                )
-                state["stroke"] = (
-                    None if style.stroke is None
-                    else {
-                        "rgba": [
-                            style.stroke.color.r, style.stroke.color.g,
-                            style.stroke.color.b, style.stroke.color.a,
-                        ],
-                        "width": style.stroke.width,
-                    }
-                )
+                state["style"] = {
+                    "fill": (
+                        None if style.fill is None
+                        else [style.fill.r, style.fill.g, style.fill.b, style.fill.a]
+                    ),
+                    "stroke": (
+                        None if style.stroke is None
+                        else {
+                            "rgba": [
+                                style.stroke.color.r, style.stroke.color.g,
+                                style.stroke.color.b, style.stroke.color.a,
+                            ],
+                            "width": style.stroke.width,
+                        }
+                    ),
+                }
             elif isinstance(obj, BatchObject2D):
                 if isinstance(obj, DynamicBatchObject2D):
-                    batch = obj._batch_at(t, initial.batch)
                     active_batch = None
                 else:
-                    batch, active_batch = self.scene._batch_at(object_id, initial.batch, t)
-                state["batch"] = type(batch).__name__
-                state["count"] = len(batch)
+                    _, active_batch = self.scene._batch_at(object_id, initial.batch, t)
                 if active_batch is not None:
                     state["batch_alpha"] = active_batch.alpha(t)
             elif isinstance(obj, VectorObject2D):
-                state["paths"] = len(initial.document.paths)
                 state["reveal"] = self.scene._reveal_at(object_id, initial.reveal, t)
             elif isinstance(obj, RasterObject2D):
-                state["source"] = type(obj.source).__name__
-                source_time = self.scene._playback_time_at(object_id, obj.source.duration, t)
-                state["source_time"] = source_time
-                path = getattr(obj.source, "path", None)
-                if path is not None:
-                    state["path"] = str(path)
+                state["source_time"] = self.scene._playback_time_at(
+                    object_id, obj.source.duration, t
+                )
             elif isinstance(obj, MeshObject3D):
                 assert isinstance(initial, Mesh3DSnapshot)
                 state["transform3d"] = self._transform3d(
                     self.scene._transform3d_at(object_id, initial.transform, t)
                 )
                 state["opacity"] = self.scene._opacity_at(object_id, initial.opacity, t)
-                state["vertices"] = len(initial.mesh.positions)
-                state["triangles"] = len(initial.mesh.indices) // 3
             elif isinstance(obj, ScalarValue):
                 state["value"] = obj.value_at(t)
             elif isinstance(obj, AudioObject):
-                state["gain"] = obj.gain
                 playback = None
                 for clip in self.scene.timeline._channel_clips(PlaybackClip, object_id):
                     if clip.span.contains(t):
                         playback = clip.source_time(t)
                         break
                 state["source_time"] = playback
-                path = getattr(obj.source, "path", None)
-                if path is not None:
-                    state["path"] = str(path)
-            elif isinstance(obj, Camera2D):
-                state["camera"] = True
             objects.append(info)
-        return {"frame": index, "time": t, "objects": objects}
+
+        active_sources = []
+        seen_sources: set[tuple[str, int, int, int, str]] = set()
+        for info in objects:
+            for clip in info["active_clips"]:
+                source = clip.get("source")
+                if source is None:
+                    continue
+                key = (
+                    str(source["path"]), int(source["start_line"]), int(source["end_line"]),
+                    int(info["id"]), str(clip["type"]),
+                )
+                if key in seen_sources:
+                    continue
+                seen_sources.add(key)
+                active_sources.append({
+                    "object_id": info["id"],
+                    "name": info["name"],
+                    "type": info["type"],
+                    "clip_type": clip["type"],
+                    "source": source,
+                })
+        camera_info = next(info for info in objects if info["id"] == 0)
+        return {
+            "frame": index, "time": t, "objects": objects,
+            "view_transform": camera_info["state"]["local_transform"],
+            "active_sources": active_sources,
+        }
+
+    def source_document(self) -> dict:
+        if self.source_info is None:
+            return {"available": False}
+        return {
+            "available": True,
+            "path": self.source_info.path,
+            "text": self.source_info.text,
+        }
 
     def inspect(self, index: int) -> dict:
         return self.inspect_time(self.time_for_frame(index))
+
+    def pick_time(self, value: float, x: int, y: int) -> dict:
+        from .render.frame import pick_snapshot_object
+
+        t = self.clamp_time(value)
+        object_id = pick_snapshot_object(self._snapshot_at_time(t), self.scene.canvas, x, y)
+        return {"time": t, "x": int(x), "y": int(y), "object_id": object_id}
 
     def _export_range_fully_cached(self, start: float, end: float) -> bool:
         frame_count = max(1, math.ceil(self.fps * (end - start) - 1e-12))
@@ -741,6 +832,7 @@ class PreviewSession:
         return {
             "width": int(self.scene.width),
             "height": int(self.scene.height),
+            "unit_size": float(self.scene.canvas.unit_size),
             "fps": self.fps,
             "duration": self.duration,
             "frame_count": self.frame_count,
@@ -750,6 +842,7 @@ class PreviewSession:
             "preview_pixel_format": "rgb0",
             "preview_frame_bytes": self.frame_bytes,
             "preview_cache": f"hot-rgb0+cold-{self.cold_cache.codec.name}",
+            "source_available": self.source_info is not None,
         }
 
 
@@ -765,16 +858,20 @@ class PreviewServer:
         prefetch_seconds: float = 2.5,
         prefetch_workers: int = 2,
     ) -> None:
-        self.session = PreviewSession(
-            scene,
-            hot_cache_mb=hot_cache_mb,
-            cold_cache_mb=cold_cache_mb,
-            prefetch_seconds=prefetch_seconds,
-            prefetch_workers=prefetch_workers,
-        )
+        self._session_options = {
+            "hot_cache_mb": hot_cache_mb,
+            "cold_cache_mb": cold_cache_mb,
+            "prefetch_seconds": prefetch_seconds,
+            "prefetch_workers": prefetch_workers,
+        }
+        self.session = PreviewSession(scene, **self._session_options)
         self.host = host
         self.port = int(port)
-        session = self.session
+        self._request_condition = threading.Condition()
+        self._active_requests = 0
+        self._reloading = False
+        self._reload_lock = threading.Lock()
+        owner = self
 
         class Handler(BaseHTTPRequestHandler):
             server_version = "ZanimPreview/0.1"
@@ -797,7 +894,7 @@ class PreviewServer:
             def _params(self):
                 return parse_qs(urlsplit(self.path).query)
 
-            def _time_param(self, params) -> float:
+            def _time_param(self, session, params) -> float:
                 if "t" in params:
                     return session.clamp_time(float(params["t"][0]))
                 if "frame" in params:
@@ -805,6 +902,7 @@ class PreviewServer:
                 return 0.0
 
             def do_GET(self) -> None:
+                session = None
                 try:
                     parsed = urlsplit(self.path)
                     params = parse_qs(parsed.query)
@@ -817,14 +915,18 @@ class PreviewServer:
                         self.end_headers()
                         self.wfile.write(payload)
                         return
+                    session = owner._begin_request()
                     if parsed.path == "/api/meta":
                         self._json(session.metadata())
+                        return
+                    if parsed.path == "/api/source":
+                        self._json(session.source_document())
                         return
                     if parsed.path == "/api/cache":
                         self._json(session.cache_state())
                         return
                     if parsed.path == "/api/frame/raw":
-                        sample_time = self._time_param(params)
+                        sample_time = self._time_param(session, params)
                         if params.get("select", ["0"])[0] == "1":
                             session.select_time(sample_time)
                         payload = session.raw_time(sample_time)
@@ -842,7 +944,7 @@ class PreviewServer:
                         self.wfile.write(payload)
                         return
                     if parsed.path == "/api/frame":
-                        sample_time = self._time_param(params)
+                        sample_time = self._time_param(session, params)
                         if params.get("select", ["0"])[0] == "1":
                             session.select_time(sample_time)
                         payload = session.png_time(sample_time)
@@ -857,11 +959,25 @@ class PreviewServer:
                         self.wfile.write(payload)
                         return
                     if parsed.path == "/api/inspect":
-                        sample_time = self._time_param(params)
-                        self._json(session.inspect_time(sample_time))
+                        sample_time = self._time_param(session, params)
+                        frame_ids = tuple(
+                            int(value) for chunk in params.get("frames", [])
+                            for value in chunk.split(",") if value
+                        )
+                        self._json(session.inspect_time(
+                            sample_time, frame_object_ids=frame_ids
+                        ))
+                        return
+                    if parsed.path == "/api/pick":
+                        sample_time = self._time_param(session, params)
+                        if "x" not in params or "y" not in params:
+                            raise ValueError("pick requires x and y pixel coordinates")
+                        self._json(session.pick_time(
+                            sample_time, int(params["x"][0]), int(params["y"][0])
+                        ))
                         return
                     if parsed.path == "/api/export/image":
-                        sample_time = self._time_param(params)
+                        sample_time = self._time_param(session, params)
                         frame = session.frame_for_time(sample_time)
                         payload = session.png_time(sample_time)
                         name = f"zanim-frame-{frame:06d}-{sample_time:.3f}s.png"
@@ -905,10 +1021,75 @@ class PreviewServer:
                     pass
                 except Exception as exc:
                     self._error(exc, HTTPStatus.INTERNAL_SERVER_ERROR)
+                finally:
+                    if session is not None:
+                        owner._end_request()
+
+            def do_POST(self) -> None:
+                parsed = urlsplit(self.path)
+                if parsed.path != "/api/reload":
+                    self.send_error(HTTPStatus.NOT_FOUND)
+                    return
+                params = parse_qs(parsed.query)
+                try:
+                    requested_time = float(params.get("t", ["0"])[0])
+                    self._json(owner.reload_source(requested_time))
+                except Exception as exc:
+                    self._json(
+                        {
+                            "ok": False,
+                            "error": str(exc),
+                            "traceback": traceback.format_exc(),
+                        },
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                    )
 
         self.httpd = ThreadingHTTPServer((host, self.port), Handler)
         self.port = int(self.httpd.server_address[1])
         self._thread: threading.Thread | None = None
+
+    def _begin_request(self) -> PreviewSession:
+        with self._request_condition:
+            while self._reloading:
+                self._request_condition.wait()
+            self._active_requests += 1
+            return self.session
+
+    def _end_request(self) -> None:
+        with self._request_condition:
+            self._active_requests -= 1
+            if self._active_requests == 0:
+                self._request_condition.notify_all()
+
+    def reload_source(self, requested_time: float) -> dict:
+        """Explicitly rebuild the source-aware Scene and replace its PreviewSession."""
+        with self._reload_lock:
+            with self._request_condition:
+                self._reloading = True
+                while self._active_requests:
+                    self._request_condition.wait()
+                old_session = self.session
+
+            new_session = None
+            try:
+                new_scene = reload_preview_source(old_session.scene)
+                try:
+                    new_session = PreviewSession(new_scene, **self._session_options)
+                except BaseException:
+                    new_scene._close_media_sources()
+                    raise
+                preserved_time = new_session.clamp_time(float(requested_time))
+                new_session.select_time(preserved_time)
+                self.session = new_session
+                new_session = None
+                old_session.close()
+                return {"ok": True, "time": preserved_time}
+            finally:
+                if new_session is not None:
+                    new_session.close()
+                with self._request_condition:
+                    self._reloading = False
+                    self._request_condition.notify_all()
 
     @property
     def url(self) -> str:

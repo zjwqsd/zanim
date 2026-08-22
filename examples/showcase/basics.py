@@ -6,7 +6,7 @@ from pathlib import Path
 from zanim import (
     Arrow, BOTTOM, Canvas, Circle, Color, Dot, DOWN, Group2D, Math,
     NumberLine, Object2D, Row, Scene, Square, TOP, Text,
-    UP, Vec2, WORLD,
+    UP, Vec2, WORLD, preview_source,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,6 +19,7 @@ WHITE = Color(238, 242, 250)
 
 
 
+@preview_source
 def build_scene() -> Scene:
     scene = Scene(canvas=Canvas(1280, 720, 90), fps=60)
 

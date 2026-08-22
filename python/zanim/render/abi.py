@@ -195,4 +195,16 @@ def load_library() -> ctypes.CDLL:
         ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
     ]
     lib.zanim_render_scene_rgba0.restype = ctypes.c_int32
+    lib.zanim_pick_scene_object.argtypes = [
+        ctypes.c_uint32, ctypes.c_uint32, ctypes.c_double,
+        ctypes.POINTER(WireDrawItem), ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+        ctypes.POINTER(WireObject), ctypes.c_uint32,
+        ctypes.POINTER(WireBatch), ctypes.c_uint32,
+        ctypes.POINTER(WireVectorObject), ctypes.c_uint32,
+        ctypes.POINTER(WireRaster), ctypes.c_uint32,
+        ctypes.POINTER(WireScene3DLayer), ctypes.c_uint32,
+        ctypes.POINTER(WireInterpolation), ctypes.c_uint32,
+        ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32),
+    ]
+    lib.zanim_pick_scene_object.restype = ctypes.c_int32
     return lib

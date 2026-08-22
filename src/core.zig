@@ -201,6 +201,71 @@ export fn zanim_render_scene_rgba0(
     return 0;
 }
 
+/// Pick the topmost persistent 2D object at one rendered canvas pixel.
+export fn zanim_pick_scene_object(
+    width: u32,
+    height: u32,
+    unit_size: f64,
+    draw_items: ?[*]const scene_wire.WireDrawItem,
+    draw_object_ids: ?[*]const u32,
+    draw_item_count: u32,
+    objects: ?[*]const scene_wire.WireObject,
+    object_count: u32,
+    batches: ?[*]const batch.WireBatch,
+    batch_count: u32,
+    vectors: ?[*]const vector.WireVectorObject,
+    vector_count: u32,
+    rasters: ?[*]const raster.WireRaster,
+    raster_count: u32,
+    scene3d_layers: ?[*]const render3d.WireScene3DLayer,
+    scene3d_layer_count: u32,
+    interpolations: ?[*]const scene_wire.WireInterpolation,
+    interpolation_count: u32,
+    x: u32,
+    y: u32,
+    out_object_id: ?*u32,
+) i32 {
+    if (!validSurface(width, height, unit_size)) return 2;
+    if (x >= width or y >= height or out_object_id == null) return 2;
+    if (draw_item_count > 0 and draw_items == null) return 2;
+    if (draw_item_count > 0 and draw_object_ids == null) return 2;
+    if (object_count > 0 and objects == null) return 2;
+    if (batch_count > 0 and batches == null) return 2;
+    if (vector_count > 0 and vectors == null) return 2;
+    if (raster_count > 0 and rasters == null) return 2;
+    if (scene3d_layer_count > 0 and scene3d_layers == null) return 2;
+    if (interpolation_count > 0 and interpolations == null) return 2;
+
+    const draw_slice = if (draw_item_count == 0) &.{} else draw_items.?[0..draw_item_count];
+    const draw_object_id_slice = if (draw_item_count == 0) &.{} else draw_object_ids.?[0..draw_item_count];
+    const object_slice = if (object_count == 0) &.{} else objects.?[0..object_count];
+    const batch_slice = if (batch_count == 0) &.{} else batches.?[0..batch_count];
+    const vector_slice = if (vector_count == 0) &.{} else vectors.?[0..vector_count];
+    const raster_slice = if (raster_count == 0) &.{} else rasters.?[0..raster_count];
+    const scene3d_slice = if (scene3d_layer_count == 0) &.{} else scene3d_layers.?[0..scene3d_layer_count];
+    const interpolation_slice = if (interpolation_count == 0) &.{} else interpolations.?[0..interpolation_count];
+
+    out_object_id.?.* = scene_wire.pickObjectId(
+        @intCast(width),
+        @intCast(height),
+        unit_size,
+        draw_slice,
+        draw_object_id_slice,
+        object_slice,
+        batch_slice,
+        vector_slice,
+        raster_slice,
+        scene3d_slice,
+        interpolation_slice,
+        x,
+        y,
+    ) catch |err| {
+        std.debug.print("zanim scene pick error: {s}\\n", .{@errorName(err)});
+        return 1;
+    };
+    return 0;
+}
+
 test {
     std.testing.refAllDecls(math);
     std.testing.refAllDecls(se2);

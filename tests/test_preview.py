@@ -5,7 +5,7 @@ from unittest.mock import patch
 from pathlib import Path
 from urllib.request import urlopen
 
-from zanim import Canvas, Circle, Object2D, Scene, Transform2D
+from zanim import Canvas, Circle, Color, Group2D, LOCAL, Object2D, Rectangle, Scene, Style, Transform2D
 from zanim.preview import PreviewServer, PreviewSession, _CompressedFrameCache
 
 
@@ -63,9 +63,93 @@ class PreviewSessionTests(unittest.TestCase):
             self.assertEqual(obj["active_clips"][0]["type"], "TransformClip")
             self.assertAlmostEqual(obj["active_clips"][0]["progress"], 0.25)
             self.assertAlmostEqual(obj["state"]["render_transform"]["tx"], 0.3125)
+            self.assertNotIn("geometry", obj["state"])
+            self.assertNotIn("z_index", obj["state"])
+            self.assertIn("style", obj["state"])
         finally:
             session.close()
 
+
+    def test_removed_object_has_no_current_preview_state(self):
+        scene = Scene(canvas=Canvas(200, 120, 20), fps=10)
+        obj = Object2D(Circle(1), style=Style(fill=Color(240, 80, 80)))
+        handle = scene.add(obj)
+        handle.move(by=(1, 0), frame=LOCAL, duration=0.5)
+        scene.wait(0.5)
+        handle.remove()
+        scene.wait(0.5)
+        session = PreviewSession(scene, hot_cache_mb=1, cold_cache_mb=1, prefetch_workers=1)
+        try:
+            before = next(item for item in session.inspect_time(0.999, frame_object_ids=(1,))["objects"] if item["id"] == 1)
+            removed = next(item for item in session.inspect_time(1.0, frame_object_ids=(1,))["objects"] if item["id"] == 1)
+            self.assertTrue(before["alive"])
+            self.assertTrue(before["state"])
+            self.assertIsNotNone(before["local_bounds"])
+            self.assertFalse(removed["alive"])
+            self.assertEqual(removed["state"], {})
+            self.assertIsNone(removed["local_bounds"])
+            self.assertIsNone(session.pick_time(1.0, 120, 60)["object_id"])
+        finally:
+            session.close()
+
+    def test_zero_duration_clip_is_not_active_at_same_time_removal(self):
+        scene = Scene(canvas=Canvas(120, 80, 16), fps=10)
+        obj = Object2D(Circle(1), style=Style(fill=Color(240, 80, 80)))
+        handle = scene.add(obj)
+        handle.opacity(to=0.5, duration=0.0)
+        handle.remove()
+        session = PreviewSession(scene, hot_cache_mb=1, cold_cache_mb=1, prefetch_workers=1)
+        try:
+            item = next(value for value in session.inspect_time(0.0)["objects"] if value["id"] == 1)
+            self.assertFalse(item["alive"])
+            self.assertEqual(item["active_clips"], [])
+            self.assertEqual(item["state"], {})
+        finally:
+            session.close()
+
+    def test_removed_child_leaves_parent_current_bounds(self):
+        scene = Scene(canvas=Canvas(240, 120, 20), fps=10)
+        left = Object2D(Circle(1), style=Style(fill=Color(240, 80, 80)))
+        right = Object2D(Circle(1), style=Style(fill=Color(80, 160, 240)))
+        right.shift(4, 0)
+        group = Group2D([left, right])
+        scene.add(group)
+        right_handle = scene.on(right)
+        scene.wait(1.0)
+        right_handle.remove()
+        scene.wait(0.5)
+        session = PreviewSession(scene, hot_cache_mb=1, cold_cache_mb=1, prefetch_workers=1)
+        try:
+            before = next(item for item in session.inspect_time(0.5, frame_object_ids=(1,))["objects"] if item["id"] == 1)
+            after = next(item for item in session.inspect_time(1.0, frame_object_ids=(1,))["objects"] if item["id"] == 1)
+            self.assertAlmostEqual(before["local_bounds"]["right"], 5.0)
+            self.assertAlmostEqual(after["local_bounds"]["right"], 1.0)
+        finally:
+            session.close()
+
+    def test_group_local_bounds_follow_current_child_transform(self):
+        scene = Scene(canvas=Canvas(200, 120, 20), fps=10)
+        child = Object2D(Rectangle(2, 1), style=Style(fill=Color(240, 80, 80)))
+        group = Group2D([child])
+        group_handle = scene.add(group)
+        child_handle = scene.on(child)
+        child_handle.move(by=(2, 0), frame=LOCAL, duration=1.0)
+        session = PreviewSession(scene, hot_cache_mb=0, prefetch_workers=1)
+        try:
+            start = session.inspect_time(0.0, frame_object_ids=(1,))
+            middle = session.inspect_time(0.5, frame_object_ids=(1,))
+            start_group = next(item for item in start["objects"] if item["id"] == group_handle.object_id)
+            middle_group = next(item for item in middle["objects"] if item["id"] == group_handle.object_id)
+            self.assertAlmostEqual(start_group["local_bounds"]["left"], -1.0)
+            self.assertAlmostEqual(start_group["local_bounds"]["right"], 1.0)
+            self.assertAlmostEqual(middle_group["local_bounds"]["left"], 0.0)
+            self.assertAlmostEqual(middle_group["local_bounds"]["right"], 2.0)
+            self.assertEqual(middle["view_transform"], {
+                "xx": 1.0, "xy": 0.0, "yx": 0.0, "yy": 1.0, "tx": 0.0, "ty": 0.0,
+            })
+            self.assertEqual(session.metadata()["unit_size"], 20.0)
+        finally:
+            session.close()
 
     def test_exact_time_is_not_quantized_to_nearest_frame(self):
         scene, _ = self.make_scene(fps=10, duration=2.0)
@@ -144,6 +228,19 @@ class PreviewSessionTests(unittest.TestCase):
         finally:
             session.close()
 
+    def test_pick_http_endpoint_returns_object_id(self):
+        scene = Scene(canvas=Canvas(80, 48, 12), fps=10)
+        scene.add(Object2D(Circle(1), style=Style(fill=Color(240, 80, 80))))
+        server = PreviewServer(
+            scene, host="127.0.0.1", port=0, hot_cache_mb=1, prefetch_workers=1
+        ).start(open_browser=False)
+        try:
+            with urlopen(server.url + "api/pick?t=0&x=40&y=24") as response:
+                picked = __import__("json").loads(response.read())
+            self.assertEqual(picked["object_id"], 1)
+        finally:
+            server.close()
+
     def test_raw_http_endpoint_returns_cached_rgb0_without_conversion(self):
         scene, _ = self.make_scene(fps=10, duration=1.0)
         server = PreviewServer(
@@ -161,7 +258,13 @@ class PreviewSessionTests(unittest.TestCase):
             with urlopen(server.url) as response:
                 html = response.read()
             self.assertIn(b'<canvas id="preview"', html)
+            self.assertIn(b'<canvas id="overlay"', html)
+            self.assertIn(b'id="reloadCode"', html)
+            self.assertIn(b'/api/reload', html)
+            self.assertIn(b'data-frame-object', html)
             self.assertIn(b'/api/frame/raw', html)
+            self.assertIn(b'/api/pick', html)
+            self.assertLess(html.index(b'id="sourcePanel"'), html.index(b'<aside class="right">'))
         finally:
             server.close()
 

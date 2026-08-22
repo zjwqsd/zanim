@@ -74,3 +74,32 @@ def render_snapshot(path: str | Path, snapshot, canvas) -> Path:
     if result != 0:
         raise RuntimeError(f"Zig scene renderer failed with status {result}")
     return output
+
+
+def pick_snapshot_object(snapshot, canvas, x: int, y: int) -> int | None:
+    """Return the topmost persistent drawable object at one canvas pixel."""
+    x = int(x)
+    y = int(y)
+    width = int(canvas.width)
+    height = int(canvas.height)
+    if not (0 <= x < width and 0 <= y < height):
+        raise ValueError(f"pick pixel ({x}, {y}) is outside {width}x{height}")
+
+    encoded = encode_snapshot(snapshot, include_object_ids=True)
+    assert encoded.draw_object_ids is not None
+    object_id = ctypes.c_uint32(0)
+    object_ids = (ctypes.c_uint32 * len(encoded.draw_object_ids))(*encoded.draw_object_ids)
+    result = load_library().zanim_pick_scene_object(
+        width, height, float(canvas.unit_size),
+        encoded.draw_array, object_ids, len(encoded.draw_items),
+        encoded.object_array, len(encoded.objects),
+        encoded.batch_array, len(encoded.batches),
+        encoded.vector_array, len(encoded.vectors),
+        encoded.raster_array, len(encoded.rasters),
+        encoded.scene3d_array, len(encoded.scene3d_layers),
+        encoded.interpolation_array, len(encoded.interpolations),
+        x, y, ctypes.byref(object_id),
+    )
+    if result != 0:
+        raise RuntimeError(f"Zig scene picker failed with status {result}")
+    return int(object_id.value) or None

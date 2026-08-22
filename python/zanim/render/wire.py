@@ -393,6 +393,7 @@ def _wire_scene3d(snapshot):
 @dataclass(slots=True)
 class EncodedScene:
     draw_items: list[WireDrawItem]
+    draw_object_ids: list[int] | None
     objects: list[WireObject]
     batches: list[WireBatch]
     vectors: list[WireVectorObject]
@@ -409,7 +410,7 @@ class EncodedScene:
     keepalive: list[object]
 
 
-def encode_snapshot(snapshot) -> EncodedScene:
+def encode_snapshot(snapshot, *, include_object_ids: bool = False) -> EncodedScene:
     objects: list[WireObject] = []
     batches: list[WireBatch] = []
     vectors: list[WireVectorObject] = []
@@ -480,6 +481,13 @@ def encode_snapshot(snapshot) -> EncodedScene:
 
     ordered.sort(key=lambda item: (item[0], item[1]))
     draw_items = [WireDrawItem(kind, index) for _, _, kind, index in ordered]
+    draw_object_ids = (
+        [
+            0 if kind in (DRAW_INTERPOLATION, DRAW_SCENE3D) else object_id
+            for _, object_id, kind, _ in ordered
+        ]
+        if include_object_ids else None
+    )
 
     draw_array = (WireDrawItem * len(draw_items))(*draw_items) if draw_items else None
     object_array = (WireObject * len(objects))(*objects) if objects else None
@@ -496,7 +504,7 @@ def encode_snapshot(snapshot) -> EncodedScene:
         if item is not None
     )
     return EncodedScene(
-        draw_items, objects, batches, vectors, rasters, scene3d_layers, interpolations,
+        draw_items, draw_object_ids, objects, batches, vectors, rasters, scene3d_layers, interpolations,
         draw_array, object_array, batch_array, vector_array, raster_array, scene3d_array, interpolation_array,
         keepalive,
     )

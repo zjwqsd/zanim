@@ -205,6 +205,64 @@ fn drawInterpolation(
     try transient.asObject().draw(ctx, canvas, Transform2D.identity);
 }
 
+fn drawItem(
+    ctx: *z2d.Context,
+    canvas: Canvas,
+    allocator: std.mem.Allocator,
+    item: WireDrawItem,
+    object_wires: []const WireObject,
+    batch_wires: []const batch.WireBatch,
+    vector_wires: []const vector.WireVectorObject,
+    raster_wires: []const raster.WireRaster,
+    scene3d_wires: []const render3d.WireScene3DLayer,
+    interpolation_wires: []const WireInterpolation,
+    surface: *z2d.Surface,
+) !void {
+    const index: usize = item.index;
+    const kind: DrawKind = switch (item.kind) {
+        0 => .object,
+        1 => .batch,
+        2 => .vector,
+        3 => .interpolation,
+        4 => .raster,
+        5 => .scene3d,
+        else => return error.InvalidDrawItem,
+    };
+    switch (kind) {
+        .object => {
+            if (index >= object_wires.len) return error.InvalidDrawItem;
+            var decoded = try decodeObject(allocator, object_wires[index]);
+            defer decoded.deinit(allocator);
+            try decoded.object.draw(ctx, canvas, Transform2D.identity);
+        },
+        .batch => {
+            if (index >= batch_wires.len) return error.InvalidDrawItem;
+            try batch.drawWireBatch(ctx, canvas, batch_wires[index]);
+        },
+        .vector => {
+            if (index >= vector_wires.len) return error.InvalidDrawItem;
+            try vector.drawWireVector(ctx, canvas, vector_wires[index]);
+        },
+        .interpolation => {
+            if (index >= interpolation_wires.len) return error.InvalidDrawItem;
+            try drawInterpolation(ctx, canvas, allocator, interpolation_wires[index]);
+        },
+        .raster => {
+            if (index >= raster_wires.len) return error.InvalidDrawItem;
+            try raster.drawWireRaster(surface, canvas, raster_wires[index]);
+        },
+        .scene3d => {
+            if (index >= scene3d_wires.len) return error.InvalidDrawItem;
+            try render3d.drawLayer(
+                surface,
+                @intCast(canvas.width),
+                @intCast(canvas.height),
+                scene3d_wires[index],
+            );
+        },
+    }
+}
+
 fn drawScene(
     ctx: *z2d.Context,
     canvas: Canvas,
@@ -219,47 +277,93 @@ fn drawScene(
     surface: *z2d.Surface,
 ) !void {
     for (draw_items) |item| {
-        const index: usize = item.index;
-        const kind: DrawKind = switch (item.kind) {
-            0 => .object,
-            1 => .batch,
-            2 => .vector,
-            3 => .interpolation,
-            4 => .raster,
-            5 => .scene3d,
-            else => return error.InvalidDrawItem,
-        };
-        switch (kind) {
-            .object => {
-                if (index >= object_wires.len) return error.InvalidDrawItem;
-                var decoded = try decodeObject(allocator, object_wires[index]);
-                defer decoded.deinit(allocator);
-                try decoded.object.draw(ctx, canvas, Transform2D.identity);
-            },
-            .batch => {
-                if (index >= batch_wires.len) return error.InvalidDrawItem;
-                try batch.drawWireBatch(ctx, canvas, batch_wires[index]);
-            },
-            .vector => {
-                if (index >= vector_wires.len) return error.InvalidDrawItem;
-                try vector.drawWireVector(ctx, canvas, vector_wires[index]);
-            },
-            .interpolation => {
-                if (index >= interpolation_wires.len) return error.InvalidDrawItem;
-                try drawInterpolation(ctx, canvas, allocator, interpolation_wires[index]);
-            },
-            .raster => {
-                if (index >= raster_wires.len) return error.InvalidDrawItem;
-                try raster.drawWireRaster(surface, canvas, raster_wires[index]);
-            },
-            .scene3d => {
-                if (index >= scene3d_wires.len) return error.InvalidDrawItem;
-                try render3d.drawLayer(
-                    surface, @intCast(canvas.width), @intCast(canvas.height), scene3d_wires[index],
-                );
-            },
-        }
+        try drawItem(
+            ctx,
+            canvas,
+            allocator,
+            item,
+            object_wires,
+            batch_wires,
+            vector_wires,
+            raster_wires,
+            scene3d_wires,
+            interpolation_wires,
+            surface,
+        );
     }
+}
+
+/// Pick the topmost persistent 2D drawable whose real rasterization contributes
+/// non-zero alpha at one canvas pixel. Scene3D layers and transient
+/// interpolations intentionally carry object_id=0 and are not selectable here.
+pub fn pickObjectId(
+    width: i32,
+    height: i32,
+    unit_size: f64,
+    draw_items: []const WireDrawItem,
+    draw_object_ids: []const u32,
+    object_wires: []const WireObject,
+    batch_wires: []const batch.WireBatch,
+    vector_wires: []const vector.WireVectorObject,
+    raster_wires: []const raster.WireRaster,
+    scene3d_wires: []const render3d.WireScene3DLayer,
+    interpolation_wires: []const WireInterpolation,
+    x: u32,
+    y: u32,
+) !u32 {
+    if (draw_object_ids.len != draw_items.len) return error.InvalidPickMetadata;
+    if (x >= @as(u32, @intCast(width)) or y >= @as(u32, @intCast(height))) {
+        return error.InvalidPickCoordinate;
+    }
+
+    const allocator = std.heap.smp_allocator;
+    const pixel_count: usize = @intCast(width * height);
+    const pixels = try allocator.alloc(z2d.pixel.RGBA, pixel_count);
+    defer allocator.free(pixels);
+
+    var surface = z2d.Surface.initBuffer(
+        .image_surface_rgba,
+        .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+        pixels,
+        width,
+        height,
+    );
+    const canvas = try Canvas.init(width, height, unit_size);
+    const pixel_index = @as(usize, y) * @as(usize, @intCast(width)) + @as(usize, x);
+
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    var i = draw_items.len;
+    while (i > 0) {
+        i -= 1;
+        const item = draw_items[i];
+        const object_id = draw_object_ids[i];
+
+        pixels[pixel_index] = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
+        var ctx = z2d.Context.init(io, allocator, &surface);
+        ctx.setAntiAliasingMode(.multisample_4x);
+        ctx.setLineJoinMode(.round);
+        drawItem(
+            &ctx,
+            canvas,
+            allocator,
+            item,
+            object_wires,
+            batch_wires,
+            vector_wires,
+            raster_wires,
+            scene3d_wires,
+            interpolation_wires,
+            &surface,
+        ) catch |err| {
+            ctx.deinit();
+            return err;
+        };
+        ctx.deinit();
+
+        if (pixels[pixel_index].a != 0) return object_id;
+    }
+    return 0;
 }
 
 /// Render directly into caller-owned 32-bit RGBx pixels. This is the fast

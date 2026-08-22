@@ -50,6 +50,7 @@ from .plot import Axes2D, DynamicGeometryObject2D
 from .raster import AlphaMaskSource, GIF, Image, RasterObject2D, SceneRasterSource, Video
 from .shapes import Arrow, Dot, NumberLine
 from .scene import Scene
+from .source import preview_source
 from .mesh3d import Box3D, Cube3D, MeshObject3D, Surface3D, TriangleMesh
 from .space import (
     Canvas, Linear2D, LOCAL, PARENT, WORLD, SE2, Transform2D, TransformFrame, Vec2,
@@ -146,6 +147,7 @@ __all__ = [
     "affine2d",
     "SE2TransformClip",
     "Scene",
+    "preview_source",
     "SO3",
     "ScalarValue",
     "ScriptSlots",
