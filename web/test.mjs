@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { Circle, DynamicPolyline, FourierEpicycles, FunctionPlot, LineSet, Mat2, Polyline, Scene, Square, TIME, Transform2D, X, ZanimWasm, resamplePolylineByArcLength } from './src/zanim.js';
+import { Circle, DynamicPolyline, FourierEpicycles, FunctionPlot, LineSet, Math as TypstMath, Mat2, Polyline, Scene, Square, TIME, Transform2D, X, ZObject, ZanimWasm, resamplePolylineByArcLength } from './src/zanim.js';
 import { allDemos, galleryEntries, galleryCounts, irReplayDemos, parityDemos, prototypeDemos } from './gallery/registry.js';
 import { parseSceneIR, sceneFromIR, sceneToIR, stringifySceneIR } from './src/ir.js';
 
@@ -66,6 +66,17 @@ batchScene.batch(lines,{to:[[1,2,3,4,'#52cd96',.06]],duration:2});
 const midBatch=batchScene.batchAt(lines,1)[0];
 assert.deepEqual(midBatch.slice(0,4),[.5,1,2,2]);assert.ok(Math.abs(midBatch[5]-.04)<1e-12);
 
+
+// Web-only media has its own playback channel and Web Typst can use any async compiler.
+const mediaScene=Scene.headless();
+const mediaObject=new ZObject();mediaObject._mediaKind='video';mediaObject.duration=2;mediaScene.add(mediaObject);
+mediaScene.media(mediaObject,{duration:4,sourceStart:.25,speed:1.5,loop:true,sourceDuration:2});
+assert.ok(Math.abs(mediaScene.mediaTimeAt(mediaObject,1)-1.75)<1e-12);
+assert.ok(Math.abs(mediaScene.mediaTimeAt(mediaObject,2)-1.5)<1e-12);
+const fakeVector={width:1,height:.5,group_count:0,paths:[]};
+const webMath=new TypstMath('x^2',{compiler:async()=>fakeVector});
+await webMath.ready;assert.equal(webMath.document.width,1);const webMathScene=Scene.headless();webMathScene.add(webMath);assert.throws(()=>sceneToIR(webMathScene),/runtime code|portable/);
+
 // Scene IR is a semantic authoring document, not a frame dump.
 const irScene=Scene.headless({width:640,height:360,unitSize:80,fps:60});
 const irSquare=irScene.add(new Square(1,{fill:'#60a6ff',stroke:null,trim:0,transform:Transform2D.translation(-1,0)}));
@@ -73,7 +84,7 @@ irScene.create(irSquare,{duration:.5});
 irScene.animate(irSquare,{transform:Transform2D.translation(2,.5),duration:1,at:.5});
 irScene.wait(.2);
 const portable=sceneToIR(irScene),parsed=parseSceneIR(stringifySceneIR(portable));
-assert.equal(parsed.format,'zanim.scene');assert.equal(parsed.version,1);assert.equal(parsed.duration,1.7);assert.equal(parsed.objects.length,2);assert.equal(parsed.resources.length,0);assert.equal(parsed.clips.length,2);
+assert.equal(parsed.format,'zanim.scene');assert.equal(parsed.version,1);assert.equal(parsed.duration,2.2);assert.equal(parsed.objects.length,2);assert.equal(parsed.resources.length,0);assert.equal(parsed.clips.length,2);
 assert.deepEqual(parsed.objects.find(o=>o.kind==='object2d').state.geometry,{kind:'square',side:1});
 const semanticScene=Scene.headless({width:640,height:360,unitSize:80,fps:60});
 const expr=X.mul(1.25).add(TIME.mul(.8)).sin().mul(.5).add(X.mul(X).mul(.055)).add(1.2);
@@ -108,9 +119,13 @@ const sampledIR={format:'zanim.scene',version:1,canvas:{width:320,height:180,uni
 ]};
 globalThis.Path2D ??= class { moveTo(){} lineTo(){} rect(){} arc(){} closePath(){} bezierCurveTo(){} };
 const noop=()=>{},fakeCtx={save:noop,restore:noop,setTransform:noop,stroke:noop,fill:noop,beginPath:noop,moveTo:noop,lineTo:noop,rect:noop,arc:noop,ellipse:noop,translate:noop,transform:noop,fillText:noop,setLineDash:noop,globalAlpha:1};
-const sampledScene=sceneFromIR(sampledIR,{canvas:{width:320,height:180},ctx:fakeCtx,baseUnitSize:40,unitSize:40,dpr:1,resize(){},clear(){},time:0,toDevice(x,y){return[x,y]}});
+const fakeRenderer={canvas:{width:320,height:180},ctx:fakeCtx,baseUnitSize:40,unitSize:40,dpr:1,resize(){},clear(){},time:0,toDevice(x,y){return[x,y]}};
+const sampledScene=sceneFromIR(sampledIR,fakeRenderer);
 const sampledBatch=sampledScene.objects[0];
 assert.deepEqual(sampledBatch.provider(.75)[0].slice(0,4),[0,0,2,0],'sampled tracks hold the exact preceding video frame between samples');
+const roundtripScene=sceneFromIR(parsed,fakeRenderer),roundtripSquare=roundtripScene.objects.find(o=>o instanceof Square);
+const roundtripMid=roundtripScene.stateAt(roundtripSquare,1.5).transform;
+assert.ok(Math.abs(roundtripMid.tx-.5)<1e-12&&Math.abs(roundtripMid.ty-.25)<1e-12,'IR absolute clip starts survive relative-at authoring semantics');
 
 // Bounds-aware Row layout must reproduce the Python reference coordinates exactly.
 const layoutFixtureRenderer={canvas:{width:1280,height:720},unitSize:90,resize(){}};
@@ -118,10 +133,10 @@ const layoutScene=allDemos['showcase/layout'](layoutFixtureRenderer),layoutGroup
 const initialLayout=layoutGroup.children.map(o=>{const tr=layoutScene.initial.get(o.id).transform;return[tr.tx,tr.ty]});
 const expectedLayout=[[-2.938897274573418,-.3999999999999999],[-1.138897274573418,-.3999999999999999],[.7500000000000004,-.5699999999999998],[2.7638972745734183,-.3999999999999999]];
 for(let i=0;i<4;i++)for(let j=0;j<2;j++)assert.ok(Math.abs(initialLayout[i][j]-expectedLayout[i][j])<1e-9,`layout parity ${i},${j}`);
-assert.equal(prototypeDemos.size, 7);
+assert.equal(prototypeDemos.size, 6);
 const parityNames=Object.keys(galleryEntries).filter(name=>galleryEntries[name].mode==='ts'&&galleryEntries[name].status==='parity');
 const nativeNames=Object.keys(galleryEntries).filter(name=>galleryEntries[name].mode==='ts'&&galleryEntries[name].status==='native');
-assert.equal(parityDemos.size,16);assert.equal(parityNames.length,16);assert.equal(nativeNames.length,4);
+assert.equal(parityDemos.size,16);assert.equal(parityNames.length,16);assert.equal(nativeNames.length,5);
 for(const name of [...parityNames,...nativeNames]) assert.ok(!String(allDemos[name]).includes('CustomObject2D'), `${name} must use public Web primitives`);
 const parityDurations={
   'showcase/batches':5.0,

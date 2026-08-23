@@ -65,12 +65,16 @@ class CustomBuildHook(BuildHookInterface):
         # Python Preview and static Web exports use the exact same browser runtime.
         wasm = self._build_web_wasm(root)
         web_assets = {
-            root / "web" / "src" / "zanim.js": "zanim/_web/src/zanim.js",
-            root / "web" / "src" / "ir.js": "zanim/_web/src/ir.js",
-            root / "web" / "preview" / "index.html": "zanim/_web/preview/index.html",
-            root / "web" / "preview" / "main.js": "zanim/_web/preview/main.js",
-            wasm: "zanim/_web/dist/zanim_web_core.wasm",
+            source: f"zanim/_web/src/{source.name}"
+            for source in (root / "web" / "src").glob("*.js")
         }
+        web_assets.update(
+            {
+                root / "web" / "preview" / "index.html": "zanim/_web/preview/index.html",
+                root / "web" / "preview" / "main.js": "zanim/_web/preview/main.js",
+                wasm: "zanim/_web/dist/zanim_web_core.wasm",
+            }
+        )
         for source, destination in web_assets.items():
             if not source.is_file():
                 raise RuntimeError(f"Web Preview asset is missing: {source}")

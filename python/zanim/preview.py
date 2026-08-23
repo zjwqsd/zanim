@@ -11,6 +11,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import mimetypes
+import re
 import subprocess
 import threading
 import traceback
@@ -20,8 +21,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from .ir import scene_to_ir
+from .geometry import Color
+from .ir import _vector_document, scene_to_ir
 from .source import get_preview_reload, get_preview_source, reload_preview_scene
+from .svg import load_svg
+from .typst import Math, compile_typst_svg
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -124,6 +128,7 @@ class PreviewServer:
         self._revision = 1
         self._ir: dict | None = None
         self._ir_error: dict | None = None
+        self._media_assets: dict[str, Path] = {}
         self._compile_current_scene()
         owner = self
 
@@ -164,6 +169,47 @@ class PreviewServer:
                     content_type = "application/wasm"
                 self._bytes(payload, content_type)
 
+            def _file(self, path: Path) -> None:
+                size = path.stat().st_size
+                content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+                start, end = 0, max(0, size - 1)
+                status = HTTPStatus.OK
+                raw_range = self.headers.get("Range")
+                if raw_range:
+                    match = re.fullmatch(r"bytes=(\d*)-(\d*)", raw_range.strip())
+                    if match:
+                        left, right = match.groups()
+                        if left:
+                            start = min(size, int(left))
+                            end = min(end, int(right)) if right else end
+                        elif right:
+                            length = min(size, int(right))
+                            start = size - length
+                        if start > end or start >= size:
+                            self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                            self.send_header("Content-Range", f"bytes */{size}")
+                            self.end_headers()
+                            return
+                        status = HTTPStatus.PARTIAL_CONTENT
+                length = max(0, end - start + 1)
+                self.send_response(status)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(length))
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Cache-Control", "no-store")
+                if status == HTTPStatus.PARTIAL_CONTENT:
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+                self.end_headers()
+                with path.open("rb") as stream:
+                    stream.seek(start)
+                    remaining = length
+                    while remaining:
+                        chunk = stream.read(min(1024 * 1024, remaining))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
+
             def do_GET(self) -> None:
                 try:
                     parsed = urlsplit(self.path)
@@ -173,14 +219,17 @@ class PreviewServer:
                     if parsed.path == "/preview/main.js":
                         self._asset("preview/main.js")
                         return
-                    if parsed.path == "/web/src/zanim.js":
-                        self._asset("src/zanim.js")
+                    if parsed.path.startswith("/web/"):
+                        self._asset(parsed.path.removeprefix("/web/"))
                         return
-                    if parsed.path == "/web/src/ir.js":
-                        self._asset("src/ir.js")
-                        return
-                    if parsed.path == "/web/dist/zanim_web_core.wasm":
-                        self._asset("dist/zanim_web_core.wasm")
+                    if parsed.path.startswith("/api/media/"):
+                        token = parsed.path.removeprefix("/api/media/")
+                        with owner._state_lock:
+                            path = owner._media_assets.get(token)
+                        if path is None or not path.is_file():
+                            self.send_error(HTTPStatus.NOT_FOUND)
+                        else:
+                            self._file(path)
                         return
                     if parsed.path == "/api/meta":
                         self._json(owner.metadata())
@@ -207,6 +256,28 @@ class PreviewServer:
 
             def do_POST(self) -> None:
                 parsed = urlsplit(self.path)
+                if parsed.path == "/api/typst":
+                    if not owner.reload_allowed:
+                        self._json(
+                            {
+                                "ok": False,
+                                "error": "Typst compilation is disabled for non-loopback Preview hosts",
+                            },
+                            HTTPStatus.FORBIDDEN,
+                        )
+                        return
+                    try:
+                        length = int(self.headers.get("Content-Length", "0"))
+                        if length <= 0 or length > 1024 * 1024:
+                            raise ValueError("Typst request body must be between 1 byte and 1 MiB")
+                        payload = json.loads(self.rfile.read(length))
+                        self._json(owner.compile_typst(payload))
+                    except Exception as exc:
+                        self._json(
+                            {"ok": False, "error": str(exc), "traceback": traceback.format_exc()},
+                            HTTPStatus.UNPROCESSABLE_ENTITY,
+                        )
+                    return
                 if parsed.path != "/api/reload":
                     self.send_error(HTTPStatus.NOT_FOUND)
                     return
@@ -233,21 +304,36 @@ class PreviewServer:
         self.port = int(self.httpd.server_address[1])
         self._thread: threading.Thread | None = None
 
-    def _compile_ir(self, scene) -> dict:
+    def _compile_ir(self, scene) -> tuple[dict, dict[str, Path]]:
+        media_assets: dict[str, Path] = {}
+        media_keys: dict[Path, str] = {}
+
+        def media_url(obj) -> str:
+            path = Path(getattr(obj, "path", getattr(obj.source, "path", ""))).resolve()
+            if not path.is_file():
+                raise FileNotFoundError(path)
+            token = media_keys.get(path)
+            if token is None:
+                token = f"m{len(media_assets) + 1}"
+                media_keys[path] = token
+                media_assets[token] = path
+            return f"/api/media/{token}?r={self._revision}"
+
         ir = scene_to_ir(
             scene,
             sample_transform_functions=True,
             sample_dynamic_providers=True,
             sample_fps=scene.fps,
             include_debug=True,
+            external_media_resolver=media_url,
         )
         ir.setdefault("meta", {})["preview_revision"] = self._revision
-        return ir
+        return ir, media_assets
 
     def _compile_current_scene(self) -> None:
         with self._state_lock:
             try:
-                self._ir = self._compile_ir(self.scene)
+                self._ir, self._media_assets = self._compile_ir(self.scene)
                 self._ir_error = None
             except Exception as exc:
                 self._ir = None
@@ -261,6 +347,40 @@ class PreviewServer:
     def current_ir(self) -> tuple[dict | None, dict | None]:
         with self._state_lock:
             return self._ir, self._ir_error
+
+    @staticmethod
+    def _web_color(value) -> Color:
+        if isinstance(value, (list, tuple)) and len(value) in {3, 4}:
+            channels = [int(x) for x in value]
+            if len(channels) == 3:
+                channels.append(255)
+            return Color(*channels)
+        text = str(value or "#eef2fa").strip()
+        if re.fullmatch(r"#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?", text):
+            raw = text[1:]
+            if len(raw) == 6:
+                raw += "ff"
+            return Color(*(int(raw[i : i + 2], 16) for i in range(0, 8, 2)))
+        raise ValueError("Typst color must be #RRGGBB, #RRGGBBAA or RGBA channels")
+
+    def compile_typst(self, payload: dict) -> dict:
+        if not isinstance(payload, dict):
+            raise TypeError("Typst request must be a JSON object")
+        kind = str(payload.get("kind", "typst"))
+        source = str(payload.get("source", ""))
+        if not source:
+            raise ValueError("Typst source must not be empty")
+        if kind == "math":
+            document = Math(
+                source,
+                font_size=float(payload.get("font_size", 36)),
+                color=self._web_color(payload.get("color", "#eef2fa")),
+            ).document
+        elif kind == "typst":
+            document = load_svg(compile_typst_svg(source))
+        else:
+            raise ValueError("Typst kind must be 'typst' or 'math'")
+        return {"ok": True, "document": _vector_document(document)}
 
     def metadata(self) -> dict:
         with self._state_lock:
@@ -292,7 +412,7 @@ class PreviewServer:
                 old_revision = self._revision
                 self._revision = next_revision
                 try:
-                    new_ir = self._compile_ir(new_scene)
+                    new_ir, new_media_assets = self._compile_ir(new_scene)
                 except BaseException:
                     self._revision = old_revision
                     raise
@@ -300,6 +420,7 @@ class PreviewServer:
                 with self._state_lock:
                     self.scene = new_scene
                     self._ir = new_ir
+                    self._media_assets = new_media_assets
                     self._ir_error = None
                 old_scene._close_media_sources()
                 return {"ok": True, "time": preserved, "revision": next_revision}

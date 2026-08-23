@@ -18,8 +18,9 @@ import json
 import math
 from bisect import bisect_right
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+from .audio import AudioObject
 from .batch import BatchObject2D, CircleSet, DynamicBatchObject2D, LineSet, RectSet
 from .camera import Camera2D
 from .errors import ZanimError
@@ -46,8 +47,16 @@ from .group import Group
 from .infinite import ComplexMappedGrid, InfiniteGrid, InfiniteLine, InfiniteObject2D
 from .interpolation import ObjectInterpolation
 from .plot import DynamicGeometryObject2D, FunctionPlot
+from .raster import AnimatedImageSource, ImageSource, RasterObject2D, VideoSource
 from .scene import Scene
-from .snapshot import BatchSnapshot, InfiniteSnapshot, NodeSnapshot, ObjectSnapshot, VectorSnapshot
+from .snapshot import (
+    BatchSnapshot,
+    InfiniteSnapshot,
+    NodeSnapshot,
+    ObjectSnapshot,
+    RasterState,
+    VectorSnapshot,
+)
 from .space import SE2, Canvas, Transform2D, Vec2
 from .timeline import (
     BatchClip,
@@ -55,6 +64,7 @@ from .timeline import (
     InterpolationClip,
     OpacityClip,
     PathTrimClip,
+    PlaybackClip,
     RevealClip,
     SE2TransformClip,
     StyleClip,
@@ -399,6 +409,7 @@ def scene_to_ir(
     sample_dynamic_providers: bool = False,
     sample_fps: int | None = None,
     include_debug: bool = False,
+    external_media_resolver: Callable[[Any], str] | None = None,
 ) -> dict[str, Any]:
     """Compile one Python Scene into portable Scene IR v1.
 
@@ -417,6 +428,8 @@ def scene_to_ir(
     values: list[dict[str, Any]] = []
     resources: list[dict[str, Any]] = []
     resource_ids: dict[int, int] = {}
+    media_resource_ids: dict[int, int] = {}
+    media_object_ids: set[int] = set()
 
     def vector_resource(doc: VectorDocument) -> int:
         identity = id(doc)
@@ -426,6 +439,49 @@ def scene_to_ir(
         rid = len(resources) + 1
         resource_ids[identity] = rid
         resources.append({"id": rid, "kind": "vector_document", "data": _vector_document(doc)})
+        return rid
+
+    def media_resource(obj) -> int:
+        if external_media_resolver is None:
+            raise SceneIRUnsupported(
+                f"Scene IR v1 does not portably embed {type(obj).__name__}; external media needs a resolver"
+            )
+        identity = id(obj.source)
+        existing = media_resource_ids.get(identity)
+        if existing is not None:
+            return existing
+        source = obj.source
+        if isinstance(obj, AudioObject):
+            media_kind = "audio"
+            source_width = source_height = 0
+        elif isinstance(source, ImageSource):
+            media_kind = "image"
+            source_width, source_height = int(source.width), int(source.height)
+        elif isinstance(source, AnimatedImageSource):
+            media_kind = "gif"
+            source_width, source_height = int(source.width), int(source.height)
+        elif isinstance(source, VideoSource):
+            media_kind = "video"
+            source_width, source_height = int(source.width), int(source.height)
+        else:
+            raise SceneIRUnsupported(
+                f"external media resolver does not support {type(source).__name__}"
+            )
+        rid = len(resources) + 1
+        media_resource_ids[identity] = rid
+        resources.append(
+            {
+                "id": rid,
+                "kind": "external_media",
+                "data": {
+                    "media_kind": media_kind,
+                    "url": str(external_media_resolver(obj)),
+                    "source_width": source_width,
+                    "source_height": source_height,
+                    "duration": None if source.duration is None else float(source.duration),
+                },
+            }
+        )
         return rid
 
     semantic_fourier_ids = {
@@ -648,6 +704,23 @@ def scene_to_ir(
                     },
                 }
             )
+        elif isinstance(obj, RasterObject2D):
+            assert isinstance(initial, RasterState)
+            media_object_ids.add(reg.object_id)
+            objects.append(
+                {
+                    **common,
+                    "kind": "media2d",
+                    "state": {
+                        "resource": media_resource(obj),
+                        "width": initial.width,
+                        "height": initial.height,
+                        "transform": _transform(initial.transform),
+                        "opacity": initial.opacity,
+                        "z_index": initial.z_index,
+                    },
+                }
+            )
         elif isinstance(obj, InfiniteLine):
             assert isinstance(initial, InfiniteSnapshot)
             objects.append(
@@ -726,6 +799,21 @@ def scene_to_ir(
                         "transform": _transform(initial.transform),
                         "opacity": initial.opacity,
                         "z_index": initial.z_index,
+                    },
+                }
+            )
+        elif isinstance(obj, AudioObject):
+            media_object_ids.add(reg.object_id)
+            objects.append(
+                {
+                    **common,
+                    "kind": "audio",
+                    "state": {
+                        "resource": media_resource(obj),
+                        "gain": obj.gain,
+                        "transform": _transform(Transform2D()),
+                        "opacity": 1.0,
+                        "z_index": 0,
                     },
                 }
             )
@@ -842,6 +930,21 @@ def scene_to_ir(
                     "after": clip.after,
                 }
             )
+        elif isinstance(clip, PlaybackClip):
+            if clip.object_id not in media_object_ids:
+                raise SceneIRUnsupported("audio playback is not supported by Web Scene IR preview")
+            clips.append(
+                {
+                    "kind": "media_playback",
+                    "target": clip.object_id,
+                    "start": clip.span.start,
+                    "duration": clip.span.duration,
+                    "source_start": clip.source_start,
+                    "speed": clip.speed,
+                    "loop": clip.loop,
+                    "source_duration": clip.source_duration,
+                }
+            )
         elif isinstance(clip, InterpolationClip):
             clips.append(
                 {
@@ -869,7 +972,8 @@ def scene_to_ir(
         "resources": resources,
         "clips": clips,
         "meta": {
-            "portable": True,
+            "portable": not bool(media_object_ids),
+            "external_media": len(media_object_ids),
             "sampled_transform_functions": sum(c["kind"] == "sampled_transform" for c in clips),
             "sampled_dynamic_objects": sum(
                 obj["kind"] in {"sampled_object2d", "sampled_batch2d", "sampled_vector2d"}

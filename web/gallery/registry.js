@@ -17,10 +17,9 @@ export const irReplayDemos = Object.freeze(new Map([
 ]));
 
 // These TS replicas remain useful visual coverage while their underlying
-// renderer systems (raster/media/3D/frame effects) are intentionally deferred.
+// renderer systems (compositing/3D/frame effects) are intentionally deferred.
 export const prototypeDemos = Object.freeze(new Set([
   'showcase/compositing',
-  'showcase/media',
   'showcase/three_d',
   'janim_api/frame_effect_example',
   'janim_api/mask_example',

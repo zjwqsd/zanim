@@ -10,6 +10,7 @@ import {
   LineSet, CircleSet, RectSet, DynamicPolyline, DynamicLineSet, DynamicCircleSet, DynamicRectSet,
   InfiniteLine, InfiniteGrid, FractalField, MandelbrotSet, JuliaSet, ComplexMappedGrid, FourierEpicycles, FunctionPlot, ScalarExpr,
 } from './zanim.js';
+import { Audio as WebAudio, GIF as WebGIF, Image as WebImage, Video as WebVideo } from './media.js';
 
 export const SCENE_IR_FORMAT='zanim.scene';
 export const SCENE_IR_VERSION=1;
@@ -140,6 +141,8 @@ export function sceneFromIR(ir,renderer,{proceduralQuality={resolution:.22,minWi
     else if(kind==='batch2d')o=batchObjectFromIR(s.batch,s,common);
     else if(kind==='sampled_batch2d')o=sampledBatchObjectFromIR(s,common);
     else if(kind==='vector2d'){const resource=resources.get(Number(s.resource));if(!resource||resource.kind!=='vector_document')throw new SceneIRUnsupported('vector2d references missing vector_document resource');o=new VectorObject2D(documentFromIR(resource.data),{...common,reveal:Number(s.reveal??1)});}
+    else if(kind==='media2d'){const resource=resources.get(Number(s.resource));if(!resource||resource.kind!=='external_media')throw new SceneIRUnsupported('media2d references missing external_media resource');const d=resource.data,opts={...common,width:Number(s.width),height:Number(s.height),sourceWidth:Number(d.source_width??0),sourceHeight:Number(d.source_height??0),duration:d.duration==null?null:Number(d.duration)};if(d.media_kind==='image')o=new WebImage(d.url,opts);else if(d.media_kind==='gif')o=new WebGIF(d.url,opts);else if(d.media_kind==='video')o=new WebVideo(d.url,opts);else throw new SceneIRUnsupported(`unknown external media kind ${d.media_kind}`);}
+    else if(kind==='audio'){const resource=resources.get(Number(s.resource));if(!resource||resource.kind!=='external_media'||resource.data.media_kind!=='audio')throw new SceneIRUnsupported('audio references missing external_media resource');const d=resource.data;o=new WebAudio(d.url,{...common,gain:Number(s.gain??1),duration:d.duration==null?null:Number(d.duration)});}
     else if(kind==='sampled_vector2d')o=new SampledVectorIRObject(s,resources);
     else if(kind==='fourier_epicycles'){const circle=styleWeb(s.circle_style),arrow=styleWeb(s.arrow_style),trace=styleWeb(s.trace_style),tip=styleWeb(s.tip_style);o=new FourierEpicycles(s.terms,{...common,startTime:Number(s.start_time),drawDuration:Number(s.draw_duration),circleSamples:Number(s.circle_samples),traceSamples:Number(s.trace_samples),visualIndices:s.visual_indices.map(Number),circleColor:circle.stroke,circleWidth:Number(circle.strokeWidth??.012),arrowColor:arrow.fill,traceColor:trace.stroke,traceWidth:Number(trace.strokeWidth??.045),tipColor:tip.fill,tipRadius:Number(s.tip_radius),tipSides:Number(s.tip_sides)});}
     else if(kind==='infinite_line')o=new InfiniteLine(s.point,s.direction,{...common,stroke:colorCSS(s.color),strokeWidth:Number(s.stroke_width)});
@@ -169,20 +172,24 @@ export function sceneFromIR(ir,renderer,{proceduralQuality={resolution:.22,minWi
   const valueObject=id=>{const v=values.get(Number(id));if(!v)throw new Error(`unknown IR value ${id}`);return v;},object=id=>{const o=Number(id)===0?scene.camera:objects.get(Number(id));if(!o)throw new Error(`unknown IR object ${id}`);return o;};
   const clips=[...(ir.clips??[])].map((x,i)=>({...x,_order:i})).sort((a,b)=>Number(a.start)-Number(b.start)||a._order-b._order);
   for(const raw of clips){const start=Number(raw.start),duration=Number(raw.duration),e=easingFn(raw.easing??'smoothstep');
-    if(raw.kind==='transform')scene.animate(object(raw.target),{transform:T(raw.after),duration,easing:e,at:start});
+    // Scene authoring uses relative `at`; IR stores absolute clip starts.
+    // Move the authoring cursor to the IR start and schedule at offset zero.
+    scene.at(start);
+    if(raw.kind==='transform')scene.animate(object(raw.target),{transform:T(raw.after),duration,easing:e});
     else if(raw.kind==='se2_transform'){
       const target=object(raw.target),before=raw.before,after=raw.after;
-      scene.transformFunction(target,a=>interpolateSE2(before,after,a),{duration,easing:e,at:start});
+      scene.transformFunction(target,a=>interpolateSE2(before,after,a),{duration,easing:e});
       scene.clips.at(-1)._irSE2={before,after};
     }
     else if(raw.kind==='sampled_transform'){
-      const samples=raw.samples.map(T),offsets=(raw.sample_offsets??raw.samples.map((_,i)=>duration*i/Math.max(1,raw.samples.length-1))).map(Number),provider=a=>{if(samples.length===1)return samples[0];const local=clamp01(a)*duration;let i=0;while(i+1<offsets.length&&offsets[i+1]<=local+1e-12)i++;if(Math.abs(local-offsets[i])<=1e-10||i===samples.length-1)return samples[i];const j=i+1,width=offsets[j]-offsets[i],u=width<=1e-15?0:(local-offsets[i])/width;return Transform2D.lerp(samples[i],samples[j],clamp01(u));};scene.transformFunction(object(raw.target),provider,{duration,easing:Easing.LINEAR,at:start});const clip=scene.clips.at(-1);clip._irSampled={sample_rate:raw.sample_rate,sample_offsets:raw.sample_offsets,samples:raw.samples};
-    }else if(raw.kind==='opacity')scene.animate(object(raw.target),{opacity:Number(raw.after),duration,easing:e,at:start});
-    else if(raw.kind==='style')scene.animate(object(raw.target),{style:styleWeb(raw.after),duration,easing:e,at:start});
-    else if(raw.kind==='trim'||raw.kind==='reveal')scene.animate(object(raw.target),{reveal:Number(raw.after),duration,easing:e,at:start});
-    else if(raw.kind==='batch')scene.batch(object(raw.target),{to:batchItemsFromIR(raw.after),duration,easing:e,at:start});
-    else if(raw.kind==='value')scene.animateValue(valueObject(raw.target),{to:Number(raw.after),duration,easing:e,at:start});
-    else if(raw.kind==='interpolation')scene.interpolate(snapshotObjectFromIR(raw.source),snapshotObjectFromIR(raw.target),{duration,easing:e,at:start});
+      const samples=raw.samples.map(T),offsets=(raw.sample_offsets??raw.samples.map((_,i)=>duration*i/Math.max(1,raw.samples.length-1))).map(Number),provider=a=>{if(samples.length===1)return samples[0];const local=clamp01(a)*duration;let i=0;while(i+1<offsets.length&&offsets[i+1]<=local+1e-12)i++;if(Math.abs(local-offsets[i])<=1e-10||i===samples.length-1)return samples[i];const j=i+1,width=offsets[j]-offsets[i],u=width<=1e-15?0:(local-offsets[i])/width;return Transform2D.lerp(samples[i],samples[j],clamp01(u));};scene.transformFunction(object(raw.target),provider,{duration,easing:Easing.LINEAR});const clip=scene.clips.at(-1);clip._irSampled={sample_rate:raw.sample_rate,sample_offsets:raw.sample_offsets,samples:raw.samples};
+    }else if(raw.kind==='opacity')scene.animate(object(raw.target),{opacity:Number(raw.after),duration,easing:e});
+    else if(raw.kind==='style')scene.animate(object(raw.target),{style:styleWeb(raw.after),duration,easing:e});
+    else if(raw.kind==='trim'||raw.kind==='reveal')scene.animate(object(raw.target),{reveal:Number(raw.after),duration,easing:e});
+    else if(raw.kind==='batch')scene.batch(object(raw.target),{to:batchItemsFromIR(raw.after),duration,easing:e});
+    else if(raw.kind==='value')scene.animateValue(valueObject(raw.target),{to:Number(raw.after),duration,easing:e});
+    else if(raw.kind==='media_playback')scene.media(object(raw.target),{duration,sourceStart:Number(raw.source_start??0),speed:Number(raw.speed??1),loop:!!raw.loop,sourceDuration:raw.source_duration==null?object(raw.target).duration:Number(raw.source_duration)});
+    else if(raw.kind==='interpolation')scene.interpolate(snapshotObjectFromIR(raw.source),snapshotObjectFromIR(raw.target),{duration,easing:e});
     else throw new SceneIRUnsupported(`Web IR player does not support clip ${raw.kind}`);
   }
   scene.cursor=Number(ir.duration??0);scene.duration=Number(ir.duration??0);scene.seek(0);return scene;
@@ -205,7 +212,7 @@ export function sceneToIR(scene,{sampleTransformFunctions=false,sampleDynamicPro
   const resources=[],resourceIds=new Map();const vectorResource=doc=>{if(resourceIds.has(doc))return resourceIds.get(doc);const id=resources.length+1;resourceIds.set(doc,id);resources.push({id,kind:'vector_document',data:documentToIR(doc)});return id;};
   const objects=[{id:0,parent:null,birth:0,death:null,kind:'camera2d',state:{transform:tIR(initialOf(scene,scene.camera).transform),opacity:initialOf(scene,scene.camera).opacity,z_index:scene.camera.zIndex}}];
   let sampledDynamicObjects=0;
-  for(const o of portableObjects){const isDynamicGeometry=o instanceof DynamicPolyline,isDynamicBatch=o instanceof DynamicLineSet||o instanceof DynamicCircleSet||o instanceof DynamicRectSet,hasProvider='provider' in o&&typeof o.provider==='function';if(o instanceof CustomObject2D||o instanceof Text||(hasProvider&&!isDynamicGeometry&&!isDynamicBatch))throw new SceneIRUnsupported(`${o.constructor.name} contains browser/runtime code and is not portable in Scene IR v1`);if((isDynamicGeometry||isDynamicBatch)&&!sampleDynamicProviders)throw new SceneIRUnsupported(`${o.constructor.name} contains browser/runtime code; pass {sampleDynamicProviders:true} to bake it`);const init=initialOf(scene,o),base={id:idMap.get(o),parent:o._parent?idMap.get(o._parent):null,birth:o.birth,death:Number.isFinite(o.death)?o.death:null};let record;
+  for(const o of portableObjects){const isDynamicGeometry=o instanceof DynamicPolyline,isDynamicBatch=o instanceof DynamicLineSet||o instanceof DynamicCircleSet||o instanceof DynamicRectSet,hasProvider='provider' in o&&typeof o.provider==='function';if(o._webRuntimeOnly||o instanceof CustomObject2D||o instanceof Text||(hasProvider&&!isDynamicGeometry&&!isDynamicBatch))throw new SceneIRUnsupported(`${o.constructor.name} contains browser/runtime code and is not portable in Scene IR v1`);if((isDynamicGeometry||isDynamicBatch)&&!sampleDynamicProviders)throw new SceneIRUnsupported(`${o.constructor.name} contains browser/runtime code; pass {sampleDynamicProviders:true} to bake it`);const init=initialOf(scene,o),base={id:idMap.get(o),parent:o._parent?idMap.get(o._parent):null,birth:o.birth,death:Number.isFinite(o.death)?o.death:null};let record;
     if(o instanceof Group)record={...base,kind:'group',state:{transform:tIR(init.transform),opacity:init.opacity,z_index:o.zIndex}};
     else if(o instanceof VectorObject2D)record={...base,kind:'vector2d',state:{resource:vectorResource(o.document),transform:tIR(init.transform),reveal:Number(init.reveal??1),opacity:init.opacity,z_index:o.zIndex}};
     else if(isDynamicGeometry){const rate=Math.max(1,Math.round(Number(sampleFps))),end=Math.min(Number.isFinite(o.death)?o.death:scene.duration,scene.duration),times=frameSampleTimes(o.birth,Math.max(o.birth,end),rate),samples=times.map(time=>({kind:'polyline',points:o.provider(time,o).map(pIR)}));record={...base,kind:'sampled_object2d',state:{...sampledState(times,samples,rate),transform:tIR(init.transform),style:styleIRFromObject(o),opacity:init.opacity,z_index:o.zIndex,trim:Number(init.reveal??o.reveal??1)}};sampledDynamicObjects++;}

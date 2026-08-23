@@ -153,11 +153,22 @@ export class CanvasRenderer {
   constructor(canvas:HTMLCanvasElement,wasm:ZanimWasm,options?:{unitSize?:number;background?:string}); resize():void; toDevice(x:number,y:number):[number,number]; clear():void;
 }
 
+export class Audio extends ZObject { url:string; duration:number|null; gain:number; readonly ready:Promise<this>; constructor(url:string|URL,options?:ObjectOptions&{gain?:number;duration?:number|null;crossOrigin?:string|null;preload?:string}); media(options?:MediaPlaybackOptions):this; destroy():void; }
+export class MediaObject2D extends ZObject { url:string; width:number; height:number; sourceWidth:number; sourceHeight:number; duration:number|null; readonly ready:Promise<this>; media(options?:MediaPlaybackOptions):this; }
+export class Image extends MediaObject2D { constructor(url:string|URL,options?:ObjectOptions&{width?:number|null;height?:number|null;sourceWidth?:number;sourceHeight?:number;crossOrigin?:string|null}); }
+export class GIF extends MediaObject2D { constructor(url:string|URL,options?:ObjectOptions&{width?:number|null;height?:number|null;sourceWidth?:number;sourceHeight?:number;duration?:number|null;crossOrigin?:string|null}); }
+export class Video extends MediaObject2D { constructor(url:string|URL,options?:ObjectOptions&{width?:number|null;height?:number|null;sourceWidth?:number;sourceHeight?:number;duration?:number|null;crossOrigin?:string|null;muted?:boolean;playsInline?:boolean;preload?:string}); destroy():void; }
+export interface MediaPlaybackOptions { duration?:number|null; sourceStart?:number; speed?:number; loop?:boolean; sourceDuration?:number|null; at?:number }
+export type TypstCompiler = (payload:{kind:'typst'|'math';source:string;font_size?:number;color?:string},context:{endpoint:string;object:Typst})=>Promise<VectorDocumentData|{document:VectorDocumentData}>;
+export function configureTypstCompiler(compiler:TypstCompiler|null):void;
+export class Typst extends VectorObject2D { source:string; endpoint:string; compiler:TypstCompiler; readonly ready:Promise<this>; constructor(source:string,options?:ObjectOptions&{reveal?:number;endpoint?:string;compiler?:TypstCompiler|null}); compile(source?:string):Promise<this>; }
+export class Math extends Typst { fontSize:number; color:string; constructor(source:string,options?:ObjectOptions&{reveal?:number;endpoint?:string;compiler?:TypstCompiler|null;fontSize?:number;color?:string}); }
+
 export interface AnimationOptions extends TimeOptions { transform?:Transform2D; opacity?:number; reveal?:number; style?:StyleState }
 export interface ParallelAPI {
   animate(object:ZObject,options?:AnimationOptions):ZObject; animateValue(value:ScalarValue,options:{to:number}&TimeOptions):ScalarValue; transformFunction(object:ZObject,provider:(alpha:number)=>Transform2D,options?:TimeOptions):ZObject;
   fadeIn(object:ZObject,options?:TimeOptions):ZObject; fadeOut(object:ZObject,options?:TimeOptions):ZObject; create(object:ZObject,options?:TimeOptions):ZObject; style(object:ZObject,options:{to:StyleState}&TimeOptions):ZObject;
-  batch(object:CircleSet|LineSet|RectSet,options:{to:readonly unknown[]|CircleSet|LineSet|RectSet}&TimeOptions):ZObject;
+  batch(object:CircleSet|LineSet|RectSet,options:{to:readonly unknown[]|CircleSet|LineSet|RectSet}&TimeOptions):ZObject; media(object:MediaObject2D,options?:MediaPlaybackOptions):MediaObject2D;
   move(object:ZObject,by:Point2|Vec2,options?:TimeOptions&{frame?:TransformFrame}):ZObject; rotate(object:ZObject,by:number,options?:TimeOptions&{frame?:TransformFrame;about?:Point2|Vec2|null}):ZObject; scale(object:ZObject,by:number,options?:TimeOptions&{frame?:TransformFrame;about?:Point2|Vec2|null}):ZObject;
   affine(object:ZObject,options?:TimeOptions&{position?:Point2;rotation?:number;scale?:number|Point2;shear?:Point2}):ZObject; interpolate(source:ZObject,target:ZObject,options?:TimeOptions):ZObject;
 }
@@ -170,11 +181,11 @@ export class Scene {
   addValue<T extends ScalarValue>(value:T):T; addValue<T extends ScalarValue[]>(...values:T):T; animateValue(value:ScalarValue,options:{to:number}&TimeOptions):ScalarValue; valueAt(value:ScalarValue,time:number):number;
   wait(seconds?:number):this; at(seconds:number):this; animate(object:ZObject,options?:AnimationOptions):ZObject; transformFunction(object:ZObject,provider:(alpha:number)=>Transform2D,options?:TimeOptions):ZObject;
   fadeIn(object:ZObject,options?:TimeOptions):ZObject; fadeOut(object:ZObject,options?:TimeOptions):ZObject; style(object:ZObject,options:{to:StyleState}&TimeOptions):ZObject; trim(object:ZObject,options:{to:number}&TimeOptions):ZObject; create(object:ZObject,options?:TimeOptions):ZObject;
-  batch(object:CircleSet|LineSet|RectSet,options:{to:readonly unknown[]|CircleSet|LineSet|RectSet}&TimeOptions):ZObject; move(object:ZObject,by:Point2|Vec2,options?:TimeOptions&{frame?:TransformFrame}):ZObject; rotate(object:ZObject,by:number,options?:TimeOptions&{frame?:TransformFrame;about?:Point2|Vec2|null}):ZObject; scale(object:ZObject,by:number,options?:TimeOptions&{frame?:TransformFrame;about?:Point2|Vec2|null}):ZObject; affine(object:ZObject,options?:TimeOptions&{position?:Point2;rotation?:number;scale?:number|Point2;shear?:Point2}):ZObject;
+  batch(object:CircleSet|LineSet|RectSet,options:{to:readonly unknown[]|CircleSet|LineSet|RectSet}&TimeOptions):ZObject; media(object:MediaObject2D,options?:MediaPlaybackOptions):MediaObject2D; mediaPlaybackAt(object:MediaObject2D,time:number):unknown|null; mediaTimeAt(object:MediaObject2D,time:number):number|null; move(object:ZObject,by:Point2|Vec2,options?:TimeOptions&{frame?:TransformFrame}):ZObject; rotate(object:ZObject,by:number,options?:TimeOptions&{frame?:TransformFrame;about?:Point2|Vec2|null}):ZObject; scale(object:ZObject,by:number,options?:TimeOptions&{frame?:TransformFrame;about?:Point2|Vec2|null}):ZObject; affine(object:ZObject,options?:TimeOptions&{position?:Point2;rotation?:number;scale?:number|Point2;shear?:Point2}):ZObject;
   interpolate(source:ZObject,target:ZObject,options?:TimeOptions):ZObject; replace<T extends ZObject>(source:ZObject,target:T,options?:Omit<TimeOptions,'at'>):T;
   layout(...args:[...ZObject[],{to:Row|Column|Grid;duration?:number;easing?:EasingFunction;at?:number}]):ZObject[];
   parallel(callback:(api:ParallelAPI)=>void):this; parallel(duration:number,callback:(api:ParallelAPI)=>void):this;
-  stateAt(object:ZObject,time:number):{transform:Transform2D;opacity:number;reveal:number|null;style:StyleState|null}; seek(time:number):this; render():void; play(options?:{loop?:boolean;from?:number}):this; pause():this; destroy():this; setMatrix(matrix:Mat2):void; animateTo(target:Mat2,duration?:number):void;
+  stateAt(object:ZObject,time:number):{transform:Transform2D;opacity:number;reveal:number|null;style:StyleState|null}; worldTransformAt(object:ZObject,time?:number):Transform2D; seek(time:number):this; render():void; play(options?:{loop?:boolean;from?:number}):this; pause():this; destroy():this; setMatrix(matrix:Mat2):void; animateTo(target:Mat2,duration?:number):void;
 }
 
 export class Row { constructor(options?:{gap?:number;anchor?:Anchor|Point2|Vec2;at?:Point2|Vec2;align?:Anchor|Point2|Vec2}); targets(...objects:ZObject[]):Transform2D[]; place<T extends ZObject[]>(...objects:T):T; }

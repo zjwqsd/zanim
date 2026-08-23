@@ -14,6 +14,7 @@ from zanim import (
     Circle,
     FourierEpicycles,
     FourierTerm,
+    Image,
     Scene,
     Square,
     Transform2D,
@@ -198,3 +199,19 @@ def test_function_plot_expression_is_portable_without_geometry_sampling():
     restored = scene_from_ir(json.loads(json.dumps(ir)))
     for time in (0.0, 0.25, 0.8, 1.35, 2.0):
         assert _snapshot_signature(restored, time) == _snapshot_signature(scene, time)
+
+
+def test_scene_ir_keeps_external_media_out_of_portable_exports(tmp_path):
+    from PIL import Image as PILImage
+
+    path = tmp_path / "image.png"
+    PILImage.new("RGBA", (4, 3), (255, 0, 0, 255)).save(path)
+    scene = Scene()
+    scene.add(Image(path, width=2))
+    with pytest.raises(SceneIRUnsupported, match="external media needs a resolver"):
+        scene_to_ir(scene)
+
+    ir = scene_to_ir(scene, external_media_resolver=lambda _obj: "/preview/image.png")
+    assert ir["meta"]["portable"] is False
+    assert ir["meta"]["external_media"] == 1
+    assert any(resource["kind"] == "external_media" for resource in ir["resources"])

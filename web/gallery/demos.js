@@ -2,6 +2,7 @@ import {
   Scene, Transform2D, Mat2, InfiniteGrid, InfiniteLine, Axes, Polygon, Polyline,
   Circle, Square, Rectangle, RegularPolygon, Dot, Line, Arrow, Text, Group,
   CircleSet, LineSet, DynamicPolyline, CustomObject2D, Easing, Row, Column, Grid,
+  Image as ZImage, GIF, Video,
   WHITE, MUTED, BLUE, GREEN, RED, ORANGE, YELLOW, CYAN, PINK, PURPLE, GRAY,
   PI, TAU, DEGREES, LOCAL, PARENT, WORLD,
 } from '../src/zanim.js';
@@ -80,9 +81,19 @@ export function math(renderer) {
 }
 
 export function media(renderer) {
-  const scene=new Scene(renderer); header(scene,'Browser-native media shares the scene','image · animated GIF · video + audio');
-  const img=new Image(),gif=new Image(),video=document.createElement('video');img.src='../assets/media_demo/image.png';gif.src='../assets/media_demo/anim.gif';video.src='../assets/media_demo/clip.mp4';video.muted=true;video.loop=true;video.playsInline=true;video.play().catch(()=>{});
-  scene.add(new CustomObject2D(({ctx,renderer:r,time})=>{video.currentTime=Math.min(video.duration||1,Math.max(0,time%Math.max(.1,video.duration||1)));for(const [media,x,w,label,rot] of [[img,-3.6,2.6,'IMAGE',.12*Math.sin(time)],[gif,0,2.35,'GIF',-.10*Math.sin(time*.8)],[video,3.6,2.9,'VIDEO + AUDIO',.08*Math.sin(time*.7)]]){if(!media.naturalWidth&&!media.videoWidth)continue;const sw=media.videoWidth||media.naturalWidth,sh=media.videoHeight||media.naturalHeight,h=w*sh/sw;const d=r.toDevice(x,-.25);ctx.save();ctx.translate(...d);ctx.rotate(rot);ctx.drawImage(media,-w*r.unitSize/2,-h*r.unitSize/2,w*r.unitSize,h*r.unitSize);ctx.restore();const td=r.toDevice(x,-2.0);ctx.fillStyle=MUTED;ctx.font=`${18*r.dpr}px system-ui`;ctx.textAlign='center';ctx.fillText(label,td[0],td[1]);}}));return finalize(scene,5.2);
+  const scene=new Scene(renderer); header(scene,'Browser-native media shares the scene','Image · GIF · Video are ordinary scene objects');
+  const img=new ZImage('../assets/media_demo/image.png',{width:2.6,transform:T(-3.6,-.25)});
+  const gif=new GIF('../assets/media_demo/anim.gif',{width:2.35,transform:T(0,-.25)});
+  const video=new Video('../assets/media_demo/clip.mp4',{width:2.9,duration:2,muted:true,transform:T(3.6,-.25)});
+  const labels=[[-3.6,'IMAGE'],[0,'GIF'],[3.6,'VIDEO']].map(([x,label])=>new Text(label,{fontSize:18,color:MUTED,transform:T(x,-2.0)}));
+  scene.add(img,gif,video,...labels);
+  scene.parallel(api=>{
+    api.transformFunction(img,a=>T(-3.6,-.25,.12*Math.sin(TAU*a)),{duration:5.2,easing:Easing.LINEAR});
+    api.transformFunction(gif,a=>T(0,-.25,-.10*Math.sin(.8*TAU*a)),{duration:5.2,easing:Easing.LINEAR});
+    api.transformFunction(video,a=>T(3.6,-.25,.08*Math.sin(.7*TAU*a)),{duration:5.2,easing:Easing.LINEAR});
+    api.media(video,{duration:5.2,sourceDuration:2,loop:true});
+  });
+  return scene;
 }
 
 export function state_model(renderer) {

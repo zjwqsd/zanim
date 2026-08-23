@@ -73,15 +73,17 @@ By default source reload is available only on loopback Preview hosts. Exposing P
 ## Architecture
 
 ```text
-Python / TypeScript
-        ↓
-   Scene IR v1
-    ↙       ↘
-Web         Native
-Canvas2D    Zig/z2d → MP4
+Python authoring ───────────────→ Python evaluator ─→ RenderSnapshot ─→ Zig/z2d ─→ MP4
+       │
+       └─→ Scene IR v1 ─┐
+                        ├─→ Web Scene evaluator ─→ Canvas2D
+TypeScript authoring ───┘                 │
+       └──────────────→ Scene IR v1 ──────┴─→ Native video
+
+Native + Web/WASM procedural rendering share renderer-independent Zig kernels.
 ```
 
-Python may render its in-memory Scene directly. Scene IR is used for cross-language and cross-backend playback.
+Python direct video keeps its in-memory hot path; it does not round-trip through Scene IR. Scene IR is the portable document boundary for cross-language and cross-backend playback. Web authoring, random-access evaluation and playback live in `web/src/scene.js`; browser objects/rendering live in `web/src/core.js`.
 
 ```bash
 zanim export-ir animation.py -o animation.zanim.json
@@ -558,6 +560,8 @@ PNG/JPEG and GIF are decoded through Pillow. Video and audio use ffmpeg/ffprobe;
 Video output stays RGB-native through the renderer and streams finished RGB0 frames directly to ffmpeg/libx264. The default `veryfast` preset with four encoder threads is the measured throughput/memory sweet spot for the current frame-parallel renderer; `crf`, `preset`, and `encoder_threads` remain explicit tuning knobs. This single software path avoids GPU-specific startup, capability detection, and platform branches while producing standard H.264/yuv420p MP4 output.
 
 Raster objects share the normal `transform`, `opacity`, `z_index`, bounds/layout helpers, camera transform, fade, and transform animation channels. The Zig backend performs inverse-affine bilinear sampling with source-over alpha compositing, so rotated/scaled raster media participates in the same ordered draw stream as vector and geometry content.
+
+Web exposes matching `Image`, `GIF`, `Video`, and `Audio` runtime objects. Python Preview maps local media to opaque range-capable URLs and preserves `PlaybackClip` timing in the browser; these Preview resources are marked non-portable. Web `Math`/`Typst` compiles asynchronously to the same `VectorDocument` representation, while Web-authored Typst remains runtime-only and is intentionally excluded from Web→IR→MP4 export.
 
 ### Offscreen compositing and masks
 

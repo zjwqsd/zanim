@@ -90,3 +90,15 @@ import { createSceneFromIR, sceneToIR } from "@zanim/web/ir";
 const ir = sceneToIR(scene);
 const replay = await createSceneFromIR("#canvas", ir);
 ```
+
+## Preview extensions
+
+Python Web Preview may add non-portable records when browser runtime features need local resources:
+
+- object kinds: `media2d`, `audio`
+- resource kind: `external_media`
+- clip kind: `media_playback`
+
+`external_media.url` points to the active Preview server, so `meta.portable` is `false`. These records are for live Web Preview and are not accepted as a Native `render-ir` portability contract.
+
+Web-authored `Math` / `Typst` is also runtime-only. Python Typst output remains portable because it is lowered to ordinary `vector_document` resources before IR export.
