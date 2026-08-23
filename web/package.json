@@ -1,0 +1,23 @@
+{
+  "name": "@zanim/web",
+  "version": "0.0.1",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/zanim.js",
+  "types": "./src/zanim.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/zanim.d.ts",
+      "import": "./src/zanim.js"
+    },
+    "./zanim_web_core.wasm": "./dist/zanim_web_core.wasm"
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "scripts": {
+    "build": "./build.sh",
+    "test": "node ./test.mjs"
+  }
+}

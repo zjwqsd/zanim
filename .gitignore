@@ -9,3 +9,5 @@ media/
 .tools/
 
 examples/assets/MNIST/
+
+web/dist/
