@@ -282,9 +282,12 @@ def bounds_of(obj, extra_transform: Transform2D = Transform2D()) -> Bounds2D:
     from .batch import BatchObject2D
     from .geometry import Object2D
     from .group import Group
+    from .infinite import InfiniteObject2D
     from .raster import RasterObject2D
     from .vector import VectorObject2D
 
+    if isinstance(obj, InfiniteObject2D):
+        raise TypeError(f"{type(obj).__name__} is unbounded and has no finite bounds")
     if isinstance(obj, Group):
         if not obj.children:
             p = (extra_transform @ obj.transform).apply(Vec2())

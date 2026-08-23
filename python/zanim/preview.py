@@ -25,10 +25,12 @@ from .bounds import Bounds2D, bounds_from_render_item
 from .camera import Camera2D
 from .geometry import Object2D
 from .group import Group
+from .infinite import InfiniteObject2D
 from .mesh3d import MeshObject3D
 from .raster import RasterObject2D
 from .snapshot import (
     BatchSnapshot,
+    InfiniteSnapshot,
     Mesh3DSnapshot,
     NodeSnapshot,
     ObjectSnapshot,
@@ -595,6 +597,7 @@ class PreviewSession:
             *snapshot.batches,
             *snapshot.vectors,
             *snapshot.rasters,
+            *snapshot.infinite2d,
             *snapshot.meshes3d,
         ):
             rendered[item.object_id] = item
@@ -668,7 +671,7 @@ class PreviewSession:
                 "clip_count": len(clips),
                 "frameable": alive
                 and isinstance(
-                    obj, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, Group)
+                    obj, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, InfiniteObject2D, Group)
                 ),
                 "local_bounds": (
                     bounds_dict(local_bounds_at(registered))
@@ -685,7 +688,7 @@ class PreviewSession:
             rendered_item = rendered.get(object_id)
             rendered_state = None if rendered_item is None else rendered_item.snapshot
             if isinstance(
-                initial, (ObjectSnapshot, BatchSnapshot, VectorSnapshot, RasterState, NodeSnapshot)
+                initial, (ObjectSnapshot, BatchSnapshot, VectorSnapshot, RasterState, InfiniteSnapshot, NodeSnapshot)
             ):
                 if isinstance(obj, Camera2D) and obj.is_dynamic:
                     local = obj.transform_at(t, initial.transform)
@@ -694,7 +697,7 @@ class PreviewSession:
                 state["local_transform"] = self._transform2d(local)
                 state["opacity"] = self.scene._opacity_at(object_id, initial.opacity, t)
                 if alive and isinstance(
-                    obj, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, Group)
+                    obj, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, InfiniteObject2D, Group)
                 ):
                     state["world_transform"] = self._transform2d(
                         self.scene.world_transform(obj, time=t)

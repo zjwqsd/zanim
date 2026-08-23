@@ -44,6 +44,8 @@ from .formula import (
 )
 from .geometry import Color, StrokeStyle, Style
 from .group import Group
+from .infinite import ComplexMappedGrid, InfiniteGrid, InfiniteLine
+from .fractal import JuliaSet, MandelbrotSet
 from .layout import (
     BOTTOM,
     BOTTOM_LEFT,
@@ -113,6 +115,11 @@ __all__ = [
     "Arc",
     "RegularPolygon",
     "Line",
+    "InfiniteLine",
+    "InfiniteGrid",
+    "ComplexMappedGrid",
+    "MandelbrotSet",
+    "JuliaSet",
     "Polyline",
     "Polygon",
     "CubicBezier",

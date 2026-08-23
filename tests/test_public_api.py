@@ -57,3 +57,9 @@ class PublicApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class InfinitePublicApiTests(unittest.TestCase):
+    def test_native_unbounded_types_are_public(self):
+        self.assertTrue(hasattr(zanim, "InfiniteLine"))
+        self.assertTrue(hasattr(zanim, "InfiniteGrid"))
+        self.assertTrue(hasattr(zanim, "ComplexMappedGrid"))

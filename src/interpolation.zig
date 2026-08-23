@@ -140,38 +140,58 @@ fn distance(a: Vec2, b: Vec2) f64 {
     return @sqrt(dx * dx + dy * dy);
 }
 
-fn polylinePointAt(points: []const Vec2, closed: bool, target_raw: f64) Vec2 {
-    var total: f64 = 0.0;
-    for (0..points.len - 1) |i| total += distance(points[i], points[i + 1]);
-    if (closed) total += distance(points[points.len - 1], points[0]);
-    if (total <= 1e-14) return points[0];
-    const target = @max(0.0, @min(total, target_raw));
-    var walked: f64 = 0.0;
+fn resamplePolylineInto(points: []const Vec2, closed: bool, out: []CubicSegment) void {
     const edge_count = if (closed) points.len else points.len - 1;
-    for (0..edge_count) |i| {
-        const a = points[i];
-        const b = points[(i + 1) % points.len];
-        const len = distance(a, b);
-        if (walked + len >= target or i + 1 == edge_count) {
-            const local = if (len <= 1e-14) 0.0 else (target - walked) / len;
-            return lerpVec(a, b, @max(0.0, @min(1.0, local)));
-        }
-        walked += len;
+    var total: f64 = 0.0;
+    for (0..edge_count) |i| total += distance(points[i], points[(i + 1) % points.len]);
+
+    if (total <= 1e-14) {
+        for (out) |*segment| segment.* = cubicLine(points[0], points[0]);
+        return;
     }
-    return if (closed) points[0] else points[points.len - 1];
+
+    const count_f = @as(f64, @floatFromInt(out.len));
+    var edge_index: usize = 0;
+    var walked: f64 = 0.0;
+    var edge_start = points[0];
+    var edge_end = points[1 % points.len];
+    var edge_length = distance(edge_start, edge_end);
+    var a = points[0];
+
+    for (out, 0..) |*segment, i| {
+        const target = total * @as(f64, @floatFromInt(i + 1)) / count_f;
+        while (edge_index + 1 < edge_count and walked + edge_length < target - 1e-14) {
+            walked += edge_length;
+            edge_index += 1;
+            edge_start = points[edge_index];
+            edge_end = points[(edge_index + 1) % points.len];
+            edge_length = distance(edge_start, edge_end);
+        }
+        const local = if (edge_length <= 1e-14) 0.0 else (target - walked) / edge_length;
+        const b = lerpVec(edge_start, edge_end, @max(0.0, @min(1.0, local)));
+        segment.* = cubicLine(a, b);
+        a = b;
+    }
 }
 
 fn resamplePolyline8(points: []const Vec2, closed: bool) [8]CubicSegment {
-    var total: f64 = 0.0;
-    for (0..points.len - 1) |i| total += distance(points[i], points[i + 1]);
-    if (closed) total += distance(points[points.len - 1], points[0]);
     var out: [8]CubicSegment = undefined;
-    for (0..8) |i| {
-        const a = polylinePointAt(points, closed, total * @as(f64, @floatFromInt(i)) / 8.0);
-        const b = polylinePointAt(points, closed, total * @as(f64, @floatFromInt(i + 1)) / 8.0);
-        out[i] = cubicLine(a, b);
-    }
+    resamplePolylineInto(points, closed, &out);
     return out;
+}
+
+/// Number of cubic segments needed to preserve useful detail during a transient
+/// interpolation. Ordinary primitive morphs keep the historical 8-segment
+/// normalization. Polyline-to-polyline morphs use the denser endpoint so a
+/// detailed path never collapses to eight coarse segments while transforming.
+pub fn requiredScratchSegments(source: Object2D, target: Object2D) usize {
+    return switch (source.geometry) {
+        .polyline => |a| switch (target.geometry) {
+            .polyline => |b| @max(a.points.len - 1, b.points.len - 1),
+            else => 8,
+        },
+        else => 8,
+    };
 }
 
 fn arc8(shape: geometry.Arc) [8]CubicSegment {
@@ -292,6 +312,20 @@ pub fn normalizeGeometryInto(g: geometry.Geometry, scratch: []CubicSegment) Inte
     }
 }
 
+fn normalizeGeometryForPairInto(
+    g: geometry.Geometry,
+    segment_count: usize,
+    scratch: []CubicSegment,
+) InterpolationError!CubicPath {
+    if (g == .polyline and segment_count != 8) {
+        if (scratch.len < segment_count) return error.ScratchTooSmall;
+        const shape = g.polyline;
+        resamplePolylineInto(shape.points, false, scratch[0..segment_count]);
+        return .{ .segments = scratch[0..segment_count], .closed = false };
+    }
+    return normalizeGeometryInto(g, scratch);
+}
+
 fn samplePaths(
     source_path: CubicPath,
     target_path: CubicPath,
@@ -328,8 +362,9 @@ pub fn sampleObjectsInto(
     target_scratch: []CubicSegment,
     out_scratch: []CubicSegment,
 ) InterpolationError!InterpolatedObjectView {
-    const source_path = try normalizeGeometryInto(source.geometry, source_scratch);
-    const target_path = try normalizeGeometryInto(target.geometry, target_scratch);
+    const segment_count = requiredScratchSegments(source, target);
+    const source_path = try normalizeGeometryForPairInto(source.geometry, segment_count, source_scratch);
+    const target_path = try normalizeGeometryForPairInto(target.geometry, segment_count, target_scratch);
     return samplePaths(
         source_path,
         target_path,
@@ -428,6 +463,17 @@ pub const InterpolatedObjectView = struct {
     }
 };
 
+fn snapshotPolylineResampled(
+    allocator: std.mem.Allocator,
+    shape: geometry.Polyline,
+    segment_count: usize,
+) !OwnedPath {
+    const segments = try allocator.alloc(CubicSegment, segment_count);
+    errdefer allocator.free(segments);
+    resamplePolylineInto(shape.points, false, segments);
+    return .{ .segments = segments, .closed = false };
+}
+
 /// Interpolation between two distinct object snapshots.
 ///
 /// This type never mutates either Object2D. It is deliberately unrelated to
@@ -439,9 +485,17 @@ pub const ObjectInterpolation = struct {
     target: ObjectSnapshot,
 
     pub fn init(allocator: std.mem.Allocator, source_object: Object2D, target_object: Object2D) !ObjectInterpolation {
-        const source_path = try snapshotGeometry(allocator, source_object.geometry);
+        const segment_count = requiredScratchSegments(source_object, target_object);
+        const both_polylines = source_object.geometry == .polyline and target_object.geometry == .polyline;
+        const source_path = if (both_polylines)
+            try snapshotPolylineResampled(allocator, source_object.geometry.polyline, segment_count)
+        else
+            try snapshotGeometry(allocator, source_object.geometry);
         errdefer allocator.free(source_path.segments);
-        const target_path = try snapshotGeometry(allocator, target_object.geometry);
+        const target_path = if (both_polylines)
+            try snapshotPolylineResampled(allocator, target_object.geometry.polyline, segment_count)
+        else
+            try snapshotGeometry(allocator, target_object.geometry);
         errdefer allocator.free(target_path.segments);
 
         if (source_path.segments.len != target_path.segments.len or source_path.closed != target_path.closed) {
@@ -575,4 +629,42 @@ test "polyline arc line and cubic normalize to compatible open paths" {
     try std.testing.expectEqual(@as(usize, 8), line.segments.len);
     const cubic = try normalizeGeometryInto(.{ .cubic_bezier = geometry.CubicBezier.init(.{}, .{ .x = 0.3, .y = 1.0 }, .{ .x = 0.7, .y = -1.0 }, .{ .x = 1.0, .y = 0.0 }) }, &scratch);
     try std.testing.expectEqual(@as(usize, 8), cubic.segments.len);
+}
+
+test "polyline interpolation preserves dense path detail" {
+    const source_points = [_]Vec2{
+        .{ .x = -1.0, .y = 0.0 },
+        .{ .x = 1.0, .y = 0.0 },
+    };
+    var target_points: [17]Vec2 = undefined;
+    for (&target_points, 0..) |*point, i| {
+        const x = -1.0 + 2.0 * @as(f64, @floatFromInt(i)) / 16.0;
+        point.* = .{ .x = x, .y = if (i % 2 == 0) 0.0 else 0.5 };
+    }
+    const source = Object2D{
+        .geometry = .{ .polyline = try geometry.Polyline.init(&source_points) },
+    };
+    const target = Object2D{
+        .geometry = .{ .polyline = try geometry.Polyline.init(&target_points) },
+    };
+
+    try std.testing.expectEqual(@as(usize, 16), requiredScratchSegments(source, target));
+
+    var source_scratch: [16]CubicSegment = undefined;
+    var target_scratch: [16]CubicSegment = undefined;
+    var output_scratch: [16]CubicSegment = undefined;
+    const end = try sampleObjectsInto(
+        source,
+        target,
+        1.0,
+        &source_scratch,
+        &target_scratch,
+        &output_scratch,
+    );
+    try std.testing.expectEqual(@as(usize, 16), end.geometry.segments.len);
+    try expectVec(target_points[8], end.geometry.segments[7].p3);
+
+    var compiled = try ObjectInterpolation.init(std.testing.allocator, source, target);
+    defer compiled.deinit();
+    try std.testing.expectEqual(@as(usize, 16), compiled.segmentCount());
 }

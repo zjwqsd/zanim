@@ -9,7 +9,7 @@ from ..errors import NativeError
 
 _ROOT = Path(__file__).resolve().parents[3]
 _NATIVE_DIR = Path(__file__).resolve().parents[1] / "_native"
-ABI_VERSION = 1
+ABI_VERSION = 3
 
 
 class WireObject(ctypes.Structure):
@@ -91,6 +91,36 @@ class WireVectorObject(ctypes.Structure):
         ("yy", ctypes.c_double),
         ("tx", ctypes.c_double),
         ("ty", ctypes.c_double),
+        ("opacity", ctypes.c_double),
+    ]
+
+
+class WireInfinite2D(ctypes.Structure):
+    _fields_ = [
+        ("kind", ctypes.c_uint32),
+        ("p0", ctypes.c_double),
+        ("p1", ctypes.c_double),
+        ("p2", ctypes.c_double),
+        ("p3", ctypes.c_double),
+        ("map_kind", ctypes.c_uint32),
+        ("progress", ctypes.c_double),
+        ("q0", ctypes.c_double),
+        ("q1", ctypes.c_double),
+        ("q2", ctypes.c_double),
+        ("q3", ctypes.c_double),
+        ("q4", ctypes.c_double),
+        ("q5", ctypes.c_double),
+        ("q6", ctypes.c_double),
+        ("q7", ctypes.c_double),
+        ("xx", ctypes.c_double),
+        ("xy", ctypes.c_double),
+        ("yx", ctypes.c_double),
+        ("yy", ctypes.c_double),
+        ("tx", ctypes.c_double),
+        ("ty", ctypes.c_double),
+        ("rgba", ctypes.c_uint32),
+        ("rgba_secondary", ctypes.c_uint32),
+        ("stroke_width", ctypes.c_double),
         ("opacity", ctypes.c_double),
     ]
 
@@ -233,6 +263,8 @@ def load_library() -> ctypes.CDLL:
         ctypes.c_uint32,
         ctypes.POINTER(WireRaster),
         ctypes.c_uint32,
+        ctypes.POINTER(WireInfinite2D),
+        ctypes.c_uint32,
         ctypes.POINTER(WireScene3DLayer),
         ctypes.c_uint32,
         ctypes.POINTER(WireInterpolation),
@@ -252,6 +284,8 @@ def load_library() -> ctypes.CDLL:
         ctypes.POINTER(WireVectorObject),
         ctypes.c_uint32,
         ctypes.POINTER(WireRaster),
+        ctypes.c_uint32,
+        ctypes.POINTER(WireInfinite2D),
         ctypes.c_uint32,
         ctypes.POINTER(WireScene3DLayer),
         ctypes.c_uint32,
@@ -275,6 +309,8 @@ def load_library() -> ctypes.CDLL:
         ctypes.c_uint32,
         ctypes.POINTER(WireRaster),
         ctypes.c_uint32,
+        ctypes.POINTER(WireInfinite2D),
+        ctypes.c_uint32,
         ctypes.POINTER(WireScene3DLayer),
         ctypes.c_uint32,
         ctypes.POINTER(WireInterpolation),
@@ -297,6 +333,8 @@ def load_library() -> ctypes.CDLL:
         ctypes.POINTER(WireVectorObject),
         ctypes.c_uint32,
         ctypes.POINTER(WireRaster),
+        ctypes.c_uint32,
+        ctypes.POINTER(WireInfinite2D),
         ctypes.c_uint32,
         ctypes.POINTER(WireScene3DLayer),
         ctypes.c_uint32,

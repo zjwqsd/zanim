@@ -30,3 +30,12 @@ class RenderPickingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ComplexGridPickingTests(unittest.TestCase):
+    def test_native_complex_grid_is_pickable_without_python_geometry(self):
+        from zanim import ComplexMappedGrid
+        scene = Scene(canvas=Canvas(160, 120, 20), fps=10)
+        scene.add(ComplexMappedGrid("square", step=1.0, progress=0.0, stroke_width=0.08))
+        snapshot = scene.evaluate(0.0)
+        self.assertEqual(len(snapshot.batches), 0)
+        self.assertEqual(pick_snapshot_object(snapshot, scene.canvas, 80, 60), 1)

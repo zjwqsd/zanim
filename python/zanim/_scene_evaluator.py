@@ -6,17 +6,20 @@ from .audio import AudioObject
 from .batch import BatchGeometry, BatchObject2D, DynamicBatchObject2D
 from .camera import Camera2D
 from .geometry import Object2D
+from .infinite import ComplexMappedGrid, InfiniteObject2D
 from .mesh3d import MeshObject3D
 from .raster import RasterObject2D
 from .snapshot import (
     BatchSnapshot,
     Camera3DSnapshot,
+    InfiniteSnapshot,
     Mesh3DSnapshot,
     NodeSnapshot,
     ObjectSnapshot,
     RasterSnapshot,
     RasterState,
     RenderBatch,
+    RenderInfinite,
     RenderMesh3D,
     RenderObject,
     RenderRaster,
@@ -51,6 +54,7 @@ class _SceneEvaluator:
         batches: list[RenderBatch] = []
         vectors: list[RenderVector] = []
         rasters: list[RenderRaster] = []
+        infinite2d: list[RenderInfinite] = []
         meshes3d: list[RenderMesh3D] = []
         for registered in self._registry:
             if not self._is_alive(registered, time):
@@ -66,6 +70,8 @@ class _SceneEvaluator:
                 rendered = self._evaluate_raster(registered, obj, time)
                 if rendered is not None:
                     rasters.append(rendered)
+            elif isinstance(obj, InfiniteObject2D):
+                infinite2d.append(self._evaluate_infinite(registered, obj, time))
             elif isinstance(obj, MeshObject3D):
                 meshes3d.append(self._evaluate_mesh3d(registered, obj, time))
 
@@ -80,6 +86,7 @@ class _SceneEvaluator:
             tuple(batches),
             tuple(vectors),
             tuple(rasters),
+            tuple(infinite2d),
             transients,
             tuple(meshes3d),
             Camera3DSnapshot.from_camera(self.camera3d) if meshes3d else None,
@@ -183,6 +190,25 @@ class _SceneEvaluator:
                 opacity=parent_opacity
                 * self._opacity_at(registered.object_id, initial.opacity, time),
                 z_index=parent_z + initial.z_index,
+            ),
+        )
+
+    def _evaluate_infinite(
+        self, registered: _RegisteredItem, obj: InfiniteObject2D, time: float
+    ) -> RenderInfinite:
+        initial = registered.initial
+        assert isinstance(initial, InfiniteSnapshot)
+        parent_transform, parent_opacity, parent_z = self._context_at(registered, time)
+        progress = obj.progress_at(time) if isinstance(obj, ComplexMappedGrid) else initial.progress
+        return RenderInfinite(
+            registered.object_id,
+            InfiniteSnapshot(
+                initial.kind, initial.p0, initial.p1, initial.p2, initial.p3,
+                parent_transform @ self._transform_at(registered.object_id, initial.transform, time),
+                initial.color, initial.stroke_width,
+                parent_opacity * self._opacity_at(registered.object_id, initial.opacity, time),
+                parent_z + initial.z_index, initial.secondary_color, initial.map_kind,
+                progress, initial.map_params,
             ),
         )
 

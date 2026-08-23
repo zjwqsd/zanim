@@ -4,6 +4,7 @@ const canvas_mod = @import("canvas.zig");
 const batch = @import("batch.zig");
 const geometry = @import("geometry.zig");
 const interpolation = @import("interpolation.zig");
+const infinite = @import("infinite.zig");
 const math = @import("math.zig");
 const raster = @import("raster.zig");
 const render3d = @import("render3d.zig");
@@ -69,6 +70,7 @@ pub const DrawKind = enum(u32) {
     interpolation = 3,
     raster = 4,
     scene3d = 5,
+    infinite2d = 6,
 };
 
 /// One command in the fully ordered scene draw stream. `index` addresses the
@@ -191,16 +193,36 @@ fn drawInterpolation(
     var target = try decodeObject(allocator, wire.target);
     defer target.deinit(allocator);
 
-    var source_scratch: [8]geometry.CubicSegment = undefined;
-    var target_scratch: [8]geometry.CubicSegment = undefined;
-    var output_scratch: [8]geometry.CubicSegment = undefined;
+    const segment_count = interpolation.requiredScratchSegments(source.object, target.object);
+    if (segment_count <= 8) {
+        var source_scratch: [8]geometry.CubicSegment = undefined;
+        var target_scratch: [8]geometry.CubicSegment = undefined;
+        var output_scratch: [8]geometry.CubicSegment = undefined;
+        const transient = try interpolation.sampleObjectsInto(
+            source.object,
+            target.object,
+            wire.alpha,
+            &source_scratch,
+            &target_scratch,
+            &output_scratch,
+        );
+        try transient.asObject().draw(ctx, canvas, Transform2D.identity);
+        return;
+    }
+
+    const source_scratch = try allocator.alloc(geometry.CubicSegment, segment_count);
+    defer allocator.free(source_scratch);
+    const target_scratch = try allocator.alloc(geometry.CubicSegment, segment_count);
+    defer allocator.free(target_scratch);
+    const output_scratch = try allocator.alloc(geometry.CubicSegment, segment_count);
+    defer allocator.free(output_scratch);
     const transient = try interpolation.sampleObjectsInto(
         source.object,
         target.object,
         wire.alpha,
-        &source_scratch,
-        &target_scratch,
-        &output_scratch,
+        source_scratch,
+        target_scratch,
+        output_scratch,
     );
     try transient.asObject().draw(ctx, canvas, Transform2D.identity);
 }
@@ -214,6 +236,7 @@ fn drawItem(
     batch_wires: []const batch.WireBatch,
     vector_wires: []const vector.WireVectorObject,
     raster_wires: []const raster.WireRaster,
+    infinite_wires: []const infinite.WireInfinite2D,
     scene3d_wires: []const render3d.WireScene3DLayer,
     interpolation_wires: []const WireInterpolation,
     surface: *z2d.Surface,
@@ -226,6 +249,7 @@ fn drawItem(
         3 => .interpolation,
         4 => .raster,
         5 => .scene3d,
+        6 => .infinite2d,
         else => return error.InvalidDrawItem,
     };
     switch (kind) {
@@ -251,6 +275,10 @@ fn drawItem(
             if (index >= raster_wires.len) return error.InvalidDrawItem;
             try raster.drawWireRaster(surface, canvas, raster_wires[index]);
         },
+        .infinite2d => {
+            if (index >= infinite_wires.len) return error.InvalidDrawItem;
+            try infinite.drawWireInfinite2D(ctx, canvas, infinite_wires[index]);
+        },
         .scene3d => {
             if (index >= scene3d_wires.len) return error.InvalidDrawItem;
             try render3d.drawLayer(
@@ -272,6 +300,7 @@ fn drawScene(
     batch_wires: []const batch.WireBatch,
     vector_wires: []const vector.WireVectorObject,
     raster_wires: []const raster.WireRaster,
+    infinite_wires: []const infinite.WireInfinite2D,
     scene3d_wires: []const render3d.WireScene3DLayer,
     interpolation_wires: []const WireInterpolation,
     surface: *z2d.Surface,
@@ -286,6 +315,7 @@ fn drawScene(
             batch_wires,
             vector_wires,
             raster_wires,
+            infinite_wires,
             scene3d_wires,
             interpolation_wires,
             surface,
@@ -306,6 +336,7 @@ pub fn pickObjectId(
     batch_wires: []const batch.WireBatch,
     vector_wires: []const vector.WireVectorObject,
     raster_wires: []const raster.WireRaster,
+    infinite_wires: []const infinite.WireInfinite2D,
     scene3d_wires: []const render3d.WireScene3DLayer,
     interpolation_wires: []const WireInterpolation,
     x: u32,
@@ -352,6 +383,7 @@ pub fn pickObjectId(
             batch_wires,
             vector_wires,
             raster_wires,
+            infinite_wires,
             scene3d_wires,
             interpolation_wires,
             &surface,
@@ -377,6 +409,7 @@ pub fn renderRgb0(
     batch_wires: []const batch.WireBatch,
     vector_wires: []const vector.WireVectorObject,
     raster_wires: []const raster.WireRaster,
+    infinite_wires: []const infinite.WireInfinite2D,
     scene3d_wires: []const render3d.WireScene3DLayer,
     interpolation_wires: []const WireInterpolation,
     pixels: []z2d.pixel.RGB,
@@ -401,7 +434,7 @@ pub fn renderRgb0(
     ctx.setLineJoinMode(.round);
 
     const canvas = try Canvas.init(width, height, unit_size);
-    try drawScene(&ctx, canvas, allocator, draw_items, object_wires, batch_wires, vector_wires, raster_wires, scene3d_wires, interpolation_wires, &surface);
+    try drawScene(&ctx, canvas, allocator, draw_items, object_wires, batch_wires, vector_wires, raster_wires, infinite_wires, scene3d_wires, interpolation_wires, &surface);
 }
 
 /// Render into caller-owned transparent premultiplied RGBA pixels.
@@ -414,6 +447,7 @@ pub fn renderRgba0(
     batch_wires: []const batch.WireBatch,
     vector_wires: []const vector.WireVectorObject,
     raster_wires: []const raster.WireRaster,
+    infinite_wires: []const infinite.WireInfinite2D,
     scene3d_wires: []const render3d.WireScene3DLayer,
     interpolation_wires: []const WireInterpolation,
     pixels: []z2d.pixel.RGBA,
@@ -437,7 +471,7 @@ pub fn renderRgba0(
     ctx.setLineJoinMode(.round);
 
     const canvas = try Canvas.init(width, height, unit_size);
-    try drawScene(&ctx, canvas, allocator, draw_items, object_wires, batch_wires, vector_wires, raster_wires, scene3d_wires, interpolation_wires, &surface);
+    try drawScene(&ctx, canvas, allocator, draw_items, object_wires, batch_wires, vector_wires, raster_wires, infinite_wires, scene3d_wires, interpolation_wires, &surface);
     for (pixels[0..expected]) |*px| px.* = px.demultiply();
 }
 
@@ -451,6 +485,7 @@ pub fn renderFrame(
     batch_wires: []const batch.WireBatch,
     vector_wires: []const vector.WireVectorObject,
     raster_wires: []const raster.WireRaster,
+    infinite_wires: []const infinite.WireInfinite2D,
     scene3d_wires: []const render3d.WireScene3DLayer,
     interpolation_wires: []const WireInterpolation,
 ) !void {
@@ -473,6 +508,6 @@ pub fn renderFrame(
 
     const canvas = try Canvas.init(width, height, unit_size);
 
-    try drawScene(&ctx, canvas, allocator, draw_items, object_wires, batch_wires, vector_wires, raster_wires, scene3d_wires, interpolation_wires, &surface);
+    try drawScene(&ctx, canvas, allocator, draw_items, object_wires, batch_wires, vector_wires, raster_wires, infinite_wires, scene3d_wires, interpolation_wires, &surface);
     try z2d.png_exporter.writeToPNGFile(io, surface, path, .{});
 }

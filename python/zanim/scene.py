@@ -10,11 +10,13 @@ from .camera import Camera2D
 from .camera3d import Camera3D
 from .geometry import Object2D
 from .group import Group
+from .infinite import InfiniteObject2D
 from .mesh3d import MeshObject3D
 from .object import SceneObject2D
 from .raster import RasterObject2D
 from .snapshot import (
     BatchSnapshot,
+    InfiniteSnapshot,
     Mesh3DSnapshot,
     NodeSnapshot,
     ObjectSnapshot,
@@ -34,7 +36,7 @@ from .timeline import (
 from .value import ScalarValue
 from .vector import VectorObject2D
 
-RenderableObject = Object2D | BatchObject2D | VectorObject2D | RasterObject2D
+RenderableObject = Object2D | BatchObject2D | VectorObject2D | RasterObject2D | InfiniteObject2D
 SceneObject = RenderableObject | Group | Camera2D
 SceneItem = SceneObject | MeshObject3D | ScalarValue | AudioObject
 InitialSnapshot = (
@@ -43,6 +45,7 @@ InitialSnapshot = (
     | VectorSnapshot
     | RasterState
     | Mesh3DSnapshot
+    | InfiniteSnapshot
     | NodeSnapshot
     | float
     | None
@@ -111,7 +114,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             item.object_ref
             for item in self._registry
             if isinstance(
-                item.object_ref, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D)
+                item.object_ref, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, InfiniteObject2D)
             )
         )
 
@@ -157,6 +160,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         from .bound import (
             BoundAudio,
             BoundBatch2D,
+            Bound2D,
             BoundGroup,
             BoundItem,
             BoundMesh3D,
@@ -185,6 +189,8 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             handle = BoundVector2D(self, raw)
         elif isinstance(raw, RasterObject2D):
             handle = BoundRaster2D(self, raw)
+        elif isinstance(raw, InfiniteObject2D):
+            handle = Bound2D(self, raw)
         elif isinstance(raw, Group):
             handle = BoundGroup(self, raw)
         elif isinstance(raw, MeshObject3D):
@@ -247,6 +253,8 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             initial = VectorSnapshot.from_object(obj)
         elif isinstance(obj, RasterObject2D):
             initial = RasterState.from_object(obj)
+        elif isinstance(obj, InfiniteObject2D):
+            initial = InfiniteSnapshot.from_object(obj)
         elif isinstance(obj, MeshObject3D):
             if parents:
                 raise TypeError("MeshObject3D cannot be a Group child")
@@ -361,7 +369,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             raise ValueError("object is outside its Scene lifetime at the requested time")
         initial = registered.initial
         if not isinstance(
-            initial, (ObjectSnapshot, BatchSnapshot, VectorSnapshot, RasterState, NodeSnapshot)
+            initial, (ObjectSnapshot, BatchSnapshot, VectorSnapshot, RasterState, InfiniteSnapshot, NodeSnapshot)
         ):
             raise TypeError("object has no 2D transform")
         return self._parent_world_transform_at(registered, time) @ self._transform_at(

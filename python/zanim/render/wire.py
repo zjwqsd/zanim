@@ -9,6 +9,7 @@ from .abi import (
     WireBatch,
     WireCamera3D,
     WireDrawItem,
+    WireInfinite2D,
     WireInterpolation,
     WireMesh3D,
     WireObject,
@@ -24,6 +25,7 @@ DRAW_VECTOR = 2
 DRAW_INTERPOLATION = 3
 DRAW_RASTER = 4
 DRAW_SCENE3D = 5
+DRAW_INFINITE2D = 6
 
 
 def _pack_rgba(color) -> int:
@@ -350,6 +352,21 @@ def _wire_vector(snapshot):
     ), keepalive
 
 
+def _wire_infinite(snapshot):
+    transform = snapshot.transform
+    params = list(snapshot.map_params[:8]) + [0.0] * max(0, 8 - len(snapshot.map_params))
+    secondary = snapshot.color if snapshot.secondary_color is None else snapshot.secondary_color
+    return WireInfinite2D(
+        snapshot.kind,
+        snapshot.p0, snapshot.p1, snapshot.p2, snapshot.p3,
+        snapshot.map_kind, float(snapshot.progress),
+        *params[:8],
+        transform.xx, transform.xy, transform.yx, transform.yy, transform.tx, transform.ty,
+        _pack_rgba(snapshot.color), _pack_rgba(secondary),
+        snapshot.stroke_width, float(snapshot.opacity),
+    )
+
+
 def _wire_raster(snapshot):
     frame = snapshot.frame
     pixel_array = (ctypes.c_uint8 * len(frame.rgba)).from_buffer(frame.rgba)
@@ -478,6 +495,7 @@ class EncodedScene:
     batches: list[WireBatch]
     vectors: list[WireVectorObject]
     rasters: list[WireRaster]
+    infinite2d: list[WireInfinite2D]
     scene3d_layers: list[WireScene3DLayer]
     interpolations: list[WireInterpolation]
     draw_array: object | None
@@ -485,6 +503,7 @@ class EncodedScene:
     batch_array: object | None
     vector_array: object | None
     raster_array: object | None
+    infinite2d_array: object | None
     scene3d_array: object | None
     interpolation_array: object | None
     keepalive: list[object]
@@ -495,6 +514,7 @@ def encode_snapshot(snapshot, *, include_object_ids: bool = False) -> EncodedSce
     batches: list[WireBatch] = []
     vectors: list[WireVectorObject] = []
     rasters: list[WireRaster] = []
+    infinite2d: list[WireInfinite2D] = []
     scene3d_layers: list[WireScene3DLayer] = []
     interpolations: list[WireInterpolation] = []
     ordered: list[tuple[int, int, int, int]] = []
@@ -534,6 +554,13 @@ def encode_snapshot(snapshot, *, include_object_ids: bool = False) -> EncodedSce
         rasters.append(wire)
         ordered.append((item.snapshot.z_index, item.object_id, DRAW_RASTER, index))
         keepalive.extend((owned, item.snapshot.frame.rgba))
+
+    for item in snapshot.infinite2d:
+        if item.snapshot.opacity <= 0.0:
+            continue
+        index = len(infinite2d)
+        infinite2d.append(_wire_infinite(item.snapshot))
+        ordered.append((item.snapshot.z_index, item.object_id, DRAW_INFINITE2D, index))
 
     if snapshot.meshes3d:
         layer, owned = _wire_scene3d(snapshot)
@@ -575,6 +602,7 @@ def encode_snapshot(snapshot, *, include_object_ids: bool = False) -> EncodedSce
     batch_array = (WireBatch * len(batches))(*batches) if batches else None
     vector_array = (WireVectorObject * len(vectors))(*vectors) if vectors else None
     raster_array = (WireRaster * len(rasters))(*rasters) if rasters else None
+    infinite2d_array = (WireInfinite2D * len(infinite2d))(*infinite2d) if infinite2d else None
     scene3d_array = (
         (WireScene3DLayer * len(scene3d_layers))(*scene3d_layers) if scene3d_layers else None
     )
@@ -589,6 +617,7 @@ def encode_snapshot(snapshot, *, include_object_ids: bool = False) -> EncodedSce
             batch_array,
             vector_array,
             raster_array,
+            infinite2d_array,
             scene3d_array,
             interpolation_array,
         )
@@ -601,6 +630,7 @@ def encode_snapshot(snapshot, *, include_object_ids: bool = False) -> EncodedSce
         batches,
         vectors,
         rasters,
+        infinite2d,
         scene3d_layers,
         interpolations,
         draw_array,
@@ -608,6 +638,7 @@ def encode_snapshot(snapshot, *, include_object_ids: bool = False) -> EncodedSce
         batch_array,
         vector_array,
         raster_array,
+        infinite2d_array,
         scene3d_array,
         interpolation_array,
         keepalive,
