@@ -33,31 +33,10 @@ class FourierSvgInputTests(unittest.TestCase):
         from zanim.extras.fourier import contour_samples, select_closed_contour
 
         root = Path(__file__).resolve().parents[1]
-        contour = select_closed_contour(load_svg(root / "examples/assets/fourier_heart.svg"))
+        contour = select_closed_contour(load_svg(root / "tests/assets/fourier_heart.svg"))
         samples = contour_samples(contour, 64)
         terms = dft(samples)
         for i in (0, 7, 23, 63):
             reconstructed = epicycle_chain(terms, i / 64)[-1]
             self.assertAlmostEqual(reconstructed.real, samples[i].real, places=9)
             self.assertAlmostEqual(reconstructed.imag, samples[i].imag, places=9)
-
-
-class FourierFollowCameraTests(unittest.TestCase):
-    def test_follow_scene_camera_is_dynamic_and_seekable(self):
-        from pathlib import Path
-
-        from examples.extras.fourier_draw import _build_scene
-
-        root = Path(__file__).resolve().parents[1]
-        scene, info = _build_scene(
-            root / "examples/assets/fourier_heart.svg",
-            sample_count=64,
-            term_count=10,
-            draw_duration=2.0,
-            follow=True,
-        )
-        self.assertTrue(scene.camera.is_dynamic)
-        self.assertTrue(info["follow"])
-        a = scene.camera.transform_at(1.0)
-        _ = scene.camera.transform_at(2.0)
-        self.assertEqual(a, scene.camera.transform_at(1.0))

@@ -1,6 +1,8 @@
 const std = @import("std");
 const math = @import("math.zig");
 const procedural = @import("procedural.zig");
+const render3d_wire = @import("render3d/wire.zig");
+const web_render3d = @import("render3d/web_rasterizer.zig");
 
 const Vec2 = math.Vec2;
 const Linear2D = math.Linear2D;
@@ -13,6 +15,158 @@ const Bounds = struct { min: Vec2, max: Vec2 };
 
 export fn zanim_web_abi_version() u32 {
     return 1;
+}
+
+const web3d_max_width = 1280;
+const web3d_max_height = 720;
+const web3d_max_pixels = web3d_max_width * web3d_max_height;
+const web3d_max_vertices = 65_536;
+const web3d_max_indices = 262_144;
+const web3d_max_meshes = 64;
+
+var web3d_positions: [web3d_max_vertices * 3]f32 = undefined;
+var web3d_normals: [web3d_max_vertices * 3]f32 = undefined;
+var web3d_indices: [web3d_max_indices]u32 = undefined;
+// Per mesh: vertex offset, vertex count, index offset, index count.
+var web3d_ranges: [web3d_max_meshes * 4]u32 = undefined;
+var web3d_models: [web3d_max_meshes * 16]f32 = undefined;
+var web3d_colors: [web3d_max_meshes]u32 = undefined;
+var web3d_opacities: [web3d_max_meshes]f32 = undefined;
+var web3d_pixels: [web3d_max_pixels * 4]u8 = undefined;
+var web3d_depth: [web3d_max_pixels]f32 = undefined;
+
+export fn zanim_web_3d_positions_ptr() usize {
+    return @intFromPtr(&web3d_positions);
+}
+export fn zanim_web_3d_normals_ptr() usize {
+    return @intFromPtr(&web3d_normals);
+}
+export fn zanim_web_3d_indices_ptr() usize {
+    return @intFromPtr(&web3d_indices);
+}
+export fn zanim_web_3d_ranges_ptr() usize {
+    return @intFromPtr(&web3d_ranges);
+}
+export fn zanim_web_3d_models_ptr() usize {
+    return @intFromPtr(&web3d_models);
+}
+export fn zanim_web_3d_colors_ptr() usize {
+    return @intFromPtr(&web3d_colors);
+}
+export fn zanim_web_3d_opacities_ptr() usize {
+    return @intFromPtr(&web3d_opacities);
+}
+export fn zanim_web_3d_pixels_ptr() usize {
+    return @intFromPtr(&web3d_pixels);
+}
+export fn zanim_web_3d_max_vertices() u32 {
+    return web3d_max_vertices;
+}
+export fn zanim_web_3d_max_indices() u32 {
+    return web3d_max_indices;
+}
+export fn zanim_web_3d_max_meshes() u32 {
+    return web3d_max_meshes;
+}
+export fn zanim_web_3d_max_width() u32 {
+    return web3d_max_width;
+}
+export fn zanim_web_3d_max_height() u32 {
+    return web3d_max_height;
+}
+
+fn renderWeb3D(
+    width: u32,
+    height: u32,
+    mesh_count: u32,
+    px: f32,
+    py: f32,
+    pz: f32,
+    tx: f32,
+    ty: f32,
+    tz: f32,
+    ux: f32,
+    uy: f32,
+    uz: f32,
+    fov_y_degrees: f32,
+    near_plane: f32,
+    far_plane: f32,
+    orthographic_height: f32,
+    projection_kind: u32,
+) u32 {
+    if (width == 0 or height == 0 or width > web3d_max_width or height > web3d_max_height or mesh_count > web3d_max_meshes) return 0;
+    var meshes: [web3d_max_meshes]render3d_wire.WireMesh3D = undefined;
+    var i: usize = 0;
+    while (i < mesh_count) : (i += 1) {
+        const r = i * 4;
+        const vertex_offset: usize = @intCast(web3d_ranges[r]);
+        const vertex_count = web3d_ranges[r + 1];
+        const index_offset: usize = @intCast(web3d_ranges[r + 2]);
+        const index_count = web3d_ranges[r + 3];
+        if (vertex_count < 3 or index_count < 3 or index_count % 3 != 0) return 0;
+        if (vertex_count > web_render3d.max_vertices_per_mesh) return 0;
+        if (vertex_offset + vertex_count > web3d_max_vertices or index_offset + index_count > web3d_max_indices) return 0;
+        var model: [16]f32 = undefined;
+        for (0..16) |k| model[k] = web3d_models[i * 16 + k];
+        meshes[i] = .{
+            .vertex_count = vertex_count,
+            .positions = web3d_positions[vertex_offset * 3 ..].ptr,
+            .normals = web3d_normals[vertex_offset * 3 ..].ptr,
+            .index_count = index_count,
+            .indices = web3d_indices[index_offset..].ptr,
+            .model = model,
+            .color_rgba = web3d_colors[i],
+            .opacity = web3d_opacities[i],
+        };
+    }
+    const camera = render3d_wire.WireCamera3D{
+        .px = px,
+        .py = py,
+        .pz = pz,
+        .tx = tx,
+        .ty = ty,
+        .tz = tz,
+        .ux = ux,
+        .uy = uy,
+        .uz = uz,
+        .fov_y_degrees = fov_y_degrees,
+        .near_plane = near_plane,
+        .far_plane = far_plane,
+        .orthographic_height = orthographic_height,
+        .projection_kind = projection_kind,
+    };
+    const pixel_count = @as(usize, width) * @as(usize, height);
+    web_render3d.render(
+        web3d_pixels[0 .. pixel_count * 4],
+        web3d_depth[0..pixel_count],
+        width,
+        height,
+        camera,
+        meshes[0..mesh_count],
+    ) catch return 0;
+    return @intCast(pixel_count);
+}
+
+export fn zanim_web_render_3d(
+    width: u32,
+    height: u32,
+    mesh_count: u32,
+    px: f32,
+    py: f32,
+    pz: f32,
+    tx: f32,
+    ty: f32,
+    tz: f32,
+    ux: f32,
+    uy: f32,
+    uz: f32,
+    fov_y_degrees: f32,
+    near_plane: f32,
+    far_plane: f32,
+    orthographic_height: f32,
+    projection_kind: u32,
+) u32 {
+    return renderWeb3D(width, height, mesh_count, px, py, pz, tx, ty, tz, ux, uy, uz, fov_y_degrees, near_plane, far_plane, orthographic_height, projection_kind);
 }
 
 export fn zanim_web_grid_data_ptr() usize {
@@ -343,4 +497,24 @@ test "web complex square keeps both branches visible" {
 test "web complex grid produces transparent rgba layer" {
     const count = renderComplexGrid(1, 64, 36, 0, 0, 5.0 / 64.0, 0.5, 0.5, 1, 0.9, 0, 0, 0, 0, 0, 0, 0, 0);
     try std.testing.expectEqual(@as(u32, 64 * 36), count);
+}
+
+test "web 3D rasterizer produces visible triangle" {
+    web3d_positions[0..9].* = .{ -0.6, -0.5, 0, 0.6, -0.5, 0, 0, 0.65, 0 };
+    web3d_normals[0..9].* = .{ 0, 0, 1, 0, 0, 1, 0, 0, 1 };
+    web3d_indices[0..3].* = .{ 0, 1, 2 };
+    web3d_ranges[0..4].* = .{ 0, 3, 0, 3 };
+    for (0..16) |i| web3d_models[i] = if (i % 5 == 0) 1 else 0;
+    web3d_colors[0] = 0x60a6ffff;
+    web3d_opacities[0] = 1;
+    const count = renderWeb3D(96, 54, 1, 0, 0, 3, 0, 0, 0, 0, 1, 0, 45, 0.05, 100, 0, 0);
+    try std.testing.expectEqual(@as(u32, 96 * 54), count);
+    var visible = false;
+    for (web3d_pixels[3 .. count * 4]) |alpha| {
+        if (alpha != 0) {
+            visible = true;
+            break;
+        }
+    }
+    try std.testing.expect(visible);
 }

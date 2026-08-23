@@ -90,3 +90,5 @@ export { Scene } from './scene.js';
 
 export { Audio, GIF, Image, MediaObject2D, Video } from './media.js';
 export { Math, Typst, configureTypstCompiler } from './typst.js';
+
+export { Box3D, Camera3D, Cube3D, MeshObject3D, Scene3DLayer, Transform3D, TriangleMesh, Vec3, unitBoxMesh } from './three.js';

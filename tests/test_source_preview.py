@@ -205,12 +205,17 @@ class PreviewSourceTests(unittest.TestCase):
             try:
                 module = importlib.import_module(name)
                 scene = module.build_scene()
-                path.write_text(path.read_text(encoding="utf-8").replace("@preview_source\n", ""), encoding="utf-8")
+                path.write_text(
+                    path.read_text(encoding="utf-8").replace("@preview_source\n", ""),
+                    encoding="utf-8",
+                )
                 reloaded = reload_preview_source(scene)
                 info = get_preview_source(reloaded)
                 self.assertIsNotNone(info)
                 assert info is not None
-                self.assertTrue(all(info.clip_source(c) is not None for c in reloaded._timeline.clips))
+                self.assertTrue(
+                    all(info.clip_source(c) is not None for c in reloaded._timeline.clips)
+                )
             finally:
                 sys.modules.pop(name, None)
                 sys.path.remove(str(root))

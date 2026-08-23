@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
-uv run ruff check python/zanim tests examples scripts hatch_build.py
-uv run ruff format --check python/zanim tests examples scripts hatch_build.py
+uv run ruff check python/zanim tests scripts hatch_build.py
+uv run ruff format --check python/zanim tests scripts hatch_build.py
 zig build test
 zig build -Doptimize=ReleaseFast >/dev/null
-uv run python -m unittest discover -s tests
+(cd web && ./build.sh >/dev/null && npm test)
+uv run pytest -q
 uv run python - <<'PY'
 import tempfile
 from pathlib import Path

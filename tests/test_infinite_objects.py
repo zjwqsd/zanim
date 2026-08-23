@@ -47,6 +47,7 @@ class InfiniteObjectTests(unittest.TestCase):
         from zanim.render.frame import render_snapshot_rgba
 
         render_snapshot_rgba(buffer, scene.evaluate(0.0), scene.canvas)
+
         # RGBA bytes: sample a small neighborhood at both horizontal edges.
         def edge_has_alpha(x):
             for y in range(97, 104):
@@ -61,9 +62,11 @@ class InfiniteObjectTests(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+
 class ComplexMappedGridTests(unittest.TestCase):
     def test_native_square_grid_stays_out_of_python_batches(self):
         from zanim import ComplexMappedGrid
+
         scene = Scene(canvas=Canvas(640, 480, 80))
         scene.add(ComplexMappedGrid("square", step=0.5))
         snapshot = scene.evaluate(0.0)
@@ -75,6 +78,7 @@ class ComplexMappedGridTests(unittest.TestCase):
     def test_scalar_progress_reaches_zig_snapshot(self):
         from zanim import ComplexMappedGrid
         from zanim.value import ScalarValue
+
         scene = Scene(canvas=Canvas(640, 480, 80))
         progress = ScalarValue(0.0)
         progress, grid = scene.add(progress, ComplexMappedGrid("reciprocal", progress=progress))
@@ -84,6 +88,7 @@ class ComplexMappedGridTests(unittest.TestCase):
 
     def test_exp_requires_periodic_imaginary_spacing(self):
         from zanim import ComplexMappedGrid
+
         with self.assertRaises(ValueError):
             ComplexMappedGrid("exp", step=0.5)
         grid = ComplexMappedGrid("exp", step=(0.5, 2.0 * math.pi / 12.0))
@@ -92,12 +97,14 @@ class ComplexMappedGridTests(unittest.TestCase):
     def test_exp_and_mobius_accept_scalar_progress(self):
         from zanim import ComplexMappedGrid
         from zanim.value import ScalarValue
+
         p1 = ScalarValue(0.0)
         exp = ComplexMappedGrid("exp", step=(0.5, 2.0 * math.pi / 12.0), progress=p1)
         self.assertIs(exp.progress, p1)
         p2 = ScalarValue(0.0)
         mobius = ComplexMappedGrid(
-            "mobius", progress=p2,
+            "mobius",
+            progress=p2,
             mobius=(1.1 + 0.1j, 0.4 - 0.2j, 0.15 + 0.05j, 1.0 + 0j),
         )
         self.assertIs(mobius.progress, p2)

@@ -1,44 +1,55 @@
 # Architecture
 
-## Boundaries
+## Native video
 
 ```text
-Python authoring → Python evaluator → RenderSnapshot → Native Zig renderer → video
-       │
-       └→ Scene IR ← TypeScript authoring
-              │
-              ├→ Web evaluator → Canvas2D
-              └→ Native video
-
-Web/WASM ─┐
-          ├→ shared Zig procedural kernels
-Native ───┘
+Python Scene
+→ absolute-time evaluator
+→ RenderSnapshot
+→ wire ABI
+→ Zig/z2d + software 3D rasterizer
+→ FFmpeg/libx264
 ```
 
-Python direct rendering remains the performance path and never requires IR serialization.
-
-## Rules
-
-- `Scene` owns identity, hierarchy, lifetime and timeline semantics.
-- Evaluation is absolute-time and random-access.
-- `at` is relative to the current scheduling base; `parallel()` freezes one shared base.
-- LOCAL/PARENT/WORLD transform semantics and channel conflicts must match across Python and Web.
-- Cross-language semantics are guarded by `tests/test_web_conformance.py` + `web/conformance.mjs`.
-- Scene IR carries portable scene state/resources/clips, not Python or JavaScript source. Preview-only external media is marked `portable=false`.
-- Web-authored Typst/Math remains runtime-only; Python Typst is already lowered to portable vector resources.
-- Renderer-independent procedural math belongs in `src/procedural.zig`; Native/Web files only adapt it to their output backend.
+The hot video path stays in memory and does not round-trip through Scene IR.
 
 ## Web
 
-- `web/src/core.js`: math, objects, layout, Canvas2D renderer, WASM adapter.
-- `web/src/scene.js`: scene state, authoring schedule and lifetime/channel validation.
-- `web/src/evaluator.js`: absolute-time random-access evaluation.
-- `web/src/player.js`: seek/render/playback orchestration.
-- `web/src/media.js`: browser image/GIF/video/audio objects and playback synchronization.
-- `web/src/typst.js`: async Typst/Math lowering to `VectorDocument`.
-- `web/src/ir.js`: portable Scene IR plus explicitly non-portable Preview media loading.
-- `web/src/zanim.js`: public barrel only.
+```text
+TypeScript Scene
+→ absolute-time evaluator
+→ retained Canvas2D
+→ Zig/WASM procedural + 3D kernels
+```
 
-## Native
+Main modules:
 
-Python evaluates the complete scene into a `RenderSnapshot`. The wire layer converts that snapshot to one ordered native draw stream. Zig owns rasterization; FFmpeg owns H.264 encoding. This path stays independent of Web and IR changes.
+- `web/src/core.js`: public objects, renderer and WASM bridge.
+- `web/src/scene.js`: authoring and timeline.
+- `web/src/evaluator.js`: random-access state evaluation.
+- `web/src/player.js`: playback.
+- `web/src/ir.js`: portable Scene IR.
+- `web/src/media.js`: external media.
+- `web/src/three.js`: Web 3D authoring/layer.
+- `web/src/typst.js`: Web Math/Typst compiler boundary.
+- `web/src/svg.js`: SVG → `VectorDocument` lowering.
+
+## Typst
+
+```text
+Python authoring: Text/Math → local Typst CLI → persistent SVG cache → VectorDocument
+Web authoring:    static Math/Typst → Vite plugin → local Typst CLI → SVG asset
+Web runtime:      SVG asset → VectorDocument
+```
+
+Runtime code never owns Typst layout. Production Web packages contain no Typst compiler. Python Preview explicitly injects its `/api/typst` development bridge.
+
+## Scene IR
+
+Scene IR v1 stores portable object state, hierarchy/lifetimes, resources and timeline clips. `VectorDocument` is the common vector representation for SVG/Typst output.
+
+Callbacks are runtime behavior and therefore require explicit sampling when crossing the IR boundary.
+
+## Repository boundary
+
+The core repository contains runtime code, tests and technical documentation. Tutorials/examples live in a separate repository and are not imported by core tests.

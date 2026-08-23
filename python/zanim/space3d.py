@@ -228,6 +228,89 @@ class SO3:
 
 
 @dataclass(frozen=True, slots=True)
+class SE3:
+    """Rigid 3D pose ``p_parent = R p_local + translation``."""
+
+    rotation: SO3 = SO3()
+    translation: Vec3 = Vec3()
+
+    def __post_init__(self) -> None:
+        if not all(
+            isfinite(v) for v in (self.translation.x, self.translation.y, self.translation.z)
+        ):
+            raise ValueError("SE3 translation must be finite")
+
+    def __matmul__(self, other: "SE3") -> "SE3":
+        if not isinstance(other, SE3):
+            return NotImplemented
+        return SE3(
+            self.rotation @ other.rotation,
+            self.rotation.apply(other.translation) + self.translation,
+        )
+
+    def inverse(self) -> "SE3":
+        r = self.rotation
+        inv = SO3(
+            r.m00,
+            r.m10,
+            r.m20,
+            r.m01,
+            r.m11,
+            r.m21,
+            r.m02,
+            r.m12,
+            r.m22,
+        )
+        return SE3(inv, inv.apply(self.translation) * -1.0)
+
+    def apply_vector(self, vector: Vec3) -> Vec3:
+        return self.rotation.apply(vector)
+
+    def apply(self, point: Vec3) -> Vec3:
+        return self.rotation.apply(point) + self.translation
+
+    def as_affine(self) -> "Transform3D":
+        return Transform3D.from_so3(self.rotation, self.translation)
+
+    @staticmethod
+    def from_affine(transform: "Transform3D", *, tolerance: float = 1e-7) -> "SE3":
+        if not isinstance(transform, Transform3D):
+            raise TypeError("SE3.from_affine() requires Transform3D")
+        if (
+            abs(transform.m30) > tolerance
+            or abs(transform.m31) > tolerance
+            or abs(transform.m32) > tolerance
+            or abs(transform.m33 - 1.0) > tolerance
+        ):
+            raise ValueError("Transform3D is not affine")
+        rotation = SO3(
+            transform.m00,
+            transform.m01,
+            transform.m02,
+            transform.m10,
+            transform.m11,
+            transform.m12,
+            transform.m20,
+            transform.m21,
+            transform.m22,
+        )
+        return SE3(rotation, Vec3(transform.m03, transform.m13, transform.m23))
+
+    def interpolate(self, other: "SE3", alpha: float) -> "SE3":
+        if not isinstance(other, SE3):
+            raise TypeError("SE3.interpolate() requires SE3")
+        t = max(0.0, min(1.0, float(alpha)))
+        return SE3(
+            self.rotation.slerp(other.rotation, t),
+            self.translation + (other.translation - self.translation) * t,
+        )
+
+
+def pose3d(*, position: Vec3 = Vec3(), rotation: SO3 = SO3()) -> SE3:
+    return SE3(rotation=rotation, translation=position)
+
+
+@dataclass(frozen=True, slots=True)
 class Transform3D:
     """Row-major affine 4x4 transform acting on column vectors."""
 

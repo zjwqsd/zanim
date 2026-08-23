@@ -1,4 +1,5 @@
 import {createSceneFromIR,validateSceneIR} from '../web/src/ir.js';
+import {configureTypstCompiler} from '../web/src/typst.js';
 
 const $=id=>document.getElementById(id);
 const canvas=$('canvas'),play=$('play'),reload=$('reload'),slider=$('time'),readout=$('readout'),status=$('status'),errorBox=$('error'),objectsEl=$('objects'),sourceCode=$('sourceCode'),sourceHead=$('sourceHead');
@@ -54,6 +55,7 @@ function show(t){
 function tick(now){if(!running)return;let t=(now-startClock)/1000;if(t>=scene.duration){t=scene.duration;stop();}show(t);if(running)raf=requestAnimationFrame(tick);}
 
 async function fetchJSON(url,options){const r=await fetch(url,{cache:'no-store',...options});const text=await r.text();let value;try{value=JSON.parse(text);}catch{value={error:text||`${r.status} ${r.statusText}`};}if(!r.ok)throw new Error(value.traceback||value.error||`${r.status} ${r.statusText}`);return value;}
+configureTypstCompiler(async payload=>(await fetchJSON('/api/typst',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})).document);
 async function loadScene(preserveTime=0){
   stop();showError('');status.textContent='Loading Scene IR…';
   try{

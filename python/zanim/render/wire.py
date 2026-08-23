@@ -358,12 +358,23 @@ def _wire_infinite(snapshot):
     secondary = snapshot.color if snapshot.secondary_color is None else snapshot.secondary_color
     return WireInfinite2D(
         snapshot.kind,
-        snapshot.p0, snapshot.p1, snapshot.p2, snapshot.p3,
-        snapshot.map_kind, float(snapshot.progress),
+        snapshot.p0,
+        snapshot.p1,
+        snapshot.p2,
+        snapshot.p3,
+        snapshot.map_kind,
+        float(snapshot.progress),
         *params[:8],
-        transform.xx, transform.xy, transform.yx, transform.yy, transform.tx, transform.ty,
-        _pack_rgba(snapshot.color), _pack_rgba(secondary),
-        snapshot.stroke_width, float(snapshot.opacity),
+        transform.xx,
+        transform.xy,
+        transform.yx,
+        transform.yy,
+        transform.tx,
+        transform.ty,
+        _pack_rgba(snapshot.color),
+        _pack_rgba(secondary),
+        snapshot.stroke_width,
+        float(snapshot.opacity),
     )
 
 

@@ -104,7 +104,7 @@ from .space import (
     affine2d,
     pose2d,
 )
-from .space3d import SO3, Transform3D, Vec3
+from .space3d import SE3, SO3, Transform3D, Vec3, pose3d
 from .svg import load_svg
 from .timeline import Easing
 from .typst import Math, Text
@@ -170,6 +170,7 @@ __all__ = [
     "Transform2D",
     "TransformFrame",
     "SE2",
+    "SE3",
     "affine2d",
     "pose2d",
     "LOCAL",
@@ -218,6 +219,7 @@ __all__ = [
     "Camera3D",
     "Vec3",
     "Transform3D",
+    "pose3d",
     "SO3",
     "Box3D",
     "Cube3D",

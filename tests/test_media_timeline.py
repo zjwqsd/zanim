@@ -9,7 +9,7 @@ from zanim.render.audio import render_audio_mix
 from zanim.timeline import PlaybackClip, TimeSpan
 
 ROOT = Path(__file__).resolve().parents[1]
-MEDIA = ROOT / "examples/assets/media_demo"
+MEDIA = ROOT / "tests/assets/media_demo"
 
 
 class PlaybackTests(unittest.TestCase):

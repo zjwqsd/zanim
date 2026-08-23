@@ -96,7 +96,7 @@ class WebPreviewTests(unittest.TestCase):
 
     def test_preview_exposes_media_as_nonportable_external_resources(self):
         root = Path(__file__).resolve().parents[1]
-        image_path = root / "web/assets/media_demo/image.png"
+        image_path = root / "tests/assets/media_demo/image.png"
         scene = Scene(canvas=Canvas(320, 180, 40), fps=30)
         scene.add(Image(image_path, width=2.5))
         server = self._server(scene)
@@ -116,7 +116,7 @@ class WebPreviewTests(unittest.TestCase):
 
     def test_preview_video_supports_range_requests_and_playback_ir(self):
         root = Path(__file__).resolve().parents[1]
-        video_path = root / "web/assets/media_demo/clip.mp4"
+        video_path = root / "tests/assets/media_demo/clip.mp4"
         scene = Scene(canvas=Canvas(320, 180, 40), fps=30)
         video = scene.add(Video(video_path, width=3.0))
         video.media(duration=3.0, source_start=0.25, speed=1.25, loop=True)
@@ -144,7 +144,7 @@ class WebPreviewTests(unittest.TestCase):
 
     def test_preview_audio_uses_external_media_and_playback_channel(self):
         root = Path(__file__).resolve().parents[1]
-        audio_path = root / "web/assets/media_demo/tone.wav"
+        audio_path = root / "tests/assets/media_demo/tone.wav"
         scene = Scene(canvas=Canvas(160, 90, 20), fps=30)
         audio = scene.add(Audio(audio_path, gain=0.25))
         audio.media(duration=1.5, loop=True)

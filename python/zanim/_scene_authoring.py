@@ -21,7 +21,7 @@ from .space import (
     TransformFrame,
     as_vec2,
 )
-from .space3d import Transform3D
+from .space3d import SE3, Transform3D
 from .timeline import (
     BatchClip,
     Easing,
@@ -136,6 +136,24 @@ class _SceneAuthoring:
         obj._set_scene_state("transform", target)
         return clip
 
+    def _transform_to_se3(
+        self,
+        obj: MeshObject3D,
+        target: SE3,
+        duration: float,
+        easing: Easing,
+        at: float,
+    ):
+        registered = self._require_alive_for_span(obj, duration, at)
+        start, end = self._scheduled_span(duration, at)
+        self._assert_no_descendant_world_dependency(registered, start, end)
+        before = SE3.from_affine(obj.transform)
+        clip = self._timeline.add_se3_transform(
+            registered.object_id, before, target, duration, easing, at
+        )
+        obj._set_scene_state("transform", target.as_affine())
+        return clip
+
     def _transform_to_3d(
         self,
         obj: MeshObject3D,
@@ -157,8 +175,8 @@ class _SceneAuthoring:
         self,
         obj: SceneObject2D | MeshObject3D,
         *,
-        by: Transform2D | Transform3D | SE2 | None = None,
-        to: Transform2D | Transform3D | SE2 | None = None,
+        by: Transform2D | Transform3D | SE2 | SE3 | None = None,
+        to: Transform2D | Transform3D | SE2 | SE3 | None = None,
         frame: TransformFrame | None = None,
         duration: float | None = None,
         easing: Easing = Easing.SMOOTHSTEP,
@@ -186,13 +204,21 @@ class _SceneAuthoring:
             if isinstance(to, SE2) or isinstance(by, SE2):
                 raise TypeError("SE2 is a 2D rigid transform and cannot animate MeshObject3D")
             if to is not None:
+                if isinstance(to, SE3):
+                    return self._transform_to_se3(obj, to, duration, easing, at)
                 if not isinstance(to, Transform3D):
-                    raise TypeError("MeshObject3D transform target must be Transform3D")
+                    raise TypeError("MeshObject3D transform target must be Transform3D or SE3")
                 return self._transform_to_3d(obj, to, duration, easing, at)
             assert by is not None
-            if not isinstance(by, Transform3D):
-                raise TypeError("MeshObject3D relative transform must be Transform3D")
             resolved = self._require_frame(frame)
+            if isinstance(by, SE3):
+                current = SE3.from_affine(obj.transform)
+                target_pose = (
+                    by @ current if resolved is PARENT or resolved is WORLD else current @ by
+                )
+                return self._transform_to_se3(obj, target_pose, duration, easing, at)
+            if not isinstance(by, Transform3D):
+                raise TypeError("MeshObject3D relative transform must be Transform3D or SE3")
             if resolved is PARENT or resolved is WORLD:
                 target3d = by @ obj.transform
             elif resolved is LOCAL:
@@ -433,8 +459,17 @@ class _SceneAuthoring:
     ):
         registered = self._require_alive_for_span(obj, duration, at)
         if isinstance(obj, MeshObject3D):
+
+            def affine3d_provider(alpha: float) -> Transform3D:
+                value = provider(alpha)
+                if isinstance(value, SE3):
+                    return value.as_affine()
+                if isinstance(value, Transform3D):
+                    return value
+                raise TypeError("3D transform function must return Transform3D or SE3")
+
             clip = self._timeline.add_transform3d_function(
-                registered.object_id, provider, obj.transform, duration, easing, at
+                registered.object_id, affine3d_provider, obj.transform, duration, easing, at
             )
             obj._set_scene_state("transform", clip.after)
             return clip

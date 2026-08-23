@@ -38,6 +38,7 @@ from .timeline import (
     PlaybackClip,
     RevealClip,
     SE2TransformClip,
+    SE3TransformClip,
     StyleClip,
     Transform3DClip,
     TransformClip,
@@ -203,12 +204,21 @@ class _SceneEvaluator:
         return RenderInfinite(
             registered.object_id,
             InfiniteSnapshot(
-                initial.kind, initial.p0, initial.p1, initial.p2, initial.p3,
-                parent_transform @ self._transform_at(registered.object_id, initial.transform, time),
-                initial.color, initial.stroke_width,
+                initial.kind,
+                initial.p0,
+                initial.p1,
+                initial.p2,
+                initial.p3,
+                parent_transform
+                @ self._transform_at(registered.object_id, initial.transform, time),
+                initial.color,
+                initial.stroke_width,
                 parent_opacity * self._opacity_at(registered.object_id, initial.opacity, time),
-                parent_z + initial.z_index, initial.secondary_color, initial.map_kind,
-                progress, initial.map_params,
+                parent_z + initial.z_index,
+                initial.secondary_color,
+                initial.map_kind,
+                progress,
+                initial.map_params,
             ),
         )
 
@@ -287,7 +297,7 @@ class _SceneEvaluator:
             if time < clip.span.start:
                 break
             if time >= clip.span.end:
-                value = clip.after
+                value = clip.after.as_affine() if isinstance(clip, SE3TransformClip) else clip.after
                 continue
             return clip.sample(time)
         return value

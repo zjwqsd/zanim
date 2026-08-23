@@ -70,8 +70,11 @@ class InfiniteLine(InfiniteObject2D):
         if self.direction.length <= 1e-12:
             raise ValueError("InfiniteLine direction must be non-zero")
         self._init_common(
-            transform=transform, color=color, stroke_width=stroke_width,
-            opacity=opacity, z_index=z_index,
+            transform=transform,
+            color=color,
+            stroke_width=stroke_width,
+            opacity=opacity,
+            z_index=z_index,
         )
 
 
@@ -97,8 +100,11 @@ class InfiniteGrid(InfiniteObject2D):
         self.origin = as_vec2(origin, name="origin")
         self.step = Vec2(sx, sy)
         self._init_common(
-            transform=transform, color=color, stroke_width=stroke_width,
-            opacity=opacity, z_index=z_index,
+            transform=transform,
+            color=color,
+            stroke_width=stroke_width,
+            opacity=opacity,
+            z_index=z_index,
         )
 
 
@@ -201,10 +207,17 @@ class ComplexMappedGrid(InfiniteObject2D):
             params = (a.real, a.imag, b.real, b.imag, c.real, c.imag, d.real, d.imag)
         self.map_params = params
         self._init_common(
-            transform=transform, color=x_color, stroke_width=stroke_width,
-            opacity=opacity, z_index=z_index,
+            transform=transform,
+            color=x_color,
+            stroke_width=stroke_width,
+            opacity=opacity,
+            z_index=z_index,
         )
 
     def progress_at(self, time: float) -> float:
-        value = self.progress.value_at(time) if isinstance(self.progress, ScalarValue) else self.progress
+        value = (
+            self.progress.value_at(time)
+            if isinstance(self.progress, ScalarValue)
+            else self.progress
+        )
         return max(0.0, min(1.0, float(value)))

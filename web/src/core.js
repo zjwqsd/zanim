@@ -148,6 +148,24 @@ export class ZanimWasm {
     const ptr=this.exports.zanim_web_fractal_data_ptr();
     return new Uint8ClampedArray(this.exports.memory.buffer,ptr,count*4);
   }
+  upload3DGeometry(meshes){
+    const e=this.exports,memory=e.memory.buffer,maxVertices=e.zanim_web_3d_max_vertices(),maxIndices=e.zanim_web_3d_max_indices(),maxMeshes=e.zanim_web_3d_max_meshes();
+    if(meshes.length>maxMeshes)throw new RangeError(`3D layer exceeds ${maxMeshes} meshes`);
+    const positions=new Float32Array(memory,e.zanim_web_3d_positions_ptr(),maxVertices*3),normals=new Float32Array(memory,e.zanim_web_3d_normals_ptr(),maxVertices*3),indices=new Uint32Array(memory,e.zanim_web_3d_indices_ptr(),maxIndices),ranges=new Uint32Array(memory,e.zanim_web_3d_ranges_ptr(),maxMeshes*4);
+    let vertexOffset=0,indexOffset=0;
+    for(let i=0;i<meshes.length;i++){const mesh=meshes[i];if(vertexOffset+mesh.vertexCount>maxVertices)throw new RangeError(`3D vertices exceed ${maxVertices}`);if(indexOffset+mesh.indexCount>maxIndices)throw new RangeError(`3D indices exceed ${maxIndices}`);positions.set(mesh.positions,vertexOffset*3);normals.set(mesh.normals,vertexOffset*3);indices.set(mesh.indices,indexOffset);ranges.set([vertexOffset,mesh.vertexCount,indexOffset,mesh.indexCount],i*4);vertexOffset+=mesh.vertexCount;indexOffset+=mesh.indexCount;}
+    const upload={meshes:[...meshes],meshCount:meshes.length,serial:(this._3dSerial??0)+1};this._3dSerial=upload.serial;this._3dUpload=upload;return upload;
+  }
+  render3D(width,height,camera,upload,states){
+    const e=this.exports;if(!upload||this._3dUpload!==upload)throw new Error('3D geometry upload is no longer active');if(states.length!==upload.meshCount)throw new RangeError('3D state count must match uploaded meshes');
+    const maxWidth=e.zanim_web_3d_max_width(),maxHeight=e.zanim_web_3d_max_height();if(width>maxWidth||height>maxHeight)throw new RangeError(`3D render target exceeds ${maxWidth}x${maxHeight}`);
+    const memory=e.memory.buffer,models=new Float32Array(memory,e.zanim_web_3d_models_ptr(),upload.meshCount*16),colors=new Uint32Array(memory,e.zanim_web_3d_colors_ptr(),upload.meshCount),opacities=new Float32Array(memory,e.zanim_web_3d_opacities_ptr(),upload.meshCount);
+    for(let i=0;i<states.length;i++){const state=states[i];models.set(state.model,i*16);colors[i]=state.colorRGBA>>>0;opacities[i]=state.opacity;}
+    const p=camera.position,t=camera.target,u=camera.up,ortho=camera.orthographicHeight;
+    const count=e.zanim_web_render_3d(width,height,upload.meshCount,p.x,p.y,p.z,t.x,t.y,t.z,u.x,u.y,u.z,camera.fovYDegrees,camera.near,camera.far,ortho??0,ortho==null?0:1);
+    if(!count)throw new Error('3D WASM render failed');
+    return new Uint8ClampedArray(e.memory.buffer,e.zanim_web_3d_pixels_ptr(),count*4);
+  }
 }
 
 let nextValueId=1;
@@ -233,7 +251,7 @@ export function resamplePolylineByArcLength(points, segmentCount){
   return out;
 }
 
-function parseWebColor(value){
+export function parseWebColor(value){
   if(value==null)return null;
   if(typeof value!=='string')throw new TypeError('interpolated colors must be CSS strings');
   const v=value.trim();

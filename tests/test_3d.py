@@ -2,6 +2,7 @@ import math
 import unittest
 
 from zanim import (
+    SE3,
     SO3,
     Box3D,
     Camera3D,
@@ -92,6 +93,24 @@ class Mesh3DTests(unittest.TestCase):
         self.assertNotEqual(first, later)
         self.assertTrue(scene.has_3d)
         self.assertIsInstance(scene.camera3d, Camera3D)
+
+    def test_se3_interpolation_preserves_rigid_rotation(self):
+        start = SE3()
+        end = SE3(SO3.rotation_y(math.pi), Vec3(2, 1, -0.5))
+        middle = start.interpolate(end, 0.5)
+        self.assertAlmostEqual(middle.rotation.determinant, 1.0, places=7)
+        self.assertAlmostEqual(middle.rotation.apply(Vec3(1, 0, 0)).length, 1.0, places=7)
+        self.assertEqual(middle.translation, Vec3(1, 0.5, -0.25))
+
+    def test_scene_se3_clip_does_not_collapse_at_half_turn(self):
+        scene = Scene(canvas=Canvas(320, 180, 25), fps=30)
+        cube = scene.add(Cube3D())
+        cube.transform(to=SE3(SO3.rotation_y(math.pi)), duration=2.0, easing=Easing.LINEAR)
+        middle = scene.evaluate(1.0).meshes3d[0].snapshot.transform
+        x_axis = middle.apply(Vec3(1, 0, 0))
+        self.assertAlmostEqual(x_axis.length, 1.0, places=7)
+        self.assertAlmostEqual(x_axis.x, 0.0, places=7)
+        self.assertAlmostEqual(abs(x_axis.z), 1.0, places=7)
 
     def test_3d_and_2d_transform_channels_are_distinct_by_object(self):
         scene = Scene()

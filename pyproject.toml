@@ -7,9 +7,6 @@ dependencies = [
     "pillow>=10.3.0",
 ]
 
-[project.optional-dependencies]
-examples = ["numpy>=2.0"]
-
 [project.scripts]
 zanim = "zanim.cli:main"
 
@@ -25,7 +22,7 @@ path = "hatch_build.py"
 
 [dependency-groups]
 dev = [
-    "numpy>=2.5.2",
+    "pytest>=8.0",
     "ruff>=0.16.4",
 ]
 

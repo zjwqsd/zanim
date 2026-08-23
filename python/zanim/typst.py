@@ -19,25 +19,38 @@ _CACHE_SCHEMA = "zanim-typst-v1"
 
 
 def _typst_executable() -> Path:
+    """Resolve Typst predictably: explicit override, source tool, then PATH."""
     override = os.environ.get("ZANIM_TYPST")
     if override:
         path = Path(override).expanduser()
         if path.is_file():
             return path
-    local = _ROOT / ".tools" / "typst" / "typst"
+        raise ZanimError(f"ZANIM_TYPST does not point to a file: {path}")
+
+    executable = "typst.exe" if os.name == "nt" else "typst"
+    local = _ROOT / ".tools" / "typst" / executable
     if local.is_file():
         return local
+
     system = shutil.which("typst")
     if system:
         return Path(system)
     raise ZanimError(
-        "Typst is required for Text/Math. Install `typst` or set ZANIM_TYPST to the executable."
+        "Typst is required for Text/Math. Set ZANIM_TYPST, install Typst on PATH, "
+        f"or place it at {local}."
     )
 
 
 def _cache_dir() -> Path:
-    root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    path = root / "zanim" / "typst"
+    explicit = os.environ.get("ZANIM_CACHE_DIR")
+    if explicit:
+        root = Path(explicit).expanduser()
+        path = root / "typst"
+    elif os.name == "nt" and os.environ.get("LOCALAPPDATA"):
+        path = Path(os.environ["LOCALAPPDATA"]) / "zanim" / "typst"
+    else:
+        root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+        path = root / "zanim" / "typst"
     path.mkdir(parents=True, exist_ok=True)
     return path
 

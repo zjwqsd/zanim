@@ -53,6 +53,24 @@ export class Transform2D {
 }
 export const affine2d: typeof Transform2D.affine;
 
+export type Point3 = readonly [number, number, number];
+export class Vec3 {
+  x:number; y:number; z:number; constructor(x?:number,y?:number,z?:number);
+  static from(value:Vec3|Point3):Vec3; add(v:Vec3|Point3):Vec3; sub(v:Vec3|Point3):Vec3; mul(k:number):Vec3; dot(v:Vec3|Point3):number; cross(v:Vec3|Point3):Vec3; readonly length:number; normalized():Vec3;
+}
+export class Transform3D {
+  constructor(...values:number[]); static identity():Transform3D; static translation(x:number,y:number,z:number):Transform3D; static scaling(x:number,y?:number,z?:number):Transform3D; static rotationAxis(axis:Vec3|Point3,radians:number):Transform3D; static rotationX(radians:number):Transform3D; static rotationY(radians:number):Transform3D; static rotationZ(radians:number):Transform3D;
+  mul(other:Transform3D):Transform3D; translate(x:number,y:number,z:number):Transform3D; scale(x:number,y?:number,z?:number):Transform3D; rotateX(radians:number):Transform3D; rotateY(radians:number):Transform3D; rotateZ(radians:number):Transform3D; apply(point:Vec3|Point3):Vec3; asArray():number[];
+}
+export class TriangleMesh { readonly positions:Float32Array; readonly normals:Float32Array; readonly indices:Uint32Array; readonly vertexCount:number; readonly indexCount:number; constructor(vertices:readonly (Vec3|Point3)[]|Float32Array,normals:readonly (Vec3|Point3)[]|Float32Array,indices:readonly number[]|Uint32Array); }
+export class MeshObject3D {
+  mesh:TriangleMesh; transform:Transform3D|((time:number,object:MeshObject3D)=>Transform3D); geometryTransform:Transform3D|((time:number,object:MeshObject3D)=>Transform3D); color:string|((time:number,object:MeshObject3D)=>string); opacity:ScalarLike;
+  constructor(mesh:TriangleMesh,options?:{transform?:Transform3D|((time:number,object:MeshObject3D)=>Transform3D);geometryTransform?:Transform3D|((time:number,object:MeshObject3D)=>Transform3D);color?:string|((time:number,object:MeshObject3D)=>string);opacity?:ScalarLike});
+}
+export function unitBoxMesh():TriangleMesh; export function Box3D(size?:Vec3|Point3,options?:ConstructorParameters<typeof MeshObject3D>[1]):MeshObject3D; export function Cube3D(side?:number,options?:ConstructorParameters<typeof MeshObject3D>[1]):MeshObject3D;
+export class Camera3D { position:Vec3; target:Vec3; up:Vec3; fovYDegrees:number; near:number; far:number; orthographicHeight:number|null; layerZIndex:number; constructor(options?:{position?:Vec3|Point3;target?:Vec3|Point3;up?:Vec3|Point3;fovYDegrees?:number;near?:number;far?:number;orthographicHeight?:number|null;layerZIndex?:number}); }
+export class Scene3DLayer extends ZObject { readonly meshes:MeshObject3D[]; camera:Camera3D; resolution:number; maxWidth:number; maxHeight:number; constructor(meshes:readonly MeshObject3D[],options?:ObjectOptions&{camera?:Camera3D;resolution?:number;maxWidth?:number;maxHeight?:number}); }
+
 export class ScalarValue { readonly id:number; value:number; initial:number; constructor(value?:number); }
 export function sampleValue(value:ScalarLike,time?:number):number;
 
@@ -62,6 +80,8 @@ export class ZanimWasm {
   determinant(matrix:Mat2):number; resolveGrid(width:number,height:number,unitSize:number,step:number,matrix:Mat2):Float64Array;
   renderFractal(kind:1|2,width:number,height:number,centerRe:number,centerIm:number,worldPerPixel:number,maxIter?:number,juliaRe?:number,juliaIm?:number,colorShift?:number,colorScale?:number,inside?:readonly number[],palette?:readonly number[]):Uint8ClampedArray;
   renderComplexGrid(kind:1|2|3|4,width:number,height:number,centerRe:number,centerIm:number,worldPerPixel:number,stepX:number,stepY:number,progress:number,strokePx?:number,params?:readonly number[]):Uint8ClampedArray;
+  upload3DGeometry(meshes:readonly TriangleMesh[]):unknown;
+  render3D(width:number,height:number,camera:Camera3D,upload:unknown,states:readonly {model:readonly number[];colorRGBA:number;opacity:number}[]):Uint8ClampedArray;
 }
 
 export class ZObject {
@@ -159,10 +179,11 @@ export class Image extends MediaObject2D { constructor(url:string|URL,options?:O
 export class GIF extends MediaObject2D { constructor(url:string|URL,options?:ObjectOptions&{width?:number|null;height?:number|null;sourceWidth?:number;sourceHeight?:number;duration?:number|null;crossOrigin?:string|null}); }
 export class Video extends MediaObject2D { constructor(url:string|URL,options?:ObjectOptions&{width?:number|null;height?:number|null;sourceWidth?:number;sourceHeight?:number;duration?:number|null;crossOrigin?:string|null;muted?:boolean;playsInline?:boolean;preload?:string}); destroy():void; }
 export interface MediaPlaybackOptions { duration?:number|null; sourceStart?:number; speed?:number; loop?:boolean; sourceDuration?:number|null; at?:number }
-export type TypstCompiler = (payload:{kind:'typst'|'math';source:string;font_size?:number;color?:string},context:{endpoint:string;object:Typst})=>Promise<VectorDocumentData|{document:VectorDocumentData}>;
+export type TypstCompilerResult = VectorDocumentData | {document:VectorDocumentData} | string | {svg:string};
+export type TypstCompiler = (payload:{kind:'typst'|'math';source:string;font_size?:number;color?:string},context:{object:Typst})=>Promise<TypstCompilerResult>;
 export function configureTypstCompiler(compiler:TypstCompiler|null):void;
-export class Typst extends VectorObject2D { source:string; endpoint:string; compiler:TypstCompiler; readonly ready:Promise<this>; constructor(source:string,options?:ObjectOptions&{reveal?:number;endpoint?:string;compiler?:TypstCompiler|null}); compile(source?:string):Promise<this>; }
-export class Math extends Typst { fontSize:number; color:string; constructor(source:string,options?:ObjectOptions&{reveal?:number;endpoint?:string;compiler?:TypstCompiler|null;fontSize?:number;color?:string}); }
+export class Typst extends VectorObject2D { source:string; compiler:TypstCompiler|null; readonly ready:Promise<this>; constructor(source:string,options?:ObjectOptions&{reveal?:number;compiler?:TypstCompiler|null}); compile(source?:string):Promise<this>; }
+export class Math extends Typst { fontSize:number; color:string; constructor(source:string,options?:ObjectOptions&{reveal?:number;compiler?:TypstCompiler|null;fontSize?:number;color?:string}); }
 
 export interface AnimationOptions extends TimeOptions { transform?:Transform2D; opacity?:number; reveal?:number; style?:StyleState }
 export interface ParallelAPI {

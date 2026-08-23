@@ -27,15 +27,6 @@ def _source_scene() -> Scene:
 
 
 class ProductRuntimeTests(unittest.TestCase):
-    def test_official_extras_expose_uniform_scene_builder(self):
-        import inspect
-
-        from examples.extras import fourier_draw, mnist_training, neural_network
-
-        for module in (fourier_draw, neural_network, mnist_training):
-            with self.subTest(module=module.__name__):
-                self.assertEqual(len(inspect.signature(module.build_scene).parameters), 0)
-
     def test_native_abi_matches_python_package(self):
         lib = load_library()
         self.assertEqual(int(lib.zanim_abi_version()), ABI_VERSION)
@@ -148,6 +139,31 @@ class ProductRuntimeTests(unittest.TestCase):
         with patch.object(typst_module, "_ROOT", Path("/definitely/missing")):
             with patch("zanim.typst.shutil.which", return_value=None):
                 with self.assertRaisesRegex(ZanimError, "Typst is required"):
+                    typst_module._typst_executable()
+
+    def test_typst_explicit_path_and_cache_root_are_predictable(self):
+        import os
+
+        from zanim import typst as typst_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            executable = root / ("typst.exe" if os.name == "nt" else "typst")
+            executable.write_bytes(b"")
+            with patch.dict(os.environ, {"ZANIM_TYPST": str(executable)}, clear=False):
+                self.assertEqual(typst_module._typst_executable(), executable)
+            with patch.dict(os.environ, {"ZANIM_CACHE_DIR": str(root / "cache")}, clear=False):
+                self.assertEqual(typst_module._cache_dir(), root / "cache" / "typst")
+
+    def test_invalid_typst_override_does_not_silently_fall_back(self):
+        import os
+
+        from zanim import typst as typst_module
+
+        missing = "/definitely/missing/typst"
+        with patch.dict(os.environ, {"ZANIM_TYPST": missing}, clear=False):
+            with patch("zanim.typst.shutil.which", return_value="/other/typst"):
+                with self.assertRaisesRegex(ZanimError, "ZANIM_TYPST"):
                     typst_module._typst_executable()
 
     def test_missing_ffmpeg_has_product_error(self):

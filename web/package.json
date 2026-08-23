@@ -14,14 +14,31 @@
     "./ir": {
       "types": "./src/ir.d.ts",
       "import": "./src/ir.js"
+    },
+    "./vite": {
+      "types": "./vite.d.ts",
+      "import": "./vite.js"
     }
   },
   "files": [
     "src",
-    "dist"
+    "dist",
+    "vite.js",
+    "vite.d.ts",
+    "README.md"
   ],
   "scripts": {
     "build": "./build.sh",
-    "test": "node ./test.mjs"
+    "test": "node ./test.mjs && node ./vite.test.mjs"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.28.4",
+    "magic-string": "^0.30.17"
+  },
+  "peerDependencies": {
+    "vite": ">=5"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
   }
 }

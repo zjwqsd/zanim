@@ -9,7 +9,7 @@ from .batch import BatchGeometry
 from .geometry import Color, StrokeStyle, Style
 from .interpolation import ObjectInterpolation
 from .space import SE2, Transform2D
-from .space3d import Transform3D
+from .space3d import SE3, Transform3D
 
 
 class Easing(str, Enum):
@@ -111,6 +111,18 @@ class Transform3DClip:
 
     def sample(self, time: float) -> Transform3D:
         return lerp_transform3d(self.before, self.after, self.span.alpha(time, self.easing))
+
+
+@dataclass(frozen=True, slots=True)
+class SE3TransformClip:
+    object_id: int
+    span: TimeSpan
+    before: SE3
+    after: SE3
+    easing: Easing = Easing.SMOOTHSTEP
+
+    def sample(self, time: float) -> Transform3D:
+        return self.before.interpolate(self.after, self.span.alpha(time, self.easing)).as_affine()
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,6 +251,7 @@ Clip = (
     | SE2TransformClip
     | TransformFunctionClip
     | Transform3DClip
+    | SE3TransformClip
     | Transform3DFunctionClip
     | OpacityClip
     | StyleClip
@@ -329,6 +342,7 @@ class Timeline:
             SE2TransformClip,
             TransformFunctionClip,
             Transform3DClip,
+            SE3TransformClip,
             Transform3DFunctionClip,
         )
         if isinstance(clip_or_type, type):
@@ -395,6 +409,15 @@ class Timeline:
     ):
         return self._append(
             Transform3DClip(object_id, self._span(duration, at), before, after, easing)
+        )
+
+    def add_se3_transform(
+        self, object_id, before, after, duration=None, easing=Easing.SMOOTHSTEP, at=0.0
+    ):
+        if not isinstance(before, SE3) or not isinstance(after, SE3):
+            raise TypeError("SE3 transform clips require SE3 endpoints")
+        return self._append(
+            SE3TransformClip(object_id, self._span(duration, at), before, after, easing)
         )
 
     def add_transform3d_function(
