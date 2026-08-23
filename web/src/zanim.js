@@ -41,6 +41,22 @@ export class Frame {
   below(other,gap=0){const yMax=Math.min(this.yMax,other.yMin-gap);if(yMax<this.yMin)throw new RangeError('no frame remains below');return new Frame(this.xMin,this.yMin,this.xMax,yMax);}
 }
 function transformBounds(points,m){const q=points.map(p=>m.apply(p[0],p[1]));return new Bounds2D(Math.min(...q.map(p=>p[0])),Math.min(...q.map(p=>p[1])),Math.max(...q.map(p=>p[0])),Math.max(...q.map(p=>p[1])));}
+function cubicAxisBounds(p0,p1,p2,p3){
+  const values=[p0,p3],a=-p0+3*p1-3*p2+p3,b=2*(p0-2*p1+p2),c=p1-p0;
+  const evalAt=t=>{const u=1-t;return u*u*u*p0+3*u*u*t*p1+3*u*t*t*p2+t*t*t*p3;};
+  if(Math.abs(a)<1e-14){if(Math.abs(b)>1e-14){const t=-c/b;if(t>0&&t<1)values.push(evalAt(t));}}
+  else{const disc=b*b-4*a*c;if(disc>=0){const root=Math.sqrt(disc);for(const t of [(-b-root)/(2*a),(-b+root)/(2*a)])if(t>0&&t<1)values.push(evalAt(t));}}
+  return [Math.min(...values),Math.max(...values)];
+}
+function vectorDocumentBounds(document,m){
+  let left=Infinity,bottom=Infinity,right=-Infinity,top=-Infinity;
+  for(const path of document.paths)for(const contour of path.contours)for(const seg of contour.segments){
+    const q=seg.map(p=>m.apply(p[0],p[1])),xb=cubicAxisBounds(q[0][0],q[1][0],q[2][0],q[3][0]),yb=cubicAxisBounds(q[0][1],q[1][1],q[2][1],q[3][1]);
+    left=Math.min(left,xb[0]);right=Math.max(right,xb[1]);bottom=Math.min(bottom,yb[0]);top=Math.max(top,yb[1]);
+  }
+  if(!Number.isFinite(left)){const p=m.apply(0,0);return new Bounds2D(p[0],p[1],p[0],p[1]);}
+  return new Bounds2D(left,bottom,right,top);
+}
 function boundsOf(object,extra=Transform2D.identity()){
   const m=extra.mul(object.transform);
   if(object instanceof Group){if(!object.children.length){const p=m.apply(0,0);return new Bounds2D(p[0],p[1],p[0],p[1]);}return Bounds2D.union(...object.children.map(c=>boundsOf(c,m)));}
@@ -50,6 +66,8 @@ function boundsOf(object,extra=Transform2D.identity()){
   if(object instanceof CircleSet){const pieces=object.items.map(i=>{const c=m.apply(i[0],i[1]),ex=i[2]*Math.hypot(m.xx,m.xy),ey=i[2]*Math.hypot(m.yx,m.yy);return new Bounds2D(c[0]-ex,c[1]-ey,c[0]+ex,c[1]+ey);});return Bounds2D.union(...pieces);}
   if(object instanceof LineSet){return transformBounds(object.items.flatMap(i=>[[i[0],i[1]],[i[2],i[3]]]),m);}
   if(object instanceof RectSet){return Bounds2D.union(...object.items.map(i=>transformBounds([[i[0]-i[2]/2,i[1]-i[3]/2],[i[0]+i[2]/2,i[1]-i[3]/2],[i[0]+i[2]/2,i[1]+i[3]/2],[i[0]-i[2]/2,i[1]+i[3]/2]],m)));}
+  if(object instanceof VectorObject2D){return vectorDocumentBounds(object.document,m);}
+  if(object instanceof FourierEpicycles){return transformBounds(object._fullTrace,m);}
   if(object instanceof Text){const p=m.apply(0,0),w=String(typeof object.text==='function'?object.text(0,object):object.text).length*object.fontSize*.0062,h=object.fontSize*.011;return new Bounds2D(p[0]-w/2,p[1]-h/2,p[0]+w/2,p[1]+h/2);}
   throw new TypeError(`${object.constructor.name} has no finite bounds`);
 }
@@ -137,6 +155,20 @@ export class ScalarValue {
 }
 export function sampleValue(value,time=0){return value instanceof ScalarValue?value.value:typeof value==='function'?Number(value(time)):Number(value);}
 const scalarAt=sampleValue;
+
+function asScalarExpr(value){if(value instanceof ScalarExpr)return value;if(typeof value==='number'&&Number.isFinite(value))return ScalarExpr.constant(value);throw new TypeError('expected ScalarExpr or finite number');}
+export class ScalarExpr {
+  constructor(op,args=[]){this.op=op;this.args=[...args];}
+  static constant(value){if(!Number.isFinite(Number(value)))throw new TypeError('ScalarExpr constant must be finite');return new ScalarExpr('const',[Number(value)]);}
+  static variable(name){if(name!=='x'&&name!=='time')throw new RangeError("ScalarExpr variable must be 'x' or 'time'");return new ScalarExpr('var',[name]);}
+  static fromData(value){if(!Array.isArray(value)||!value.length)throw new TypeError('invalid portable scalar expression');const op=String(value[0]);if(op==='const')return ScalarExpr.constant(value[1]);if(op==='var')return ScalarExpr.variable(value[1]);const unary=new Set(['neg','sin','cos','exp','log','abs']),binary=new Set(['add','sub','mul','div','pow']);if(unary.has(op)&&value.length===2)return new ScalarExpr(op,[ScalarExpr.fromData(value[1])]);if(binary.has(op)&&value.length===3)return new ScalarExpr(op,[ScalarExpr.fromData(value[1]),ScalarExpr.fromData(value[2])]);throw new TypeError(`invalid ScalarExpr op ${op}`);}
+  toData(){if(this.op==='const'||this.op==='var')return[this.op,this.args[0]];return[this.op,...this.args.map(arg=>asScalarExpr(arg).toData())];}
+  evaluate({x=0,time=0}={}){const op=this.op;if(op==='const')return Number(this.args[0]);if(op==='var')return this.args[0]==='x'?Number(x):Number(time);if(op==='neg')return-asScalarExpr(this.args[0]).evaluate({x,time});const a=asScalarExpr(this.args[0]).evaluate({x,time});if(op==='sin')return Math.sin(a);if(op==='cos')return Math.cos(a);if(op==='exp')return Math.exp(a);if(op==='log')return Math.log(a);if(op==='abs')return Math.abs(a);const b=asScalarExpr(this.args[1]).evaluate({x,time});if(op==='add')return a+b;if(op==='sub')return a-b;if(op==='mul')return a*b;if(op==='div')return a/b;if(op==='pow')return a**b;throw new TypeError(`unsupported ScalarExpr op ${op}`);}
+  _binary(op,other){return new ScalarExpr(op,[this,asScalarExpr(other)]);}
+  add(v){return this._binary('add',v);} sub(v){return this._binary('sub',v);} mul(v){return this._binary('mul',v);} div(v){return this._binary('div',v);} pow(v){return this._binary('pow',v);}
+  neg(){return new ScalarExpr('neg',[this]);} sin(){return new ScalarExpr('sin',[this]);} cos(){return new ScalarExpr('cos',[this]);} exp(){return new ScalarExpr('exp',[this]);} log(){return new ScalarExpr('log',[this]);} abs(){return new ScalarExpr('abs',[this]);}
+}
+export const X=ScalarExpr.variable('x'), TIME=ScalarExpr.variable('time');
 
 let nextObjectId=1;
 export class ZObject {
@@ -277,6 +309,26 @@ export class Text extends ZObject {
   draw(r,parent){const m=this.world(parent);withObjectContext(r,this,ctx=>{const p=r.toDevice(...m.apply(0,0));const sx=Math.hypot(m.xx,m.yx),sy=Math.hypot(m.xy,m.yy);ctx.translate(...p);ctx.transform(m.xx/sx,-m.yx/sx,-m.xy/sy,m.yy/sy,0,0);ctx.fillStyle=this.color;ctx.font=`${this.weight} ${this.fontSize*r.dpr}px ${this.fontFamily}`;ctx.textAlign=this.align;ctx.textBaseline='middle';ctx.fillText(String(typeof this.text==='function'?this.text(r.time,this):this.text),0,0);});}
 }
 
+function vectorGroupAlpha(reveal,groupCount,group){if(!groupCount)return 1;return clamp01(clamp01(reveal)*groupCount-group);}
+export class VectorObject2D extends ZObject {
+  constructor(document,{reveal=1,...rest}={}){super(rest);this.document=document;this.reveal=reveal;this._paths=null;}
+  invalidate(){this._paths=null;return this;}
+  _build(){
+    this._paths=this.document.paths.map(entry=>{
+      const path=new Path2D();
+      for(const contour of entry.contours){let first=true;for(const seg of contour.segments){const [p0,p1,p2,p3]=seg;if(first){path.moveTo(p0[0],p0[1]);first=false;}path.bezierCurveTo(p1[0],p1[1],p2[0],p2[1],p3[0],p3[1]);}if(contour.closed)path.closePath();}
+      return {...entry,path};
+    });
+    return this._paths;
+  }
+  draw(r,parent=Transform2D.identity()){
+    const paths=this._paths??this._build(),m=this.world(parent),ctx=r.ctx,reveal=clamp01(scalarAt(this.reveal,r.time)),groups=this.document.group_count??1;
+    ctx.save();setWorldCanvasTransform(r,ctx,m);
+    for(const entry of paths){const alpha=vectorGroupAlpha(reveal,groups,entry.group??0)*clamp01(this.opacity);if(alpha<=0)continue;ctx.save();ctx.globalAlpha*=alpha;if(entry.fill){ctx.fillStyle=entry.fill;ctx.fill(entry.path);}if(entry.stroke){ctx.strokeStyle=entry.stroke.color;ctx.lineWidth=entry.stroke.width;ctx.stroke(entry.path);}ctx.restore();}
+    ctx.restore();
+  }
+}
+
 export class Group extends ZObject {
   constructor(children=[],opts={}){super(opts);this.children=[...children];for(const child of this.children)child._parent=this;}
   add(...items){for(const item of items)item._parent=this;this.children.push(...items);if(this._scene)for(const item of items)this._scene._track(item,this._scene.cursor);return this;}
@@ -342,17 +394,16 @@ export class LineSet extends CachedBatch2D {
   }
 }
 export class RectSet extends CachedBatch2D {
-  constructor(items=[],{fill=BLUE,stroke=null,width=1,...rest}={}){super(items,rest);this.fill=fill;this.stroke=stroke;this.width=width;}
+  constructor(items=[],{fill=BLUE,stroke=null,width=1,worldStroke=false,...rest}={}){super(items,rest);this.fill=fill;this.stroke=stroke;this.width=width;this.worldStroke=worldStroke;}
   _build(){
-    const fills=new Map(),strokePath=new Path2D();
-    for(const item of this.items){const [x,y,w,h]=item,color=item[4]??this.fill;let path=fills.get(color);if(!path)fills.set(color,path=new Path2D());path.rect(x-w*.5,y-h*.5,w,h);if(this.stroke)strokePath.rect(x-w*.5,y-h*.5,w,h);}
-    return this._cache={fills,strokePath};
+    const fills=new Map(),strokes=new Map();
+    for(const item of this.items){const [x,y,w,h]=item,fill=item[4]??this.fill,stroke=item[5]??this.stroke,width=item[6]??this.width;if(fill){let path=fills.get(fill);if(!path)fills.set(fill,path=new Path2D());path.rect(x-w*.5,y-h*.5,w,h);}if(stroke){const key=`${stroke}\u0000${width}`;let group=strokes.get(key);if(!group)strokes.set(key,group={color:stroke,width,path:new Path2D()});group.path.rect(x-w*.5,y-h*.5,w,h);}}
+    return this._cache={fills,strokes:[...strokes.values()]};
   }
   draw(r,parent){
     const cache=this._cache??this._build(),m=this.world(parent),ctx=r.ctx;
     ctx.save();ctx.globalAlpha*=Math.max(0,Math.min(1,this.opacity));setWorldCanvasTransform(r,ctx,m);
-    for(const [color,path] of cache.fills){ctx.fillStyle=color;ctx.fill(path);}
-    if(this.stroke){ctx.strokeStyle=this.stroke;ctx.lineWidth=this.width*r.dpr/r.unitSize;ctx.stroke(cache.strokePath);}
+    for(const [color,path] of cache.fills){ctx.fillStyle=color;ctx.fill(path);}for(const group of cache.strokes){ctx.strokeStyle=group.color;ctx.lineWidth=this.worldStroke?group.width:group.width*r.dpr/r.unitSize;ctx.stroke(group.path);}
     ctx.restore();
   }
 }
@@ -376,6 +427,14 @@ export class DynamicPolyline extends Polyline {
   constructor(provider,opts={}){super([],{...opts});this.provider=provider;this._providerTime=NaN;}
   draw(r,parent){const points=this.provider(r.time,this);if(points!==this._points){this._points=points;this._path=null;}else this._path=null;super.draw(r,parent);}
 }
+export class FunctionPlot extends Polyline {
+  constructor(expression,{xRange=[-5,5],axesXRange=xRange,axesYRange=[-3,3],width=10,height=6,center=[0,0],samples=240,...opts}={}){
+    const expr=asScalarExpr(expression),n=Math.round(samples);if(n<2)throw new RangeError('FunctionPlot requires at least two samples');if(!(xRange[0]<xRange[1])||!(axesXRange[0]<axesXRange[1])||!(axesYRange[0]<axesYRange[1]))throw new RangeError('FunctionPlot ranges must be increasing');
+    super([],{strokeWidth:.035,...opts});this.expression=expr;this.xRange=xRange.map(Number);this.axesXRange=axesXRange.map(Number);this.axesYRange=axesYRange.map(Number);this.plotWidth=Number(width);this.plotHeight=Number(height);this.plotCenter=center.map(Number);this.samples=n;this._points=this.pointsAt(0);
+  }
+  pointsAt(time){const[a,b]=this.xRange,[ax0,ax1]=this.axesXRange,[ay0,ay1]=this.axesYRange,[cx,cy]=this.plotCenter,mx=(ax0+ax1)/2,my=(ay0+ay1)/2,sx=this.plotWidth/(ax1-ax0),sy=this.plotHeight/(ay1-ay0),out=[];for(let i=0;i<this.samples;i++){const x=a+(b-a)*i/(this.samples-1),y=this.expression.evaluate({x,time});out.push([cx+(x-mx)*sx,cy+(y-my)*sy]);}return out;}
+  draw(r,parent){this._points=this.pointsAt(r.time);this._path=null;super.draw(r,parent);}
+}
 export class DynamicLineSet extends LineSet {
   constructor(provider,opts={}){super([],opts);this.provider=provider;}
   draw(r,parent){this._items=this.provider(r.time,this);this._cache=null;super.draw(r,parent);}
@@ -387,6 +446,22 @@ export class DynamicCircleSet extends CircleSet {
 export class DynamicRectSet extends RectSet {
   constructor(provider,opts={}){super([],opts);this.provider=provider;}
   draw(r,parent){this._items=this.provider(r.time,this);this._cache=null;super.draw(r,parent);}
+}
+
+function normalizeFourierTerms(terms){return terms.map(term=>{if(Array.isArray(term))return{frequency:Number(term[0]),re:Number(term[1]),im:Number(term[2])};const c=term.coefficient??[term.re??0,term.im??0];return{frequency:Number(term.frequency),re:Number(Array.isArray(c)?c[0]:c.re??0),im:Number(Array.isArray(c)?c[1]:c.im??0)};});}
+function roundHalfEven(value){const x=Number(value),floor=Math.floor(x),fraction=x-floor;if(Math.abs(fraction-.5)<=1e-12)return floor%2===0?floor:floor+1;return Math.round(x);}
+function fourierChain(terms,phase){let x=0,y=0;const out=[[0,0]],t=((Number(phase)%1)+1)%1;for(const term of terms){const a=TAU*term.frequency*t,c=Math.cos(a),q=Math.sin(a);x+=term.re*c-term.im*q;y+=term.re*q+term.im*c;out.push([x,y]);}return out;}
+function fourierArrow(start,end){const dx=end[0]-start[0],dy=end[1]-start[1],length=Math.hypot(dx,dy);if(length<=1e-8)return[start,[start[0]+1e-5,start[1]],[start[0],start[1]+1e-5]];const ux=dx/length,uy=dy/length,nx=-uy,ny=ux,shaft=Math.min(.018,length*.08),tipLength=Math.min(.15,length*.32),tipHalf=Math.min(.065,Math.max(shaft*2.4,length*.10)),bx=end[0]-ux*tipLength,by=end[1]-uy*tipLength;return[[start[0]+nx*shaft,start[1]+ny*shaft],[bx+nx*shaft,by+ny*shaft],[bx+nx*tipHalf,by+ny*tipHalf],end,[bx-nx*tipHalf,by-ny*tipHalf],[bx-nx*shaft,by-ny*shaft],[start[0]-nx*shaft,start[1]-ny*shaft]];}
+export class FourierEpicycles extends ZObject {
+  constructor(terms,{startTime=0,drawDuration=1,circleSamples=28,traceSamples=1000,visualIndices=null,circleColor='rgba(132,157,198,.322)',circleWidth=.012,arrowColor='rgba(205,220,245,.745)',traceColor='#ff6c8b',traceWidth=.045,tipColor='#ffccd6',tipRadius=.055,tipSides=14,...rest}={}){
+    super(rest);this.terms=normalizeFourierTerms(terms);if(!this.terms.length)throw new RangeError('FourierEpicycles requires terms');if(!(drawDuration>0))throw new RangeError('drawDuration must be positive');this.startTime=Number(startTime);this.drawDuration=Number(drawDuration);this.circleSamples=Math.max(3,Math.round(circleSamples));this.traceSamples=Math.max(2,Math.round(traceSamples));this.visualIndices=visualIndices?[...visualIndices]:this.terms.map((term,i)=>term.frequency!==0&&Math.hypot(term.re,term.im)>2e-4?i:-1).filter(i=>i>=0);this.circleColor=circleColor;this.circleWidth=Number(circleWidth);this.arrowColor=arrowColor;this.traceColor=traceColor;this.traceWidth=Number(traceWidth);this.tipColor=tipColor;this.tipRadius=Number(tipRadius);this.tipSides=Math.max(3,Math.round(tipSides));this._fullTrace=Array.from({length:this.traceSamples},(_,i)=>fourierChain(this.terms,i/(this.traceSamples-1)).at(-1));
+  }
+  phaseAt(time){return clamp01((Number(time)-this.startTime)/this.drawDuration);}
+  draw(r,parent=Transform2D.identity()){const phase=this.phaseAt(r.time),chain=fourierChain(this.terms,phase),ctx=r.ctx,m=this.world(parent);ctx.save();ctx.globalAlpha*=clamp01(this.opacity);setWorldCanvasTransform(r,ctx,m);ctx.lineJoin='round';ctx.lineCap='round';
+    ctx.beginPath();for(const index of this.visualIndices){const center=chain[index],radius=Math.hypot(this.terms[index].re,this.terms[index].im);for(let i=0;i<=this.circleSamples;i++){const a=TAU*i/this.circleSamples,x=center[0]+radius*Math.cos(a),y=center[1]+radius*Math.sin(a);i?ctx.lineTo(x,y):ctx.moveTo(x,y);}}ctx.strokeStyle=this.circleColor;ctx.lineWidth=this.circleWidth;ctx.stroke();
+    ctx.beginPath();for(const index of this.visualIndices){const pts=fourierArrow(chain[index],chain[index+1]);ctx.moveTo(...pts[0]);for(let i=1;i<pts.length;i++)ctx.lineTo(...pts[i]);ctx.closePath();}ctx.fillStyle=this.arrowColor;ctx.fill();
+    const end=Math.max(1,Math.min(this.traceSamples-1,roundHalfEven(phase*(this.traceSamples-1))));ctx.beginPath();ctx.moveTo(...this._fullTrace[0]);for(let i=1;i<=end;i++)ctx.lineTo(...this._fullTrace[i]);ctx.strokeStyle=this.traceColor;ctx.lineWidth=this.traceWidth;ctx.stroke();
+    const tip=chain.at(-1);ctx.beginPath();for(let i=0;i<this.tipSides;i++){const a=TAU*i/this.tipSides,x=tip[0]+this.tipRadius*Math.cos(a),y=tip[1]+this.tipRadius*Math.sin(a);i?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.closePath();ctx.fillStyle=this.tipColor;ctx.fill();ctx.restore();}
 }
 
 export class FractalField extends ZObject {
@@ -467,15 +542,22 @@ function appendOrdered(map,key,clip){
   return clip;
 }
 
+class HeadlessRenderer {
+  constructor({width=1280,height=720,unitSize=90}={}){this.canvas={width,height};this.baseUnitSize=unitSize;this.unitSize=unitSize;this.dpr=1;}
+  resize(){}
+  clear(){throw new Error('headless Scene cannot render; compile it with @zanim/web/ir');}
+}
+
 export class Scene {
   constructor(renderer,{fps=60}={}){
     this.renderer=renderer;this.objects=[];this.fps=fps;this.cursor=0;this.duration=0;
-    this.clips=[];this.valueClips=[];this.values=[];this.initial=new Map();this._trackedObjects=new Map();
+    this.clips=[];this.valueClips=[];this.values=[];this.interpolations=[];this.initial=new Map();this._trackedObjects=new Map();
     this._clipsByObject=new Map();this._valueClipsByValue=new Map();this._batchInitial=new Map();this._batchClipsByObject=new Map();this._renderList=[];this._renderListDirty=true;
     this.playing=false;this._raf=null;this._start=0;this.time=0;
     this.stats={renderMs:0,seekMs:0,frames:0};this._resizeObserver=null;
     this.renderer.resize?.();this.camera=new Camera2D(this);this._track(this.camera,0);
   }
+  static headless({width=1280,height=720,unitSize=90,fps=60}={}){return new Scene(new HeadlessRenderer({width,height,unitSize}),{fps});}
   static async create(canvas,{wasmURL=DEFAULT_WASM_URL,wasm=null,renderer={},fps=60,observeResize=true}={}){
     const target=typeof canvas==='string'?document.querySelector(canvas):canvas;
     if(!target||typeof target.getContext!=='function')throw new TypeError('Scene.create requires a canvas element or selector');
@@ -511,13 +593,13 @@ export class Scene {
   create(object,{duration=1,easing=Easing.SMOOTHSTEP,at=this.cursor}={}){const before=this.stateAt(object,at);if(before.reveal==null)throw new TypeError('create() currently supports path objects');if(Math.abs(before.reveal)>1e-12)throw new Error(`create() requires trim 0, got ${before.reveal}`);return this.trim(object,{to:1,duration,easing,at});}
   _lerpBatchItem(object,a,b,t){return a.map((v,i)=>{if(typeof v==='number'&&typeof b[i]==='number')return lerpNumber(v,b[i],t);if(typeof v==='string'||typeof b[i]==='string')return lerpColorValue(typeof v==='string'?v:null,typeof b[i]==='string'?b[i]:null,t);return t<1?v:b[i];});}
   batchAt(object,time){let out=(this._batchInitial.get(object.id)??object.items).map(item=>[...item]);const clips=this._batchClipsByObject.get(object.id)??[];for(const clip of clips){if(time<clip.start)break;if(time>=clip.end){out=clip.after.map(item=>[...item]);continue;}const t=clip.easing((time-clip.start)/(clip.end-clip.start));out=clip.before.map((item,i)=>this._lerpBatchItem(object,item,clip.after[i],t));break;}return out;}
-  batch(object,{to,duration=1,easing=Easing.SMOOTHSTEP,at=this.cursor}={}){if(!(object instanceof CachedBatch2D))throw new TypeError('batch() requires a batch object');const target=to instanceof CachedBatch2D?to.items:to;if(!Array.isArray(target))throw new TypeError('batch target must be an item array or batch object');const before=this.batchAt(object,at);if(before.length!==target.length)throw new RangeError('batch interpolation requires matching item counts');const clip={object,start:at,end:at+duration,before,after:target.map(item=>[...item]),easing};appendOrdered(this._batchClipsByObject,object.id,clip);this.cursor=Math.max(this.cursor,clip.end);this.duration=Math.max(this.duration,clip.end);object.items=clip.after.map(item=>[...item]);return object;}
+  batch(object,{to,duration=1,easing=Easing.SMOOTHSTEP,at=this.cursor}={}){if(!(object instanceof CachedBatch2D))throw new TypeError('batch() requires a batch object');const target=to instanceof CachedBatch2D?to.items:to;if(!Array.isArray(target))throw new TypeError('batch target must be an item array or batch object');const before=this.batchAt(object,at);if(before.length!==target.length)throw new RangeError('batch interpolation requires matching item counts');const clip={kind:'batch',object,start:at,end:at+duration,before,after:target.map(item=>[...item]),easing};appendOrdered(this._batchClipsByObject,object.id,clip);this.clips.push(clip);this.cursor=Math.max(this.cursor,clip.end);this.duration=Math.max(this.duration,clip.end);object.items=clip.after.map(item=>[...item]);return object;}
   _parentWorld(object){let chain=[],p=object._parent;while(p){chain.push(p);p=p._parent;}let out=Transform2D.identity();for(let i=chain.length-1;i>=0;i--)out=out.mul(chain[i].transform);return out;}
   move(object,by,{frame=WORLD,duration=1,easing=Easing.SMOOTHSTEP,at=this.cursor}={}){const v=Vec2.from(by),current=object.transform;let target;if(frame===LOCAL)target=current.mul(Transform2D.translation(v.x,v.y));else if(frame===PARENT)target=Transform2D.translation(v.x,v.y).mul(current);else if(frame===WORLD){const parent=this._parentWorld(object),inv=parent.inverse();target=inv.mul(Transform2D.translation(v.x,v.y)).mul(parent).mul(current);}else throw new Error(`unknown frame ${frame}`);return this.animate(object,{transform:target,duration,easing,at});}
   rotate(object,by,{frame=PARENT,about=null,duration=1,easing=Easing.SMOOTHSTEP,at=this.cursor}={}){const current=object.transform,R=Transform2D.rotation(by);let target;if(about){const q=Vec2.from(about),parent=this._parentWorld(object),inv=parent.inverse(),op=Transform2D.translation(q.x,q.y).mul(R).mul(Transform2D.translation(-q.x,-q.y));target=inv.mul(op).mul(parent).mul(current);}else if(frame===LOCAL)target=current.mul(R);else if(frame===PARENT)target=R.mul(current);else{const parent=this._parentWorld(object);target=parent.inverse().mul(R).mul(parent).mul(current);}return this.animate(object,{transform:target,duration,easing,at});}
   scale(object,by,{frame=PARENT,about=null,duration=1,easing=Easing.SMOOTHSTEP,at=this.cursor}={}){const S=Transform2D.scaling(by),current=object.transform;let target;if(about){const q=Vec2.from(about),parent=this._parentWorld(object),op=Transform2D.translation(q.x,q.y).mul(S).mul(Transform2D.translation(-q.x,-q.y));target=parent.inverse().mul(op).mul(parent).mul(current);}else if(frame===LOCAL)target=current.mul(S);else if(frame===PARENT)target=S.mul(current);else{const parent=this._parentWorld(object);target=parent.inverse().mul(S).mul(parent).mul(current);}return this.animate(object,{transform:target,duration,easing,at});}
   affine(object,{position=[0,0],rotation=0,scale=1,shear=[0,0],duration=1,easing=Easing.SMOOTHSTEP,at=this.cursor}={}){return this.animate(object,{transform:Transform2D.affine({position,rotation,scale,shear}),duration,easing,at});}
-  interpolate(source,target,{duration=1,easing=Easing.SMOOTHSTEP,at=this.cursor}={}){const transient=(source instanceof Polyline&&target instanceof Polyline&&!source.closed&&!target.closed)?new PolylineInterpolation(source,target,at,at+duration,easing):new PrimitiveInterpolation(source,target,at,at+duration,easing);this.objects.push(transient);this._track(transient,at);transient.birth=at;transient.death=at+duration;this._renderListDirty=true;this.cursor=Math.max(this.cursor,at+duration);this.duration=Math.max(this.duration,at+duration);return transient;}
+  interpolate(source,target,{duration=1,easing=Easing.SMOOTHSTEP,at=this.cursor}={}){const transient=(source instanceof Polyline&&target instanceof Polyline&&!source.closed&&!target.closed)?new PolylineInterpolation(source,target,at,at+duration,easing):new PrimitiveInterpolation(source,target,at,at+duration,easing);transient._transientInterpolation=true;this.objects.push(transient);this._track(transient,at);transient.birth=at;transient.death=at+duration;this.interpolations.push({source,target,start:at,end:at+duration,easing,transient});this._renderListDirty=true;this.cursor=Math.max(this.cursor,at+duration);this.duration=Math.max(this.duration,at+duration);return transient;}
   replace(source,target,{duration=1,easing=Easing.SMOOTHSTEP}={}){if(!this.objects.includes(source))throw new Error('replace() source must be a top-level scene object');if(this._trackedObjects.has(target.id))throw new Error('replace() target must not already be in the scene');const start=this.cursor,end=start+duration;this.interpolate(source,target,{duration,easing,at:start});source.death=start;this.objects.push(target);this._track(target,end);target.birth=end;this._renderListDirty=true;this.cursor=end;this.duration=Math.max(this.duration,end);return target;}
   parallel(durationOrCallback,maybeCallback){
     const shared=typeof durationOrCallback==='function'?null:Number(durationOrCallback),callback=typeof durationOrCallback==='function'?durationOrCallback:maybeCallback;if(typeof callback!=='function')throw new TypeError('parallel requires a callback');

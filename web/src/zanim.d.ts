@@ -90,6 +90,8 @@ export class Circle extends ZObject { radius:number; reveal:ScalarLike; trim:Sca
 export class Dot extends Circle { constructor(point?:Point2,options?:ObjectOptions&{radius?:number;color?:string}); }
 export class Arrow extends Line {}
 export class Text extends ZObject { text:string|((time:number,object:Text)=>string); fontSize:number; color:string; fontFamily:string; constructor(text:string|((time:number,object:Text)=>string),options?:ObjectOptions&{fontSize?:number;color?:string;fontFamily?:string;align?:CanvasTextAlign;weight?:number}); }
+export interface VectorDocumentData { width:number; height:number; group_count:number; paths:Array<{group:number;fill:string|null;stroke:{color:string;width:number}|null;contours:Array<{closed:boolean;segments:Array<[Point2,Point2,Point2,Point2]>}>}> }
+export class VectorObject2D extends ZObject { document:VectorDocumentData; reveal:ScalarLike; constructor(document:VectorDocumentData,options?:ObjectOptions&{reveal?:ScalarLike}); invalidate():this; }
 export class Group extends ZObject { readonly children:ZObject[]; constructor(children?:ZObject[],options?:ObjectOptions); add(...items:ZObject[]):this; }
 
 export class InfiniteLine extends ZObject { constructor(point?:Point2,direction?:Point2,options?:ObjectOptions&{stroke?:string;width?:number;strokeWidth?:number}); }
@@ -98,16 +100,38 @@ export class Axes extends ZObject { constructor(options?:ObjectOptions&{xColor?:
 
 export type CircleItem = readonly [number,number,number,string?,string?,number?];
 export type LineItem = readonly [number,number,number,number,string?,number?];
-export type RectItem = readonly [number,number,number,number,string?];
+export type RectItem = readonly [number,number,number,number,string?,string?,number?];
 export type TextItem = readonly [number,number,string|number,string?,number?,number?];
 export class CircleSet extends ZObject { items:readonly CircleItem[]; constructor(items?:readonly CircleItem[],options?:ObjectOptions&{fill?:string;stroke?:string|null;width?:number;worldStroke?:boolean}); invalidate():this; batchTo(to:readonly CircleItem[]|CircleSet,options?:TimeOptions):this; }
 export class LineSet extends ZObject { items:readonly LineItem[]; constructor(items?:readonly LineItem[],options?:ObjectOptions&{stroke?:string;width?:number;worldStroke?:boolean}); invalidate():this; batchTo(to:readonly LineItem[]|LineSet,options?:TimeOptions):this; }
-export class RectSet extends ZObject { items:readonly RectItem[]; constructor(items?:readonly RectItem[],options?:ObjectOptions&{fill?:string;stroke?:string|null;width?:number}); invalidate():this; batchTo(to:readonly RectItem[]|RectSet,options?:TimeOptions):this; }
+export class RectSet extends ZObject { items:readonly RectItem[]; constructor(items?:readonly RectItem[],options?:ObjectOptions&{fill?:string;stroke?:string|null;width?:number;worldStroke?:boolean}); invalidate():this; batchTo(to:readonly RectItem[]|RectSet,options?:TimeOptions):this; }
 export class TextSet extends ZObject { items:readonly TextItem[]; constructor(items?:readonly TextItem[],options?:ObjectOptions&{color?:string;fontSize?:number;fontFamily?:string;weight?:number;align?:CanvasTextAlign}); }
+export class ScalarExpr {
+  readonly op:string; readonly args:readonly unknown[];
+  constructor(op:string,args?:readonly unknown[]);
+  static constant(value:number):ScalarExpr; static variable(name:'x'|'time'):ScalarExpr; static fromData(value:unknown):ScalarExpr;
+  toData():unknown[]; evaluate(values?:{x?:number;time?:number}):number;
+  add(value:ScalarExpr|number):ScalarExpr; sub(value:ScalarExpr|number):ScalarExpr; mul(value:ScalarExpr|number):ScalarExpr; div(value:ScalarExpr|number):ScalarExpr; pow(value:ScalarExpr|number):ScalarExpr;
+  neg():ScalarExpr; sin():ScalarExpr; cos():ScalarExpr; exp():ScalarExpr; log():ScalarExpr; abs():ScalarExpr;
+}
+export const X:ScalarExpr; export const TIME:ScalarExpr;
+export class FunctionPlot extends Polyline {
+  readonly expression:ScalarExpr; readonly xRange:number[]; readonly axesXRange:number[]; readonly axesYRange:number[]; readonly plotWidth:number; readonly plotHeight:number; readonly plotCenter:number[]; readonly samples:number;
+  constructor(expression:ScalarExpr|number,options?:ConstructorParameters<typeof Polyline>[1]&{xRange?:Point2;axesXRange?:Point2;axesYRange?:Point2;width?:number;height?:number;center?:Point2;samples?:number});
+  pointsAt(time:number):Point2[];
+}
 export class DynamicPolyline extends Polyline { constructor(provider:(time:number,object:DynamicPolyline)=>readonly Point2[],options?:ConstructorParameters<typeof Polyline>[1]); }
 export class DynamicLineSet extends LineSet { constructor(provider:(time:number,object:DynamicLineSet)=>readonly LineItem[],options?:ConstructorParameters<typeof LineSet>[1]); }
 export class DynamicCircleSet extends CircleSet { constructor(provider:(time:number,object:DynamicCircleSet)=>readonly CircleItem[],options?:ConstructorParameters<typeof CircleSet>[1]); }
 export class DynamicRectSet extends RectSet { constructor(provider:(time:number,object:DynamicRectSet)=>readonly RectItem[],options?:ConstructorParameters<typeof RectSet>[1]); }
+export interface FourierTerm2D { frequency:number; coefficient?:Point2; re?:number; im?:number; }
+export class FourierEpicycles extends ZObject {
+  readonly terms:Array<{frequency:number;re:number;im:number}>;
+  readonly visualIndices:number[];
+  readonly startTime:number; readonly drawDuration:number; readonly circleSamples:number; readonly traceSamples:number;
+  constructor(terms:readonly (FourierTerm2D|readonly [number,number,number])[],options?:ObjectOptions&{startTime?:number;drawDuration?:number;circleSamples?:number;traceSamples?:number;visualIndices?:readonly number[];circleColor?:string;circleWidth?:number;arrowColor?:string;traceColor?:string;traceWidth?:number;tipColor?:string;tipRadius?:number;tipSides?:number});
+  phaseAt(time:number):number;
+}
 export class DynamicTextSet extends TextSet { constructor(provider:(time:number,object:DynamicTextSet)=>readonly TextItem[],options?:ConstructorParameters<typeof TextSet>[1]); }
 export class DynamicNumber extends Text { constructor(value:ScalarLike,options?:ObjectOptions&{digits?:number;prefix?:string;suffix?:string;format?:(value:number,time:number)=>string;fontSize?:number;color?:string;fontFamily?:string;align?:CanvasTextAlign;weight?:number}); }
 
@@ -140,6 +164,7 @@ export interface ParallelAPI {
 export class Scene {
   readonly renderer:CanvasRenderer; readonly objects:ZObject[]; readonly camera:Camera2D; readonly frame:Frame; fps:number; cursor:number; duration:number; time:number; readonly stats:{renderMs:number;seekMs:number;frames:number};
   constructor(renderer:CanvasRenderer,options?:{fps?:number});
+  static headless(options?:{width?:number;height?:number;unitSize?:number;fps?:number}):Scene;
   static create(canvas:HTMLCanvasElement|string,options?:{wasmURL?:string|URL;wasm?:ZanimWasm|null;renderer?:{unitSize?:number;background?:string};fps?:number;observeResize?:boolean}):Promise<Scene>;
   add<T extends ZObject>(object:T):T; add<T extends ZObject[]>(...objects:T):T; addLater<T extends ZObject>(object:T):T; addLater<T extends ZObject[]>(...objects:T):T; remove(...objects:ZObject[]):this; invalidateOrder():this;
   addValue<T extends ScalarValue>(value:T):T; addValue<T extends ScalarValue[]>(...values:T):T; animateValue(value:ScalarValue,options:{to:number}&TimeOptions):ScalarValue; valueAt(value:ScalarValue,time:number):number;

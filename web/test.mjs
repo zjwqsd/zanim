@@ -2,8 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { Circle, LineSet, Mat2, Polyline, Scene, Square, Transform2D, ZanimWasm, resamplePolylineByArcLength } from './src/zanim.js';
-import { allDemos, demoMeta, parityDemos, prototypeDemos } from './gallery/registry.js';
+import { Circle, DynamicPolyline, FourierEpicycles, FunctionPlot, LineSet, Mat2, Polyline, Scene, Square, TIME, Transform2D, X, ZanimWasm, resamplePolylineByArcLength } from './src/zanim.js';
+import { allDemos, galleryEntries, galleryCounts, irReplayDemos, parityDemos, prototypeDemos } from './gallery/registry.js';
+import { parseSceneIR, sceneFromIR, sceneToIR, stringifySceneIR } from './src/ir.js';
 
 const bytes = await fs.readFile(new URL('./dist/zanim_web_core.wasm', import.meta.url));
 const { instance } = await WebAssembly.instantiate(bytes, {});
@@ -26,8 +27,11 @@ for (const category of ['showcase','extras','janim_api']) {
   }
 }
 expected.sort();
-assert.deepEqual(Object.keys(allDemos).sort(), expected, 'Web gallery must track every Python demo');
+assert.deepEqual(Object.keys(galleryEntries).sort(), expected, 'Web gallery must track every Python demo');
 assert.equal(expected.length, 29);
+assert.equal(galleryCounts.total,29);assert.equal(galleryCounts.ts,27);assert.equal(galleryCounts.ir,2);
+assert.deepEqual([...irReplayDemos.keys()].sort(),['showcase/basics','showcase/vectors']);
+for(const url of irReplayDemos.values()){const file=new URL(`./gallery/${url.replace('./','')}`,import.meta.url);assert.ok((await fs.stat(file)).size>1000,`${url} must be a generated Scene IR asset`);}
 
 // Python/Zig parity fixture: Python's resample_polyline_by_arclength(..., 7)
 // and Zig interpolation's six-segment normalization produce these same points.
@@ -62,6 +66,52 @@ batchScene.batch(lines,{to:[[1,2,3,4,'#52cd96',.06]],duration:2});
 const midBatch=batchScene.batchAt(lines,1)[0];
 assert.deepEqual(midBatch.slice(0,4),[.5,1,2,2]);assert.ok(Math.abs(midBatch[5]-.04)<1e-12);
 
+// Scene IR is a semantic authoring document, not a frame dump.
+const irScene=Scene.headless({width:640,height:360,unitSize:80,fps:60});
+const irSquare=irScene.add(new Square(1,{fill:'#60a6ff',stroke:null,trim:0,transform:Transform2D.translation(-1,0)}));
+irScene.create(irSquare,{duration:.5});
+irScene.animate(irSquare,{transform:Transform2D.translation(2,.5),duration:1,at:.5});
+irScene.wait(.2);
+const portable=sceneToIR(irScene),parsed=parseSceneIR(stringifySceneIR(portable));
+assert.equal(parsed.format,'zanim.scene');assert.equal(parsed.version,1);assert.equal(parsed.duration,1.7);assert.equal(parsed.objects.length,2);assert.equal(parsed.resources.length,0);assert.equal(parsed.clips.length,2);
+assert.deepEqual(parsed.objects.find(o=>o.kind==='object2d').state.geometry,{kind:'square',side:1});
+const semanticScene=Scene.headless({width:640,height:360,unitSize:80,fps:60});
+const expr=X.mul(1.25).add(TIME.mul(.8)).sin().mul(.5).add(X.mul(X).mul(.055)).add(1.2);
+const functionPlot=semanticScene.add(new FunctionPlot(expr,{xRange:[-3.5,3.5],axesXRange:[-4,4],axesYRange:[-2,3],width:8,height:5,center:[.5,-.25],samples:81,stroke:'#5fdaff',worldStroke:true}));
+semanticScene.add(new FourierEpicycles([[0,.2,-.1],[1,1.1,.25],[-2,-.15,.35]],{startTime:.2,drawDuration:1.4,traceSamples:80}));semanticScene.wait(2);
+const semanticIR=sceneToIR(semanticScene);
+assert.equal(semanticIR.objects.filter(o=>o.kind==='function_plot').length,1);assert.equal(semanticIR.objects.filter(o=>o.kind==='fourier_epicycles').length,1);
+assert.deepEqual(semanticIR.objects.find(o=>o.kind==='function_plot').state.expression,expr.toData());
+const centerPoint=functionPlot.pointsAt(.75)[40];assert.ok(Math.abs(centerPoint[0]-.5)<1e-12);assert.ok(Math.abs(centerPoint[1]-(.45+.5*Math.sin(.6)))<1e-12); // portable expression evaluates without callbacks
+const dynamicExportScene=Scene.headless({width:320,height:180,unitSize:40,fps:20});
+const dynamicExport=dynamicExportScene.add(new DynamicPolyline(time=>[[0,0],[1+time,time]],{stroke:'#5fdaff'}));dynamicExportScene.wait(1);
+assert.throws(()=>sceneToIR(dynamicExportScene),/sampleDynamicProviders/);
+const dynamicExportIR=sceneToIR(dynamicExportScene,{sampleDynamicProviders:true});
+assert.equal(dynamicExportIR.objects.find(o=>o.kind==='sampled_object2d').state.samples.length,21);assert.equal(dynamicExportIR.meta.sampled_dynamic_objects,1);
+const callbackScene=Scene.headless({width:320,height:180,unitSize:40,fps:60});
+const callbackSquare=callbackScene.add(new Square(1));
+callbackScene.transformFunction(callbackSquare,a=>Transform2D.translation(a,0).mul(Transform2D.rotation(.75*a)),{duration:1});
+assert.throws(()=>sceneToIR(callbackScene),/sampleTransformFunctions/);
+const bakedCallback=sceneToIR(callbackScene,{sampleTransformFunctions:true});
+const bakedTrack=bakedCallback.clips.find(c=>c.kind==='sampled_transform');
+assert.equal(bakedTrack.samples.length,61);assert.equal(bakedTrack.sample_rate,60);
+
+// Python runtime providers arrive as sampled absolute-time objects. The Web
+// loader must reconstruct them without any Native frame transport.
+const sampledIR={format:'zanim.scene',version:1,canvas:{width:320,height:180,unit_size:40},fps:20,duration:1,resources:[],values:[],clips:[],meta:{portable:true},objects:[
+  {id:0,parent:null,birth:0,death:null,kind:'camera2d',state:{transform:[1,0,0,1,0,0],opacity:1,z_index:0}},
+  {id:1,parent:null,birth:0,death:null,kind:'sampled_batch2d',state:{sample_rate:20,sample_start:0,sample_offsets:[0,.5,1],samples:[
+    {kind:'lines',starts:[[0,0]],ends:[[1,0]],colors:[[255,255,255,255]],widths:[.02]},
+    {kind:'lines',starts:[[0,0]],ends:[[2,0]],colors:[[255,255,255,255]],widths:[.02]},
+    {kind:'lines',starts:[[0,0]],ends:[[3,0]],colors:[[255,255,255,255]],widths:[.02]}
+  ],transform:[1,0,0,1,0,0],opacity:1,z_index:0}}
+]};
+globalThis.Path2D ??= class { moveTo(){} lineTo(){} rect(){} arc(){} closePath(){} bezierCurveTo(){} };
+const noop=()=>{},fakeCtx={save:noop,restore:noop,setTransform:noop,stroke:noop,fill:noop,beginPath:noop,moveTo:noop,lineTo:noop,rect:noop,arc:noop,ellipse:noop,translate:noop,transform:noop,fillText:noop,setLineDash:noop,globalAlpha:1};
+const sampledScene=sceneFromIR(sampledIR,{canvas:{width:320,height:180},ctx:fakeCtx,baseUnitSize:40,unitSize:40,dpr:1,resize(){},clear(){},time:0,toDevice(x,y){return[x,y]}});
+const sampledBatch=sampledScene.objects[0];
+assert.deepEqual(sampledBatch.provider(.75)[0].slice(0,4),[0,0,2,0],'sampled tracks hold the exact preceding video frame between samples');
+
 // Bounds-aware Row layout must reproduce the Python reference coordinates exactly.
 const layoutFixtureRenderer={canvas:{width:1280,height:720},unitSize:90,resize(){}};
 const layoutScene=allDemos['showcase/layout'](layoutFixtureRenderer),layoutGroup=layoutScene.objects.find(o=>o.children?.length===4);
@@ -69,9 +119,9 @@ const initialLayout=layoutGroup.children.map(o=>{const tr=layoutScene.initial.ge
 const expectedLayout=[[-2.938897274573418,-.3999999999999999],[-1.138897274573418,-.3999999999999999],[.7500000000000004,-.5699999999999998],[2.7638972745734183,-.3999999999999999]];
 for(let i=0;i<4;i++)for(let j=0;j<2;j++)assert.ok(Math.abs(initialLayout[i][j]-expectedLayout[i][j])<1e-9,`layout parity ${i},${j}`);
 assert.equal(prototypeDemos.size, 7);
-const parityNames=Object.keys(allDemos).filter(name=>demoMeta[name].status==='parity');
-const nativeNames=Object.keys(allDemos).filter(name=>demoMeta[name].status==='native');
-assert.equal(parityDemos.size,16);assert.equal(parityNames.length,16);assert.equal(nativeNames.length,6);
+const parityNames=Object.keys(galleryEntries).filter(name=>galleryEntries[name].mode==='ts'&&galleryEntries[name].status==='parity');
+const nativeNames=Object.keys(galleryEntries).filter(name=>galleryEntries[name].mode==='ts'&&galleryEntries[name].status==='native');
+assert.equal(parityDemos.size,16);assert.equal(parityNames.length,16);assert.equal(nativeNames.length,4);
 for(const name of [...parityNames,...nativeNames]) assert.ok(!String(allDemos[name]).includes('CustomObject2D'), `${name} must use public Web primitives`);
 const parityDurations={
   'showcase/batches':5.0,
@@ -97,7 +147,8 @@ for(const [name,expectedDuration] of Object.entries(parityDurations)){
   const scene=allDemos[name](parityRenderer);
   assert.ok(Math.abs(scene.duration-expectedDuration)<1e-9,`${name} duration ${scene.duration} != Python ${expectedDuration}`);
 }
-console.log(`zanim-web smoke test: ok (${parityNames.length} parity, ${nativeNames.length} native, ${prototypeDemos.size} deferred prototypes)`);
+for(const [name,duration] of Object.entries({'extras/fourier_draw':7.2,'extras/midi_piano':17.897630714285715,'extras/mnist_training':52.5})){const scene=allDemos[name](parityRenderer);assert.ok(Math.abs(scene.duration-duration)<1e-9,`${name} must match Python duration`);}
+console.log(`zanim-web smoke test: ok (${galleryCounts.ts} TS replicas + ${galleryCounts.ir} IR replays = ${galleryCounts.total} demos)`);
 const complexCount = wasm.exports.zanim_web_render_complex_grid(1, 64, 36, 0, 0, 5/64, .5, .5, 1, .9, 0,0,0,0,0,0,0,0);
 assert.equal(complexCount, 64*36);
 const complexPtr = wasm.exports.zanim_web_fractal_data_ptr();

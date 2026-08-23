@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING
 
 from .batch import BatchGeometry, BatchObject2D
 from .camera3d import Camera3D
+from .fractal import FractalField2D
 from .geometry import Color, Geometry, Object2D, Style
 from .infinite import ComplexMappedGrid, InfiniteGrid, InfiniteLine, InfiniteObject2D
-from .fractal import FractalField2D
 from .mesh3d import MeshObject3D, TriangleMesh
 from .raster import RasterFrame, RasterObject2D
 from .space import Transform2D
@@ -87,25 +87,63 @@ class InfiniteSnapshot:
     def from_object(obj: InfiniteObject2D) -> "InfiniteSnapshot":
         if isinstance(obj, InfiniteLine):
             return InfiniteSnapshot(
-                0, obj.point.x, obj.point.y, obj.direction.x, obj.direction.y,
-                obj.transform, obj.color, obj.stroke_width, obj.opacity, obj.z_index
+                0,
+                obj.point.x,
+                obj.point.y,
+                obj.direction.x,
+                obj.direction.y,
+                obj.transform,
+                obj.color,
+                obj.stroke_width,
+                obj.opacity,
+                obj.z_index,
             )
         if isinstance(obj, InfiniteGrid):
             return InfiniteSnapshot(
-                1, obj.origin.x, obj.origin.y, obj.step.x, obj.step.y,
-                obj.transform, obj.color, obj.stroke_width, obj.opacity, obj.z_index
+                1,
+                obj.origin.x,
+                obj.origin.y,
+                obj.step.x,
+                obj.step.y,
+                obj.transform,
+                obj.color,
+                obj.stroke_width,
+                obj.opacity,
+                obj.z_index,
             )
         if isinstance(obj, FractalField2D):
             return InfiniteSnapshot(
-                3, float(obj.max_iter), obj.escape_radius, obj.julia_c.real, obj.julia_c.imag,
-                obj.transform, obj.color, 1.0, obj.opacity, obj.z_index,
-                obj.palette_color, obj.fractal_kind, obj.color_shift, (obj.color_scale,)
+                3,
+                float(obj.max_iter),
+                obj.escape_radius,
+                obj.julia_c.real,
+                obj.julia_c.imag,
+                obj.transform,
+                obj.color,
+                1.0,
+                obj.opacity,
+                obj.z_index,
+                obj.palette_color,
+                obj.fractal_kind,
+                obj.color_shift,
+                (obj.color_scale,),
             )
         if isinstance(obj, ComplexMappedGrid):
             return InfiniteSnapshot(
-                2, obj.origin.x, obj.origin.y, obj.step.x, obj.step.y,
-                obj.transform, obj.color, obj.stroke_width, obj.opacity, obj.z_index,
-                obj.secondary_color, obj.map_kind, obj.progress_at(0.0), obj.map_params
+                2,
+                obj.origin.x,
+                obj.origin.y,
+                obj.step.x,
+                obj.step.y,
+                obj.transform,
+                obj.color,
+                obj.stroke_width,
+                obj.opacity,
+                obj.z_index,
+                obj.secondary_color,
+                obj.map_kind,
+                obj.progress_at(0.0),
+                obj.map_params,
             )
         raise TypeError(f"unsupported infinite object: {type(obj).__name__}")
 

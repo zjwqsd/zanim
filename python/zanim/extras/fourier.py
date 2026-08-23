@@ -1,23 +1,24 @@
 from __future__ import annotations
 
 from cmath import exp
-from dataclasses import dataclass
 from math import pi
 from typing import Iterable
 
+from ..fourier import FourierTerm, epicycle_chain
 from ..path import sample_vector_contour_by_arclength
 from ..space import Vec2
 from ..vector import VectorContour, VectorDocument
 
-
-@dataclass(frozen=True, slots=True)
-class FourierTerm:
-    frequency: int
-    coefficient: complex
-
-    @property
-    def radius(self) -> float:
-        return abs(self.coefficient)
+__all__ = [
+    "FourierTerm",
+    "epicycle_chain",
+    "closed_contours",
+    "select_closed_contour",
+    "contour_samples",
+    "dft",
+    "dominant_terms",
+    "point2",
+]
 
 
 def closed_contours(document: VectorDocument) -> tuple[VectorContour, ...]:
@@ -112,20 +113,6 @@ def dominant_terms(
     if keep_dc_first and dc is not None:
         return (dc, *selected)
     return tuple(selected[:count])
-
-
-def epicycle_chain(
-    terms: Iterable[FourierTerm],
-    phase: float,
-) -> tuple[complex, ...]:
-    """Return chain joints from origin through every rotating Fourier vector."""
-    t = float(phase) % 1.0
-    joints = [0j]
-    current = 0j
-    for term in terms:
-        current += term.coefficient * exp(2j * pi * term.frequency * t)
-        joints.append(current)
-    return tuple(joints)
 
 
 def point2(value: complex) -> Vec2:

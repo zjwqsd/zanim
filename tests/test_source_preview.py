@@ -10,7 +10,8 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from zanim import Canvas, Circle, Color, Scene, Style, Transform2D
-from zanim.preview import PreviewServer, PreviewSession
+from zanim.ir import scene_to_ir
+from zanim.preview import PreviewServer
 from zanim.source import get_preview_source, preview_source, reload_preview_source
 
 
@@ -44,34 +45,42 @@ class PreviewSourceTests(unittest.TestCase):
         source = get_preview_source(scene)
         self.assertIsNotNone(source)
         assert source is not None
-        marker_id = scene.items[0]
-        registered = scene._require_registered(marker_id)
+        marker = scene.items[0]
+        registered = scene._require_registered(marker)
         self.assertEqual(source.primary_name(registered.object_id), "marker")
-
         clip = scene._timeline.clips[0]
         span = source.clip_source(clip)
         self.assertIsNotNone(span)
         assert span is not None
-        lines = source.text.splitlines()
-        block = "\n".join(lines[span.start_line - 1 : span.end_line])
+        block = "\n".join(source.text.splitlines()[span.start_line - 1 : span.end_line])
         self.assertIn("marker.transform", block)
+
+    def test_scene_ir_carries_optional_source_debug_metadata(self):
+        scene = build_source_scene()
+        ir = scene_to_ir(scene, include_debug=True)
+        marker_id = scene._require_registered(scene.items[0]).object_id
+        self.assertEqual(ir["debug"]["objects"][str(marker_id)]["names"], ["marker"])
+        self.assertEqual(ir["debug"]["objects"][str(marker_id)]["type"], "Circle")
+        source = ir["clips"][0]["debug"]["source"]
+        lines = ir["debug"]["source"]["text"].splitlines()
+        block = "\n".join(lines[source["start_line"] - 1 : source["end_line"]])
+        self.assertIn("marker.transform", block)
+
+        lean = scene_to_ir(scene)
+        self.assertNotIn("debug", lean)
+        self.assertNotIn("debug", lean["clips"][0])
 
     def test_reload_supports_builder_defined_as_main_module(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "demo.py"
             _write_reload_module(path, duration=1.0)
-            namespace = {
-                "__name__": "__main__",
-                "__file__": str(path),
-                "__package__": "",
-            }
+            namespace = {"__name__": "__main__", "__file__": str(path), "__package__": ""}
             exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), namespace)
             scene = namespace["build_scene"]()
             source = get_preview_source(scene)
             self.assertIsNotNone(source)
             assert source is not None
             self.assertEqual(source.module_name, "__main__")
-
             _write_reload_module(path, duration=2.0)
             reloaded = reload_preview_source(scene)
             self.assertAlmostEqual(reloaded.duration, 2.0)
@@ -79,22 +88,6 @@ class PreviewSourceTests(unittest.TestCase):
             self.assertIsNotNone(reloaded_source)
             assert reloaded_source is not None
             self.assertNotEqual(reloaded_source.module_name, "__main__")
-
-    def test_preview_inspector_exposes_source_without_changing_clip(self):
-        scene = build_source_scene()
-        session = PreviewSession(scene, hot_cache_mb=1, prefetch_workers=1)
-        try:
-            info = session.inspect_time(0.5)
-            marker = next(item for item in info["objects"] if item["name"] == "marker")
-            self.assertEqual(marker["type"], "Circle")
-            self.assertEqual(len(marker["active_clips"]), 1)
-            source = marker["active_clips"][0]["source"]
-            self.assertIsNotNone(source)
-            self.assertEqual(len(info["active_sources"]), 1)
-            self.assertEqual(info["active_sources"][0]["name"], "marker")
-            self.assertTrue(session.source_document()["available"])
-        finally:
-            session.close()
 
     def test_reload_reads_saved_source_and_restores_module_on_error(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -106,13 +99,10 @@ class PreviewSourceTests(unittest.TestCase):
             try:
                 module = importlib.import_module(name)
                 scene = module.build_scene()
-                self.assertAlmostEqual(scene.duration, 1.0)
-
                 _write_reload_module(path, duration=2.0)
                 reloaded = reload_preview_source(scene)
                 self.assertAlmostEqual(reloaded.duration, 2.0)
                 self.assertIs(sys.modules[name], module)
-
                 path.write_text("def broken(:\n", encoding="utf-8")
                 with self.assertRaises(SyntaxError):
                     reload_preview_source(reloaded)
@@ -122,7 +112,7 @@ class PreviewSourceTests(unittest.TestCase):
                 sys.modules.pop(name, None)
                 sys.path.remove(str(root))
 
-    def test_manual_reload_http_preserves_time_and_failure_keeps_scene(self):
+    def test_web_preview_reload_preserves_time_revision_and_old_scene_on_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             name = "zanim_reload_http_fixture"
@@ -132,43 +122,37 @@ class PreviewSourceTests(unittest.TestCase):
             server = None
             try:
                 module = importlib.import_module(name)
-                server = PreviewServer(
-                    module.build_scene(),
-                    host="127.0.0.1",
-                    port=0,
-                    hot_cache_mb=1,
-                    cold_cache_mb=1,
-                    prefetch_workers=1,
-                ).start(open_browser=False)
-                old_tempdir = Path(server.session._tempdir.name)
-                server.session.raw_time(0.0)
-                self.assertTrue(old_tempdir.is_dir())
+                server = PreviewServer(module.build_scene(), host="127.0.0.1", port=0).start(
+                    open_browser=False
+                )
+                with urlopen(server.url + "api/ir") as response:
+                    first = json.loads(response.read())
+                self.assertEqual(first["meta"]["preview_revision"], 1)
 
                 _write_reload_module(path, duration=2.0)
-                request = Request(server.url + "api/reload?t=0.75", method="POST")
-                with urlopen(request) as response:
+                with urlopen(Request(server.url + "api/reload?t=0.75", method="POST")) as response:
                     result = json.loads(response.read())
-                self.assertTrue(result["ok"])
+                self.assertEqual(result["revision"], 2)
                 self.assertAlmostEqual(result["time"], 0.75)
-                self.assertAlmostEqual(server.session.duration, 2.0)
-                self.assertFalse(old_tempdir.exists())
+                self.assertAlmostEqual(server.scene.duration, 2.0)
+                with urlopen(server.url + "api/ir") as response:
+                    second = json.loads(response.read())
+                self.assertEqual(second["meta"]["preview_revision"], 2)
+                self.assertAlmostEqual(second["duration"], 2.0)
 
                 _write_reload_module(path, duration=0.25)
-                request = Request(server.url + "api/reload?t=0.75", method="POST")
-                with urlopen(request) as response:
+                with urlopen(Request(server.url + "api/reload?t=0.75", method="POST")) as response:
                     result = json.loads(response.read())
-                self.assertTrue(result["ok"])
                 self.assertAlmostEqual(result["time"], 0.25)
-                self.assertAlmostEqual(server.session.duration, 0.25)
+                self.assertAlmostEqual(server.scene.duration, 0.25)
 
                 path.write_text("def broken(:\n", encoding="utf-8")
-                request = Request(server.url + "api/reload?t=0.75", method="POST")
                 with self.assertRaises(HTTPError) as caught:
-                    urlopen(request)
+                    urlopen(Request(server.url + "api/reload?t=0.1", method="POST"))
                 payload = json.loads(caught.exception.read())
                 self.assertFalse(payload["ok"])
                 self.assertIn("SyntaxError", payload["traceback"])
-                self.assertAlmostEqual(server.session.duration, 0.25)
+                self.assertAlmostEqual(server.scene.duration, 0.25)
             finally:
                 if server is not None:
                     server.close()
@@ -199,7 +183,6 @@ class PreviewSourceTests(unittest.TestCase):
             try:
                 module = importlib.import_module("reload_pkg.demo")
                 scene = module.build_scene()
-                self.assertAlmostEqual(scene.duration, 1.25)
                 reloaded = reload_preview_source(scene)
                 self.assertAlmostEqual(reloaded.duration, 1.25)
                 source = get_preview_source(reloaded)
@@ -208,8 +191,8 @@ class PreviewSourceTests(unittest.TestCase):
                 self.assertEqual(source.package_name, "reload_pkg")
                 self.assertIs(sys.modules["reload_pkg.demo"], module)
             finally:
-                for name in ("reload_pkg.demo", "reload_pkg.helper", "reload_pkg"):
-                    sys.modules.pop(name, None)
+                for module_name in ("reload_pkg.demo", "reload_pkg.helper", "reload_pkg"):
+                    sys.modules.pop(module_name, None)
                 sys.path.remove(str(root))
 
     def test_reload_can_drop_optional_decorator(self):
@@ -222,33 +205,28 @@ class PreviewSourceTests(unittest.TestCase):
             try:
                 module = importlib.import_module(name)
                 scene = module.build_scene()
-                source = path.read_text(encoding="utf-8").replace("@preview_source\n", "")
-                path.write_text(source, encoding="utf-8")
+                path.write_text(path.read_text(encoding="utf-8").replace("@preview_source\n", ""), encoding="utf-8")
                 reloaded = reload_preview_source(scene)
-                self.assertAlmostEqual(reloaded.duration, 1.0)
                 info = get_preview_source(reloaded)
                 self.assertIsNotNone(info)
                 assert info is not None
-                # Runtime clip source tracking remains available even when the
-                # builder no longer opts into local-variable capture.
-                self.assertTrue(
-                    all(info.clip_source(c) is not None for c in reloaded._timeline.clips)
-                )
+                self.assertTrue(all(info.clip_source(c) is not None for c in reloaded._timeline.clips))
             finally:
                 sys.modules.pop(name, None)
                 sys.path.remove(str(root))
 
-    def test_undecorated_scene_has_no_source_metadata(self):
+    def test_undecorated_scene_has_no_debug_source(self):
         scene = Scene(canvas=Canvas(80, 48, 12), fps=10)
         scene.add(Circle(1, style=Style(fill=Color(230, 90, 90))))
-        session = PreviewSession(scene, hot_cache_mb=1, prefetch_workers=1)
+        ir = scene_to_ir(scene, include_debug=True)
+        self.assertNotIn("debug", ir)
+        server = PreviewServer(scene, host="127.0.0.1", port=0).start(open_browser=False)
         try:
-            self.assertFalse(session.metadata()["source_available"])
-            self.assertEqual(session.source_document(), {"available": False})
-            item = session.inspect_time(0)["objects"][1]
-            self.assertIsNone(item["name"])
+            with urlopen(server.url + "api/source") as response:
+                source = json.loads(response.read())
+            self.assertEqual(source, {"available": False})
         finally:
-            session.close()
+            server.close()
 
 
 if __name__ == "__main__":

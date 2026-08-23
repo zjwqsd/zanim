@@ -10,7 +10,11 @@
       "types": "./src/zanim.d.ts",
       "import": "./src/zanim.js"
     },
-    "./zanim_web_core.wasm": "./dist/zanim_web_core.wasm"
+    "./zanim_web_core.wasm": "./dist/zanim_web_core.wasm",
+    "./ir": {
+      "types": "./src/ir.d.ts",
+      "import": "./src/ir.js"
+    }
   },
   "files": [
     "src",

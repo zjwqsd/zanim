@@ -33,6 +33,7 @@ from .constants import (
 )
 from .dynamic import DynamicNumber, NumberFormat
 from .errors import MediaError, NativeError, PreviewError, ZanimError
+from .expression import TIME, ScalarExpr, X
 from .formula import (
     FormulaInstance,
     FormulaLiteral,
@@ -42,10 +43,19 @@ from .formula import (
     ObjectSlot,
     ScriptSlots,
 )
+from .fourier import FourierEpicycles, FourierTerm
+from .fractal import JuliaSet, MandelbrotSet
 from .geometry import Color, StrokeStyle, Style
 from .group import Group
 from .infinite import ComplexMappedGrid, InfiniteGrid, InfiniteLine
-from .fractal import JuliaSet, MandelbrotSet
+from .ir import (
+    SceneIRUnsupported,
+    load_scene_ir,
+    read_scene_ir,
+    scene_from_ir,
+    scene_to_ir,
+    write_scene_ir,
+)
 from .layout import (
     BOTTOM,
     BOTTOM_LEFT,
@@ -63,7 +73,7 @@ from .layout import (
     Row,
 )
 from .mesh3d import Box3D, Cube3D, Surface3D
-from .plot import Axes
+from .plot import Axes, FunctionPlot
 from .raster import GIF, Image, Video
 from .scene import Scene
 from .shapes import (
@@ -106,6 +116,12 @@ __all__ = [
     "MediaError",
     "NativeError",
     "Scene",
+    "SceneIRUnsupported",
+    "scene_to_ir",
+    "scene_from_ir",
+    "write_scene_ir",
+    "read_scene_ir",
+    "load_scene_ir",
     "Canvas",
     "Shape",
     "Circle",
@@ -120,6 +136,8 @@ __all__ = [
     "ComplexMappedGrid",
     "MandelbrotSet",
     "JuliaSet",
+    "FourierTerm",
+    "FourierEpicycles",
     "Polyline",
     "Polygon",
     "CubicBezier",
@@ -179,6 +197,10 @@ __all__ = [
     "Easing",
     "Camera2D",
     "Axes",
+    "ScalarExpr",
+    "X",
+    "TIME",
+    "FunctionPlot",
     "load_svg",
     "DynamicNumber",
     "NumberFormat",

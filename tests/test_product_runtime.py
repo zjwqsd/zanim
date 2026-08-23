@@ -47,7 +47,7 @@ class ProductRuntimeTests(unittest.TestCase):
         self.assertEqual(status, 0)
         text = output.getvalue()
         self.assertIn("Renderer   OK", text)
-        self.assertIn("ABI      1", text)
+        self.assertIn(f"ABI      {ABI_VERSION}", text)
 
     def test_bare_script_tracks_names_sources_and_reload(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -164,9 +164,6 @@ class ProductRuntimeTests(unittest.TestCase):
             _source_scene(),
             host="0.0.0.0",
             port=0,
-            hot_cache_mb=1,
-            cold_cache_mb=1,
-            prefetch_workers=1,
         ).start(open_browser=False)
         base = f"http://127.0.0.1:{server.port}/"
         try:
@@ -189,16 +186,12 @@ class ProductRuntimeTests(unittest.TestCase):
             _source_scene(),
             host="0.0.0.0",
             port=0,
-            hot_cache_mb=1,
-            cold_cache_mb=1,
-            prefetch_workers=1,
             allow_remote_reload=True,
         )
         try:
             self.assertTrue(server.reload_allowed)
         finally:
-            server.httpd.server_close()
-            server.session.close()
+            server.close()
 
 
 if __name__ == "__main__":

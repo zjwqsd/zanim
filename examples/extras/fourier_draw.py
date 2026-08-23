@@ -2,20 +2,17 @@ from __future__ import annotations
 
 import argparse
 from functools import lru_cache
-from math import cos, pi, sin, sqrt
 from pathlib import Path
 
 from zanim import (
     Camera2D,
     Canvas,
     Color,
-    Group,
+    FourierEpicycles,
     Math,
     Polyline,
     Scene,
-    Style,
     Transform2D,
-    Vec2,
     affine2d,
     load_svg,
 )
@@ -27,8 +24,6 @@ from zanim.extras.fourier import (
     point2,
     select_closed_contour,
 )
-from zanim.geometry import PolygonGeometry, PolylineGeometry
-from zanim.plot import DynamicGeometryObject2D
 
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = Path(__file__).resolve().parents[1]
@@ -43,57 +38,6 @@ TRACE_SAMPLES = 1000
 START = 0.55
 DRAW_DURATION = 6.2
 HOLD = 0.45
-
-
-def circle_polyline(
-    center: complex, radius: float, samples: int = CIRCLE_SAMPLES
-) -> PolylineGeometry:
-    points = tuple(
-        Vec2(
-            center.real + radius * cos(2 * pi * i / samples),
-            center.imag + radius * sin(2 * pi * i / samples),
-        )
-        for i in range(samples + 1)
-    )
-    return PolylineGeometry(points)
-
-
-def arrow_polygon(start: complex, end: complex) -> PolygonGeometry:
-    dx, dy = end.real - start.real, end.imag - start.imag
-    length = sqrt(dx * dx + dy * dy)
-    if length <= 1e-8:
-        p = point2(start)
-        eps = 1e-5
-        return PolygonGeometry((p, Vec2(p.x + eps, p.y), Vec2(p.x, p.y + eps)))
-    ux, uy = dx / length, dy / length
-    nx, ny = -uy, ux
-    shaft_half = min(0.018, length * 0.08)
-    tip_length = min(0.15, length * 0.32)
-    tip_half = min(0.065, max(shaft_half * 2.4, length * 0.10))
-    bx, by = end.real - ux * tip_length, end.imag - uy * tip_length
-    return PolygonGeometry(
-        (
-            Vec2(start.real + nx * shaft_half, start.imag + ny * shaft_half),
-            Vec2(bx + nx * shaft_half, by + ny * shaft_half),
-            Vec2(bx + nx * tip_half, by + ny * tip_half),
-            Vec2(end.real, end.imag),
-            Vec2(bx - nx * tip_half, by - ny * tip_half),
-            Vec2(bx - nx * shaft_half, by - ny * shaft_half),
-            Vec2(start.real - nx * shaft_half, start.imag - ny * shaft_half),
-        )
-    )
-
-
-def tip_polygon(point: complex, radius: float = 0.055, sides: int = 14) -> PolygonGeometry:
-    return PolygonGeometry(
-        tuple(
-            Vec2(
-                point.real + radius * cos(2 * pi * i / sides),
-                point.imag + radius * sin(2 * pi * i / sides),
-            )
-            for i in range(sides)
-        )
-    )
 
 
 def _build_scene(
@@ -160,53 +104,14 @@ def _build_scene(
         z_index=-5,
     )
 
-    circle_style = Style.outline(Color(132, 157, 198, 82), 0.012)
-    arrow_style = Style.solid(Color(205, 220, 245, 190))
-    children = []
-    visual_indices = [
-        index for index, term in enumerate(terms) if term.frequency != 0 and term.radius > 2e-4
-    ]
-    for index in visual_indices:
-        radius = terms[index].radius
-        circle = DynamicGeometryObject2D(
-            lambda t, index=index, radius=radius: circle_polyline(
-                chain_at(float(t))[index], radius
-            ),
-            style=circle_style,
-            z_index=0,
-        )
-        arrow = DynamicGeometryObject2D(
-            lambda t, index=index: arrow_polygon(
-                chain_at(float(t))[index], chain_at(float(t))[index + 1]
-            ),
-            style=arrow_style,
-            z_index=1,
-        )
-        children.extend((circle, arrow))
-    epicycles = Group(children, z_index=0)
-
-    full_trace = tuple(
-        epicycle_chain(terms, i / (TRACE_SAMPLES - 1))[-1] for i in range(TRACE_SAMPLES)
+    epicycles = FourierEpicycles(
+        terms,
+        start_time=START,
+        draw_duration=draw_duration,
+        circle_samples=CIRCLE_SAMPLES,
+        trace_samples=TRACE_SAMPLES,
     )
-
-    def trace_geometry(time: float):
-        phase = scene_phase(time)
-        end = max(1, min(TRACE_SAMPLES - 1, round(phase * (TRACE_SAMPLES - 1))))
-        points = tuple(point2(value) for value in full_trace[: end + 1])
-        if len(points) < 2:
-            points = (points[0], points[0])
-        return PolylineGeometry(points)
-
-    trace = DynamicGeometryObject2D(
-        trace_geometry,
-        style=Style.outline(Color(255, 108, 139), 0.045),
-        z_index=4,
-    )
-    tip = DynamicGeometryObject2D(
-        lambda t: tip_polygon(chain_at(float(t))[-1]),
-        style=Style.solid(Color(255, 204, 214)),
-        z_index=5,
-    )
+    visual_indices = epicycles.visual_indices
 
     formula = Math(
         "f(t) = sum_k c_k e^(2 pi i k t)",
@@ -229,7 +134,7 @@ def _build_scene(
         fps=60,
         camera=camera,
     )
-    scene.add(reference, epicycles, trace, tip)
+    scene.add(reference, epicycles)
     if not follow:
         scene.add(formula, term_label)
     scene.wait(START + draw_duration + HOLD)

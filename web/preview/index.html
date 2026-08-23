@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zanim Web Preview</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,sans-serif;--bg:#080b12;--panel:#0e141d;--line:#243041;--muted:#91a0b9;--text:#eef2fa;--accent:#79a7ff;--warn:#f3c86c;--good:#7ce2ac}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);min-height:100vh}.app{display:grid;grid-template-columns:minmax(0,1fr) 360px;min-height:100vh}.left{min-width:0;border-right:1px solid var(--line);display:flex;flex-direction:column}.stage-wrap{flex:1;min-height:320px;display:grid;place-items:center;padding:12px;background:radial-gradient(circle at center,#182131 0,#080b12 72%)}.stage{position:relative;width:min(100%,1280px);border:1px solid var(--line);background:#080b12;box-shadow:0 18px 48px #0008}.stage canvas{display:block;width:100%;aspect-ratio:16/9}.error{display:none;position:absolute;inset:12px;overflow:auto;background:#170d12e8;border:1px solid #63333d;border-radius:8px;padding:12px;color:#ffb4be;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap}.error.visible{display:block}.controls{padding:10px 12px;border-top:1px solid var(--line);background:#0d131c}.transport{display:grid;grid-template-columns:auto auto 1fr auto;gap:8px;align-items:center}button{background:#17243a;border:1px solid #345b93;color:#dbe9ff;min-height:34px;padding:0 12px;border-radius:7px;cursor:pointer}button:hover{background:#20314b}button:disabled{opacity:.45;cursor:not-allowed}input[type=range]{width:100%;accent-color:var(--accent)}.readout{font:12px ui-monospace,monospace;color:var(--muted);font-variant-numeric:tabular-nums}.status{margin-top:7px;color:var(--muted);font-size:12px}.right{display:grid;grid-template-rows:minmax(220px,42vh) 1fr;min-height:100vh;background:var(--panel)}.inspector,.source{min-height:0;overflow:auto}.inspector{border-bottom:1px solid var(--line)}.panel-head{position:sticky;top:0;z-index:2;background:#101722eF;border-bottom:1px solid var(--line);padding:9px 11px;color:#cbd7e8;font-size:12px}.object{padding:8px 11px;border-bottom:1px solid #1c2633;cursor:pointer}.object:hover,.object.selected{background:#17243a}.object.inactive{opacity:.42}.object-title{display:flex;justify-content:space-between;gap:8px}.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.badge{font-size:10px;padding:2px 6px;border-radius:999px;background:#222d3b;color:var(--muted)}.badge.active{background:#3b2d12;color:#ffd879}.clips{margin-top:7px}.clip{font:11px ui-monospace,monospace;padding:5px 7px;margin-top:4px;border-left:2px solid #3d4d61;background:#0b1119;cursor:pointer}.clip.active{border-left-color:var(--warn);color:#ffe5a8}.clip.selected{outline:1px solid #4b6f9d}.source-code{margin:0;padding:10px 0 20px;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;counter-reset:line}.src-line{display:block;padding:0 10px 0 52px;white-space:pre;position:relative;min-height:1.55em}.src-line:before{counter-increment:line;content:counter(line);position:absolute;left:0;width:42px;text-align:right;color:#536176}.src-line.active{background:#3a2b126b}.src-line.selected{background:#18365b}.empty{padding:18px;color:var(--muted);font-size:12px}@media(max-width:920px){.app{grid-template-columns:1fr}.left{border-right:0}.right{min-height:600px;border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<main class="app">
+<section class="left">
+  <div class="stage-wrap"><div class="stage"><canvas id="canvas"></canvas><div id="error" class="error"></div></div></div>
+  <div class="controls">
+    <div class="transport"><button id="play">Play</button><button id="reload">↻ Reload</button><input id="time" type="range" min="0" max="1" step="0.001" value="0"><span id="readout" class="readout">0.00</span></div>
+    <div id="status" class="status">Loading Scene IR…</div>
+  </div>
+</section>
+<aside class="right">
+  <section class="inspector"><div class="panel-head">Scene IR Inspector</div><div id="objects"></div></section>
+  <section class="source"><div id="sourceHead" class="panel-head">Source</div><pre id="sourceCode" class="source-code"></pre></section>
+</aside>
+</main>
+<script type="module" src="/preview/main.js"></script>
+</body>
+</html>

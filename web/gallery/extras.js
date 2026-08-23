@@ -2,9 +2,10 @@ import {
   Scene, Transform2D, InfiniteGrid, Axes, CustomObject2D, Text, Easing, ScalarValue, LineSet, CircleSet,
   DynamicPolyline, DynamicRectSet, DynamicLineSet, DynamicCircleSet, DynamicTextSet, DynamicNumber, Polyline, Rectangle, RectSet, MandelbrotSet, JuliaSet, ComplexMappedGrid,
   WHITE, MUTED, BLUE, GREEN, RED, ORANGE, YELLOW, CYAN, PINK, PURPLE, GRAY,
-  PI, TAU,
+  PI, TAU, FourierEpicycles,
 } from '../src/zanim.js';
 import { SORTING_PARITY_DATA, RB_PARITY_DATA, NEURAL_PARITY_DATA } from './generated/parity_data.js';
+import { FOURIER_REFERENCE, MIDI_REFERENCE, MNIST_REFERENCE } from './generated/python_reference_data.js';
 
 const clamp01=x=>Math.max(0,Math.min(1,x));
 const smooth=x=>{x=clamp01(x);return x*x*(3-2*x)};
@@ -64,20 +65,14 @@ export function de_casteljau(renderer){
   scene.wait(.35);scene.animateValue(tValue,{to:1,duration:7,easing:Easing.LINEAR});scene.wait(.75);return scene;
 }
 
-function heartSamples(n=160){const a=[];for(let i=0;i<n;i++){const t=TAU*i/n;a.push([1.6*Math.sin(t)**3,(13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t))/10]);}return a;}
-function dft(points){const N=points.length,out=[];for(let k=0;k<N;k++){let re=0,im=0;for(let n=0;n<N;n++){const [x,y]=points[n],ang=-TAU*k*n/N,c=Math.cos(ang),s=Math.sin(ang);re+=x*c-y*s;im+=x*s+y*c;}re/=N;im/=N;let freq=k;if(k>N/2)freq=k-N;out.push({freq,re,im,amp:Math.hypot(re,im)});}return out.sort((a,b)=>b.amp-a.amp);}
-const fourierCoeffs=dft(heartSamples(96)).slice(0,42);
-function fourierPoint(t,terms=fourierCoeffs){let x=0,y=0;for(const c of terms){const a=c.freq*t,co=Math.cos(a),si=Math.sin(a);x+=c.re*co-c.im*si;y+=c.re*si+c.im*co;}return[x,y]}
 export function fourier_draw(renderer){
-  const scene=new Scene(renderer);header(scene,'Fourier drawing','public dynamic batches reconstruct a closed contour');
-  const state=time=>{const t=((time*.42)%1)*TAU,circles=[],lines=[];let x=-1.9,y=0;for(let i=0;i<fourierCoeffs.length;i++){const c=fourierCoeffs[i],px=x,py=y,a=c.freq*t,co=Math.cos(a),si=Math.sin(a);x+=c.re*co-c.im*si;y+=c.re*si+c.im*co;if(i<14){circles.push([px,py,c.amp,'rgba(0,0,0,0)']);lines.push([px,py,x,y,rgba(CYAN,.65),1]);}}return{t,circles,lines};};
-  scene.add(
-    new DynamicCircleSet(time=>state(time).circles,{fill:'rgba(0,0,0,0)',stroke:'rgba(135,146,168,.28)',width:1}),
-    new DynamicLineSet(time=>state(time).lines),
-    new DynamicPolyline(time=>{const t=state(time).t,out=[];for(let i=0;i<=260;i++){const q=fourierPoint(t*i/260);out.push([q[0]-1.9,q[1]]);}return out;},{stroke:PINK,width:3}),
-    new Polyline(heartSamples(180).map(q=>[q[0]+2.75,q[1]]),{stroke:rgba(WHITE,.38),width:2}),
-    new Text('source contour',{fontSize:16,color:MUTED,transform:T(2.75,-2.35)}),new Text('Fourier reconstruction',{fontSize:16,color:MUTED,transform:T(-1.9,-2.35)}),
-  );return finalize(scene,8);
+  const scene=new Scene(renderer),data=FOURIER_REFERENCE;
+  const reference=new Polyline(data.reference,{stroke:rgb(118,129,151,80),strokeWidth:.018,zIndex:-5});
+  const epicycles=new FourierEpicycles(data.terms,{startTime:data.start,drawDuration:data.drawDuration,circleSamples:data.circleSamples,traceSamples:data.traceSamples});
+  const formula=new Text('f(t) = Σₖ cₖ e^(2πikt)',{fontSize:29,color:rgb(223,228,240),transform:T(0,4.25),zIndex:10});
+  const termLabel=new Text(`N = ${epicycles.visualIndices.length}`,{fontSize:21,color:rgb(150,163,188),transform:T(0,3.72),zIndex:10});
+  scene.add(reference,epicycles,formula,termLabel);
+  return finalize(scene,data.start+data.drawDuration+data.hold);
 }
 
 const FRACTAL_SIDE=7.0;
@@ -146,15 +141,27 @@ export function mandelbrot_julia(renderer){
   scene.parallel(.45,api=>{api.fadeOut(julia);api.fadeOut(jLabel);api.fadeOut(title);api.fadeOut(subtitle);});return scene;
 }
 
-const midiNotes=Array.from({length:72},(_,i)=>({key:(i*7+i*i*3)%24,start:i*.085,dur:.35+(i%5)*.07,color:[BLUE,CYAN,PINK,PURPLE,YELLOW][i%5]}));
+const MIDI_BLACK=new Set([1,3,6,8,10]);
+const MIDI_WHITE=Array.from({length:88},(_,i)=>21+i).filter(p=>!MIDI_BLACK.has(p%12));
+const MIDI_WHITE_INDEX=new Map(MIDI_WHITE.map((p,i)=>[p,i]));
+const MIDI_LEFT=-5.72,MIDI_WIDTH=11.44,MIDI_WHITE_W=MIDI_WIDTH/MIDI_WHITE.length,MIDI_BLACK_W=MIDI_WHITE_W*.62,MIDI_STRIKE=-3.02,MIDI_BOTTOM=-4.48,MIDI_WHITE_H=MIDI_STRIKE-MIDI_BOTTOM,MIDI_BLACK_H=MIDI_WHITE_H*.62,MIDI_TOP=4.72,MIDI_SPEED=2.8;
+const MIDI_COLORS=[CYAN,BLUE,PURPLE,PINK,RED,ORANGE,YELLOW,GREEN,CYAN,BLUE,PURPLE,PINK];
+const midiBlack=p=>MIDI_BLACK.has(p%12);
+const midiX=p=>midiBlack(p)?MIDI_LEFT+(MIDI_WHITE_INDEX.get(p-1)+1)*MIDI_WHITE_W:MIDI_LEFT+(MIDI_WHITE_INDEX.get(p)+.5)*MIDI_WHITE_W;
+const midiVisualDuration=d=>d<=1?Math.max(d,.025):1+.5*Math.log2(d);
+const midiPitchColor=(p,a=1)=>rgba(MIDI_COLORS[p%12],a);
+const midiActive=(time,pitch)=>MIDI_REFERENCE.notes.some(n=>n[0]===pitch&&MIDI_REFERENCE.leadTime+n[2]<=time&&time<MIDI_REFERENCE.leadTime+n[3]);
 export function midi_piano(renderer){
-  const scene=new Scene(renderer);header(scene,'MIDI piano roll','public RectSet / DynamicRectSet on one absolute timeline');const x0=-5.1,w=10.2/24,keyY=-2.05;
-  const keys=Array.from({length:24},(_,k)=>[x0+(k+.5)*w,keyY-.5,w,1,k%2?'#d8deea':'#f7f8fb']);
-  scene.add(
-    new RectSet(keys,{stroke:'#333b4b',width:1}),
-    new DynamicRectSet(time=>{const out=[];for(const n of midiNotes){const dt=n.start-time;if(dt<-.25||dt>4)continue;const h=n.dur*1.15;out.push([x0+(n.key+.5)*w,keyY+.35+dt*1.15+h/2,w*.76,h,rgba(n.color,.88)]);}return out;}),
-    new Text('visual timing driven from parsed note events',{fontSize:16,color:MUTED,transform:T(0,2.15)}),
-  );return finalize(scene,6.4);
+  const scene=new Scene(renderer),data=MIDI_REFERENCE;
+  const rain=new DynamicRectSet(time=>{const out=[];for(const [pitch,velocity,start0,end0] of data.notes){const start=data.leadTime+start0,vd=midiVisualDuration(end0-start0),end=start+vd;if(time<start-data.leadTime-.02||time>end+.02)continue;const h=vd*MIDI_SPEED,bottom=MIDI_STRIKE-MIDI_SPEED*(time-start),top=bottom+h;if(bottom>MIDI_TOP+.3||top<MIDI_STRIKE-.02)continue;const w=(midiBlack(pitch)?MIDI_BLACK_W:MIDI_WHITE_W)*(midiBlack(pitch)?.72:.78);out.push([midiX(pitch),bottom+h/2,w,h,midiPitchColor(pitch,(150+105*velocity/127)/255)]);}return out;},{zIndex:1});
+  const whites=new DynamicRectSet(time=>MIDI_WHITE.map(p=>{const pressed=midiActive(time,p),shift=pressed?-.035:0;return[midiX(p),(MIDI_STRIKE+MIDI_BOTTOM)/2+shift,MIDI_WHITE_W*.965,MIDI_WHITE_H-(pressed?.035:0),pressed?midiPitchColor(p,.46):rgb(236,239,246),rgb(92,102,122,180),.012];}),{zIndex:4,worldStroke:true});
+  const blackPitches=Array.from({length:88},(_,i)=>21+i).filter(midiBlack);
+  const blacks=new DynamicRectSet(time=>blackPitches.map(p=>{const pressed=midiActive(time,p),shift=pressed?-.045:0;return[midiX(p),MIDI_STRIKE-MIDI_BLACK_H/2+shift,MIDI_BLACK_W,MIDI_BLACK_H-(pressed?.04:0),pressed?midiPitchColor(p,.86):rgb(24,28,37),rgb(8,10,15,220),.014];}),{zIndex:5,worldStroke:true});
+  const strike=new LineSet([[MIDI_LEFT,MIDI_STRIKE,MIDI_LEFT+MIDI_WIDTH,MIDI_STRIKE,rgb(205,216,240,125),.025]],{worldStroke:true,zIndex:6});
+  const title=new Text('MIDI piano rain',{fontSize:34,color:WHITE,opacity:0,zIndex:10,transform:T(0,4.34)});
+  const subtitle=new Text(`${data.trackName}   ·   ${data.notes.length} notes   ·   MIDI ${data.low}–${data.high}`,{fontSize:18,color:MUTED,opacity:0,zIndex:10,transform:T(0,3.92)});
+  scene.add(rain,whites,blacks,strike,title,subtitle);scene.parallel(.55,api=>{api.fadeIn(title,{duration:.45});api.fadeIn(subtitle,{duration:.55,at:.05});});
+  return finalize(scene,data.leadTime+data.duration+data.outro);
 }
 
 function drawNetwork(ctx,r,time,{centerY=-.1,scale=1}={}){const layers=[6,9,9,4],xs=[-4.2,-1.4,1.4,4.2];const pos=layers.map((n,L)=>Array.from({length:n},(_,i)=>[xs[L]*scale,centerY+(i-(n-1)/2)*.45*scale]));for(let l=0;l<layers.length-1;l++)for(let i=0;i<pos[l].length;i++)for(let j=0;j<pos[l+1].length;j++){const a=pos[l][i],b=pos[l+1][j],w=Math.sin(i*13+j*7+l*5+time*.8);path(ctx,r,[a,b],{stroke:w>0?rgba(BLUE,.12+.14*Math.abs(w)):rgba(RED,.12+.14*Math.abs(w)),width:.5+1.2*Math.abs(w)});}for(let l=0;l<pos.length;l++)for(let i=0;i<pos[l].length;i++){const a=.5+.5*Math.sin(time*1.3+i*.6+l),d=r.toDevice(...pos[l][i]);ctx.beginPath();ctx.arc(d[0],d[1],(.055+.04*a)*r.unitSize,0,TAU);ctx.fillStyle=`rgba(${Math.round(70+130*a)},${Math.round(120+90*a)},245,.95)`;ctx.fill();}return pos;}
@@ -173,18 +180,29 @@ export function neural_network(renderer){
   scene.batch(nodes.at(-1),{to:parityCircleItems(data.final),duration:.55});scene.wait(.65);return scene;
 }
 
+function mnistEpochState(time){
+  const d=MNIST_REFERENCE;if(time<d.introEnd)return{epoch:0,local:0,phase:'intro',progress:0};
+  if(time<d.trainEnd){const raw=(time-d.introEnd)/d.epochDuration,epoch=Math.min(7,Math.floor(raw)),local=(raw-epoch)*d.epochDuration;return{epoch,local,phase:local<d.forwardEnd?'forward':local<d.backwardEnd?'backward':local<d.updateEnd?'update':'reset',progress:clamp01(raw/8)};}
+  if(time<d.inferenceEnd)return{epoch:7,local:time-d.trainEnd,phase:'inference',progress:1};
+  return{epoch:7,local:time-d.inferenceEnd,phase:'final',progress:1};
+}
+const mnistPixelItems=(pixels,cx=-5.6,cy=.35,size=2.35)=>{const step=size/28,half=size/2;return pixels.map((v,i)=>{const x=i%28,y=Math.floor(i/28),g=Math.round(28+220*v);return[cx-half+(x+.5)*step,cy+half-(y+.5)*step,step*.94,step*.94,rgb(g,g,Math.min(255,g+10))];});};
 export function mnist_training(renderer){
-  const scene=new Scene(renderer);header(scene,'MNIST training','public dynamic batches + graph + number readouts');const pos=networkPositions({centerY:.5,scale:.72}),pAt=time=>smooth(time/8),lossAt=time=>2.2*Math.exp(-4.2*pAt(time))+.08,accAt=time=>.1+.89*(1-Math.exp(-4.5*pAt(time)));
-  const sample=[];for(let yy=0;yy<7;yy++)for(let xx=0;xx<7;xx++){const on=((xx-3)**2+(yy-3)**2<7)&&(xx>2||yy<3);sample.push([2.0+xx*.18,-2.0+yy*.18,.15,.15,on?WHITE:'#222a38']);}
-  scene.add(
-    new DynamicLineSet(time=>{const items=[];for(let l=0;l<pos.length-1;l++)for(let i=0;i<pos[l].length;i++)for(let j=0;j<pos[l+1].length;j++){const a=pos[l][i],b=pos[l+1][j],w=Math.sin(i*13+j*7+l*5+time*.8);items.push([a[0],a[1],b[0],b[1],w>0?rgba(BLUE,.16):rgba(RED,.16),.6+Math.abs(w)]);}return items;}),
-    new DynamicCircleSet(time=>{const items=[];for(let l=0;l<pos.length;l++)for(let i=0;i<pos[l].length;i++){const a=.5+.5*Math.sin(time*1.3+i*.6+l),q=pos[l][i];items.push([q[0],q[1],.045+.035*a,rgba(BLUE,.55+.4*a)]);}return items;}),
-    new DynamicPolyline(time=>{const p=pAt(time),out=[];for(let i=0;i<=100;i++){const q=i/100;if(q>p)break;out.push([-4.9+4.2*q,-2.3+1.25*(1-(2.2*Math.exp(-4.2*q)+.08)/2.4)]);}return out;},{stroke:ORANGE,width:2.5}),
-    new RectSet(sample),
-    new Text(time=>`epoch ${Math.floor(1+pAt(time)*19)}   loss ${lossAt(time).toFixed(3)}`,{fontSize:16,color:ORANGE,transform:T(-2.8,-2.62)}),
-    new Text(time=>`validation accuracy ${(accAt(time)*100).toFixed(1)}%`,{fontSize:17,color:GREEN,transform:T(2.75,-2.62)}),
-    new Text('prediction: 8',{fontSize:20,transform:T(3.4,-1.45)}),
-  );return finalize(scene,8.5);
+  const scene=new Scene(renderer),data=MNIST_REFERENCE,pos=networkPositions({centerY:.55,scale:.65});
+  const state=t=>mnistEpochState(t),metric=(arr,e)=>arr[Math.max(0,Math.min(arr.length-1,e))];
+  const pixels=new DynamicRectSet(time=>{const st=state(time),source=st.phase==='inference'?data.inference[Math.min(3,Math.floor(st.local/2))]?.pixels:data.samples[st.epoch];return mnistPixelItems(source??data.samples[0]);},{zIndex:4});
+  const edges=new DynamicLineSet(time=>{const st=state(time),items=[];for(let l=0;l<pos.length-1;l++)for(let i=0;i<pos[l].length;i++)for(let j=0;j<pos[l+1].length;j++){const a=pos[l][i],b=pos[l+1][j],forward=st.phase==='forward',backward=st.phase==='backward',u=forward?clamp01(st.local/data.forwardEnd):backward?clamp01((st.local-data.forwardEnd)/(data.backwardEnd-data.forwardEnd)):0;const active=forward?(l+u>=1):backward?((pos.length-2-l)+u>=1):false,c=backward?PURPLE:CYAN;items.push([a[0],a[1],b[0],b[1],rgba(c,active?.34:.08),active?.018:.008]);}return items;},{worldStroke:true,zIndex:1});
+  const nodes=new DynamicCircleSet(time=>{const st=state(time),out=[];for(let l=0;l<pos.length;l++)for(let i=0;i<pos[l].length;i++){const q=pos[l][i],pulse=.5+.5*Math.sin(time*2+i*.71+l),active=st.phase==='forward'||st.phase==='inference';out.push([q[0],q[1],.055+.025*pulse,rgba(active?BLUE:GRAY,active?.72:.45),WHITE,.009]);}return out;},{worldStroke:true,zIndex:3});
+  const lossPoints=data.meanLoss.map((v,i)=>[-.1+i*.48,-2.45-(v-Math.min(...data.meanLoss))/(Math.max(...data.meanLoss)-Math.min(...data.meanLoss))*.72]);
+  const accPoints=data.testAccuracy.map((v,i)=>[-.1+i*.48,-3.62+(v-Math.min(...data.testAccuracy))/(Math.max(...data.testAccuracy)-Math.min(...data.testAccuracy))*.62]);
+  const visibleCurve=(points,time)=>{const st=state(time),count=st.phase==='intro'?1:Math.min(8,st.epoch+1);return points.slice(0,Math.max(2,count));};
+  const bars=new DynamicRectSet(time=>{const st=state(time);if(st.phase!=='inference'&&st.phase!=='final')return[];const item=data.inference[Math.min(3,Math.floor((st.phase==='final'?7:st.local)/2))]??data.inference[0];return item.probs.map((p,i)=>[5.05+p*1.4/2,1.65-i*.34,p*1.4,.22,i===item.pred?GREEN:rgba(BLUE,.55)]);},{zIndex:4});
+  const title=new Text('MNIST MLP · eight real training epochs',{fontSize:34,color:WHITE,transform:T(0,4.35),zIndex:20}),subtitle=new Text('real NumPy trace · forward → backward aggregate → weight update',{fontSize:18,color:MUTED,transform:T(0,3.95),zIndex:20});
+  const status=new Text(time=>{const st=state(time),e=st.epoch; if(st.phase==='inference'||st.phase==='final'){const q=data.inference[Math.min(3,Math.floor((st.phase==='final'?7:st.local)/2))]??data.inference[0];return `INFERENCE   true ${q.true}   pred ${q.pred}   confidence ${(100*Math.max(...q.probs)).toFixed(1)}%`;}return `epoch ${e+1}/8   ${st.phase.toUpperCase()}   loss ${metric(data.meanLoss,e).toFixed(4)}   train ${(100*metric(data.trainAccuracy,e)).toFixed(2)}%   test ${(100*metric(data.testAccuracy,e)).toFixed(2)}%`;},{fontSize:17,color:YELLOW,fontFamily:'ui-monospace, monospace',transform:T(2.25,-4.18),zIndex:20});
+  const phaseLabel=new Text(time=>{const st=state(time);return st.phase==='forward'?'FORWARD   Z₁=XW₁+b₁  →  sigmoid  →  softmax':st.phase==='backward'?'BACKWARD   Gₑ = Σ batch gradients':st.phase==='update'?'UPDATE   Wₑ₊₁ = Wₑ − ηGₑ':st.phase==='inference'?'FINAL MODEL INFERENCE':'training state';},{fontSize:18,color:CYAN,transform:T(-2.65,-3.7),zIndex:20});
+  scene.add(pixels,edges,nodes,new DynamicPolyline(time=>visibleCurve(lossPoints,time),{stroke:ORANGE,strokeWidth:.028}),new DynamicPolyline(time=>visibleCurve(accPoints,time),{stroke:GREEN,strokeWidth:.025}),bars,title,subtitle,status,phaseLabel,
+    new Text('28 × 28 input',{fontSize:15,color:MUTED,transform:T(-5.6,-1.15)}),new Text('784 → 8 → 10',{fontSize:16,color:MUTED,transform:T(0,2.7)}),new Text('epoch summary',{fontSize:15,color:MUTED,transform:T(1.55,-2.1)}),new Text('class probabilities',{fontSize:15,color:MUTED,transform:T(5.65,2.35)}));
+  return finalize(scene,data.finalEnd);
 }
 
 export function modular_multiplication(renderer){

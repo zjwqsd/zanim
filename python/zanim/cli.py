@@ -178,6 +178,41 @@ def _cmd_render(args) -> int:
     return 0
 
 
+def _cmd_export_ir(args) -> int:
+    scene = _load_scene(args.file, args.builder)
+    from .ir import write_scene_ir
+
+    source = Path(args.file).resolve()
+    output = Path(args.output) if args.output else Path(f"{source.stem}.zanim.json")
+    result = write_scene_ir(
+        scene,
+        output,
+        sample_transform_functions=args.sample_transform_functions,
+        sample_dynamic_providers=args.sample_dynamic_providers,
+        sample_fps=args.sample_fps,
+    )
+    print(result)
+    return 0
+
+
+def _cmd_render_ir(args) -> int:
+    from .ir import load_scene_ir
+
+    scene = load_scene_ir(args.file)
+    source = Path(args.file).resolve()
+    if args.time is not None and (args.start is not None or args.end is not None):
+        raise ZanimError("--time cannot be combined with --start/--end")
+    if args.output:
+        output = Path(args.output)
+    elif args.time is not None or scene.duration <= 0:
+        output = Path(f"{source.stem}.png")
+    else:
+        output = Path(f"{source.stem}.mp4")
+    result = scene.render(output, time=args.time, start=args.start, end=args.end)
+    print(result)
+    return 0
+
+
 def _cmd_info(_args) -> int:
     from .render.abi import native_diagnostics
 
@@ -208,7 +243,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="zanim", description="Zanim animation tools")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    preview = sub.add_parser("preview", help="open random-access browser preview")
+    preview = sub.add_parser("preview", help="open browser-native Scene IR preview")
     preview.add_argument("file", help="Python scene script")
     preview.add_argument("--builder", help="explicit Scene builder function (optional)")
     preview.add_argument("--host", default="127.0.0.1")
@@ -229,6 +264,31 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--start", type=float, help="video interval start time")
     render.add_argument("--end", type=float, help="video interval end time")
     render.set_defaults(func=_cmd_render)
+
+    export_ir = sub.add_parser("export-ir", help="compile a Python Scene to portable Scene IR")
+    export_ir.add_argument("file", help="Python scene script")
+    export_ir.add_argument("-o", "--output")
+    export_ir.add_argument("--builder", help="explicit Scene builder function (optional)")
+    export_ir.add_argument(
+        "--sample-transform-functions",
+        action="store_true",
+        help="bake TransformFunctionClip callbacks to frame-rate sampled tracks",
+    )
+    export_ir.add_argument(
+        "--sample-dynamic-providers",
+        action="store_true",
+        help="bake dynamic geometry/batch/vector providers to frame-rate sampled tracks",
+    )
+    export_ir.add_argument("--sample-fps", type=int, help="sample rate for baked runtime providers")
+    export_ir.set_defaults(func=_cmd_export_ir)
+
+    render_ir = sub.add_parser("render-ir", help="render portable Scene IR with the native backend")
+    render_ir.add_argument("file", help="Scene IR JSON file")
+    render_ir.add_argument("-o", "--output")
+    render_ir.add_argument("--time", type=float, help="render one absolute-time image")
+    render_ir.add_argument("--start", type=float, help="video interval start time")
+    render_ir.add_argument("--end", type=float, help="video interval end time")
+    render_ir.set_defaults(func=_cmd_render_ir)
 
     info = sub.add_parser("info", help="show runtime and dependency diagnostics")
     info.set_defaults(func=_cmd_info)

@@ -114,7 +114,8 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             item.object_ref
             for item in self._registry
             if isinstance(
-                item.object_ref, (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, InfiniteObject2D)
+                item.object_ref,
+                (Object2D, BatchObject2D, VectorObject2D, RasterObject2D, InfiniteObject2D),
             )
         )
 
@@ -158,9 +159,9 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
     def on(self, obj):
         """Return the stable Scene-bound handle for one registered item."""
         from .bound import (
+            Bound2D,
             BoundAudio,
             BoundBatch2D,
-            Bound2D,
             BoundGroup,
             BoundItem,
             BoundMesh3D,
@@ -369,7 +370,15 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             raise ValueError("object is outside its Scene lifetime at the requested time")
         initial = registered.initial
         if not isinstance(
-            initial, (ObjectSnapshot, BatchSnapshot, VectorSnapshot, RasterState, InfiniteSnapshot, NodeSnapshot)
+            initial,
+            (
+                ObjectSnapshot,
+                BatchSnapshot,
+                VectorSnapshot,
+                RasterState,
+                InfiniteSnapshot,
+                NodeSnapshot,
+            ),
         ):
             raise TypeError("object has no 2D transform")
         return self._parent_world_transform_at(registered, time) @ self._transform_at(
@@ -397,6 +406,53 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         """Authored timeline duration in seconds."""
         return float(self._timeline.cursor)
 
+    def to_ir(
+        self,
+        *,
+        sample_transform_functions: bool = False,
+        sample_dynamic_providers: bool = False,
+        sample_fps: int | None = None,
+    ):
+        """Compile this authored Scene to portable Zanim Scene IR v1."""
+        from .ir import scene_to_ir
+
+        return scene_to_ir(
+            self,
+            sample_transform_functions=sample_transform_functions,
+            sample_dynamic_providers=sample_dynamic_providers,
+            sample_fps=sample_fps,
+        )
+
+    def write_ir(
+        self,
+        path,
+        *,
+        sample_transform_functions: bool = False,
+        sample_dynamic_providers: bool = False,
+        sample_fps: int | None = None,
+    ):
+        """Write portable Scene IR JSON and return the output path."""
+        from .ir import write_scene_ir
+
+        return write_scene_ir(
+            self,
+            path,
+            sample_transform_functions=sample_transform_functions,
+            sample_dynamic_providers=sample_dynamic_providers,
+            sample_fps=sample_fps,
+        )
+
+    @classmethod
+    def from_ir(cls, value):
+        """Reconstruct a Scene from a Scene IR mapping or JSON file path."""
+        from pathlib import Path
+
+        from .ir import read_scene_ir, scene_from_ir
+
+        if isinstance(value, (str, Path)):
+            return scene_from_ir(read_scene_ir(value))
+        return scene_from_ir(value)
+
     def render_frame(self, path, time: float = 0.0):
         """Render one absolute scene time without evaluating earlier frames."""
         from .render import render_snapshot
@@ -416,10 +472,11 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         return render_video(self, path, **kwargs)
 
     def preview(self, **kwargs):
-        """Open the local random-access timeline preview UI.
+        """Open the browser-native Scene IR Preview.
 
-        By default this blocks until Ctrl-C. Pass ``block=False`` to run the
-        preview server on a daemon thread and receive its server handle.
+        Python only authors/reloads Scene IR; playback, seeking and inspection
+        run through the same @zanim/web runtime used by static Web exports.
+        Pass ``block=False`` to receive the lightweight development server.
         """
         import inspect
 

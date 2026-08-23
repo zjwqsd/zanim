@@ -5,7 +5,6 @@ description = "A Manim-style animation engine with a Python frontend and Zig cor
 requires-python = ">=3.12"
 dependencies = [
     "pillow>=10.3.0",
-    "zstandard>=0.23",
 ]
 
 [project.optional-dependencies]

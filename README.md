@@ -1,8 +1,6 @@
 # Zanim
 
-A compact Manim-style 2D/3D animation engine with Python authoring and a Zig 0.16 render core. z2d handles 2D vector drawing; Zanim owns a deterministic CPU 3D rasterizer.
-
-Zanim keeps the renderer small and explicit while providing the authoring conveniences needed for real mathematical animation: geometry, groups/layout, timeline animation, camera motion, Typst text/math, dynamic formulas, plotting, batched visualization, and random-access video rendering.
+Cross-platform animation with Python and TypeScript authoring. Native video uses Zig/z2d; Web uses retained Canvas2D with small Zig/WASM math kernels.
 
 ## Quick start
 
@@ -68,74 +66,50 @@ scene.render(start=2, end=5)   # inline MP4 interval
 
 No notebook magics or separate authoring mode are required. `scene.preview()` remains the full interactive browser Preview used by normal Python/CLI workflows.
 
-Preview is random-access: jumping to `t=300` evaluates that absolute scene time directly rather than rendering the preceding five minutes. `zanim preview` tracks top-level variable identities and runtime clip call sites automatically; edit/save the file and press `↻` to re-execute it while preserving the selected time.
+Preview is random-access in the browser: jumping to `t=300` calls the Web Scene evaluator directly rather than asking Python to render the preceding five minutes. `zanim preview` tracks top-level variable identities and runtime clip call sites automatically; edit/save the file and press `↻ Reload` to re-execute Python and replace the Scene IR while preserving the selected time.
 
 By default source reload is available only on loopback Preview hosts. Exposing Preview with `--host 0.0.0.0` keeps rendering/inspection available but disables code reload unless `--allow-remote-reload` is explicitly supplied.
 
 ## Architecture
 
 ```text
-Authoring objects
-Object2D / BatchObject2D / DynamicBatchObject2D / VectorObject2D / RasterObject2D / Group / Camera2D / ScalarValue / AudioObject
-        |
-        | Scene + Timeline, evaluate(t)
-        v
-Render model
-RenderSnapshot (flat renderable leaves)
-        |
-        | encode ordered draw stream
-        v
-Backend bridge
-render/wire.py -> C ABI
-        |
-        v
-Zig renderer
-scene_wire.zig -> geometry / batch / vector / raster -> z2d
+Python / TypeScript
+        ↓
+   Scene IR v1
+    ↙       ↘
+Web         Native
+Canvas2D    Zig/z2d → MP4
 ```
 
-Important boundaries:
+Python may render its in-memory Scene directly. Scene IR is used for cross-language and cross-backend playback.
 
-- `Scene` has one registry for visual objects, groups, media, audio, camera state, and animated scalar values.
-- `Group` is a lightweight authoring hierarchy. Group transforms, opacity, and z-index are composed into child leaves during `evaluate(t)`; Zig never receives a scene graph.
-- `Camera2D` uses the same transform channel and is composed into every leaf snapshot.
-- `RenderSnapshot` is immutable and random-access: rendering frame `t` never depends on rendering frame `t-dt` first.
-- `z_index` plus insertion order defines one draw order across geometry, batch, vector, and raster representations.
-- Python owns animation and video orchestration. Zig only rasterizes already-evaluated values.
-
-The root `zanim` namespace is intentionally authoring-focused. Representation-level types such as `Object2D`, batch containers, vector documents, raster sources, timeline clips, and raw triangle meshes live in `zanim.geometry`, `zanim.batch`, `zanim.vector`, `zanim.raster`, `zanim.timeline`, and `zanim.mesh3d`.
-
-### Random-access rendering
-
-`Scene.render()` uses the authored timeline to choose the useful output mode while preserving absolute-time evaluation:
-
-```python
-scene.render("still.png")                 # no timeline duration -> image at t=0
-scene.render("full.mp4")                  # animated scene -> complete timeline
-scene.render("frame.png", time=37.25)     # exactly one absolute-time frame
-scene.render("debug.mp4", start=35, end=42)  # only [35, 42)
+```bash
+zanim export-ir animation.py -o animation.zanim.json
+zanim render-ir animation.zanim.json -o animation.mp4
 ```
 
-`render_frame(path, time)` remains the direct single-frame API. `render_video(path, start=..., end=...)` exposes the same interval selection directly. A sliced video samples `scene.evaluate(start + frame/fps)`, so frames before `start` are never evaluated. Audio playback is sliced on the same absolute scene interval.
+```ts
+import { Circle, Scene } from "@zanim/web";
+import { sceneToIR } from "@zanim/web/ir";
 
-#### Local random-access preview
-
-`Scene.preview()` opens a local browser UI backed by the same absolute-time evaluator:
-
-```python
-scene.preview()
+const scene = Scene.headless({ width: 1280, height: 720, unitSize: 90, fps: 60 });
+scene.add(new Circle(1)).move([2, 0], { duration: 2 });
+const ir = sceneToIR(scene);
 ```
 
-The preview provides exact-time input plus frame-grid scrubbing/playback, PNG export, interval MP4 export, and an object inspector for every registered item at the selected time. Browser playback consumes the renderer's RGB0 output directly through WebGL2; PNG is only encoded on demand for image export or the legacy image endpoint.
+Scene IR stores object state, hierarchy/lifetime, resources and timeline clips. `VectorDocument` is portable, so Python Typst output can render on Web without shipping Typst. Runtime callbacks can be explicitly sampled; `FunctionPlot` and `FourierEpicycles` use compact semantic forms. See `docs/scene-ir-v1.md`.
 
-When a file is launched through `zanim preview`, source awareness is automatic: module-level variables are mapped to registered objects by identity and Timeline clips are associated with the real runtime call site that created them. No decorator is required. After editing and saving, press `↻` to explicitly re-execute the whole file. Reload is manual rather than file-watched: a successful rebuild starts a fresh preview cache and preserves the selected time, while a syntax/runtime error keeps the previous Scene alive and shows the traceback.
+### Browser Preview
 
-`@preview_source` remains available for advanced function-based builders. If you instead run a script directly with `python demo.py` and call `scene.preview()` at the bottom, global object names are still recoverable, but clips created before `preview()` cannot be retrospectively assigned reliable source lines.
+`zanim preview file.py` and `scene.preview()` use the Web runtime directly:
 
-Rendered frames use two bounded storage roles. A small RGB0 hot working set is capped by memory (`hot_cache_mb=64` by default), while completed raster results are independently compressed with Zstandard level 1 into one session-local cold-cache file capped by `cold_cache_mb=1024`. The cold index, not the hot working set, defines the green rendered ranges in the timeline. Once the cold budget is full, background prefetch stops rather than letting disk use grow with scene duration. The cache file is deleted when the preview closes.
+```text
+Python source → Scene IR → @zanim/web → Browser
+```
 
-Preview-assisted video export deliberately has only two modes. If every requested output sample is present in the cold cache, one continuous ffmpeg/libx264 process consumes restored RGB0 frames and skips `Scene.evaluate()` plus Zig rasterization. If even one requested sample is missing, export uses the normal `render_video()` path unchanged. This prevents partial cache/raster mixing from slowing final export while still allowing a fully previewed interval to export faster. No frame images or segment videos are written.
+Play, seek and inspect run in the browser. Reload re-executes Python and preserves the selected time. Remote reload is disabled unless `--allow-remote-reload` is set.
 
-Selecting a new time renders that sample first, discards stale queued prefetch work, then schedules a bounded forward window (`t + 1/fps`, `t + 2/fps`, ...). For scripting/tests, `scene.preview(block=False, open_browser=False, port=0)` returns a `PreviewServer`; call `close()` when finished. `hot_cache_mb=`, `cold_cache_mb=`, `prefetch_seconds=`, and `prefetch_workers=` tune the preview session without changing normal video-rendering semantics.
+Dynamic transform/geometry/batch/vector callbacks are sampled on the scene FPS grid for Preview. Unsupported portable features report an error instead of falling back to frame streaming.
 
 ## Common authoring model
 

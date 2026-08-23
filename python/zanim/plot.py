@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .batch import BatchObject2D, LineSet
+from .expression import ScalarExpr
 from .geometry import (
     Color,
     Geometry,
@@ -16,7 +17,7 @@ from .geometry import (
 )
 from .space import Transform2D, Vec2
 
-ScalarFunction = Callable[[float], float]
+ScalarFunction = Callable[[float], float] | ScalarExpr
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +140,15 @@ class Axes:
         a, b = x_range or self.x_range
         if not a < b:
             raise ValueError("plot range must be increasing")
+        if isinstance(function, ScalarExpr):
+            return FunctionPlot(
+                function,
+                axes=self,
+                x_range=(a, b),
+                samples=samples,
+                color=color,
+                stroke_width=stroke_width,
+            )
         points = tuple(self.c2p(x, float(function(x))) for x in _linspace(a, b, samples))
         return Object2D(
             PolylineGeometry(points),
@@ -277,6 +287,64 @@ class DynamicGeometryObject2D(Object2D):
     def _geometry_at(self, time: float, initial):
         _ = initial
         return self.geometry_at(time)
+
+
+class FunctionPlot(DynamicGeometryObject2D):
+    """Portable graph ``y = expression(x, time)`` in one explicit Axes mapping.
+
+    Arbitrary Python callables remain supported by ``DynamicGeometryObject2D``.
+    ``FunctionPlot`` is the smaller cross-language representation for functions
+    expressible with :class:`ScalarExpr`.
+    """
+
+    def __init__(
+        self,
+        expression: ScalarExpr,
+        *,
+        axes: Axes | None = None,
+        x_range: tuple[float, float] = (-5.0, 5.0),
+        y_range: tuple[float, float] = (-3.0, 3.0),
+        width: float = 10.0,
+        height: float = 6.0,
+        center: Vec2 = Vec2(),
+        samples: int = 240,
+        color: Color = Color(103, 181, 255),
+        stroke_width: float = 0.035,
+        transform: Transform2D = Transform2D(),
+        opacity: float = 1.0,
+        z_index: int = 0,
+    ) -> None:
+        if not isinstance(expression, ScalarExpr):
+            raise TypeError("FunctionPlot expression must be ScalarExpr")
+        if samples < 2:
+            raise ValueError("FunctionPlot requires at least two samples")
+        a, b = map(float, x_range)
+        if not a < b:
+            raise ValueError("FunctionPlot x_range must be increasing")
+        self.expression = expression
+        self.axes = axes or Axes(
+            tuple(map(float, x_range)), tuple(map(float, y_range)), width, height, center
+        )
+        self.x_range = (a, b)
+        self.samples = int(samples)
+
+        def geometry_at(time: float) -> PolylineGeometry:
+            return PolylineGeometry(self.points_at(time))
+
+        super().__init__(
+            geometry_at,
+            style=Style(fill=None, stroke=StrokeStyle(color, stroke_width)),
+            transform=transform,
+            opacity=opacity,
+            z_index=z_index,
+        )
+
+    def points_at(self, time: float) -> tuple[Vec2, ...]:
+        a, b = self.x_range
+        return tuple(
+            self.axes.c2p(x, self.expression.evaluate(x=x, time=float(time)))
+            for x in _linspace(a, b, self.samples)
+        )
 
 
 def _first_multiple(low: float, step: float) -> float:

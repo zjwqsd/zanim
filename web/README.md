@@ -1,10 +1,8 @@
 # Zanim Web
 
-`@zanim/web` is the browser-native frontend of Zanim. It is not a video player and
-users do not need to know WebAssembly: JavaScript/TypeScript owns authoring and the
-Zig/WASM module is an implementation detail for procedural math kernels.
+Browser frontend for Zanim. Authoring is JavaScript/TypeScript; Canvas2D handles retained 2D rendering and Zig/WASM handles procedural math kernels.
 
-## Run locally
+## Run
 
 ```bash
 ./web/build.sh
@@ -12,61 +10,51 @@ python -m http.server 8000 -d web
 ```
 
 - Gallery: `http://localhost:8000/gallery/`
-- Interactive infinite-plane demo: `http://localhost:8000/demo/`
-- Retained-batch stress benchmark: `http://localhost:8000/bench/`
+- Demo: `http://localhost:8000/demo/`
+- Benchmark: `http://localhost:8000/bench/`
 
-## Current native runtime
+## Runtime
 
-Public browser primitives currently include:
+Main public capabilities:
 
-- deterministic random-access `Scene` timeline with independent transform/opacity/style/trim/value/batch channels
-- pure `transformFunction(alpha)` clips
-- recursively tracked `Group` children (timeline-addressable without duplicate rendering)
-- `Transform2D`, `Mat2`, inverse/composition, `ScalarValue`, and LOCAL/PARENT/WORLD frame semantics
-- retained `Polyline` with Python-compatible path trim/create semantics
-- `Scene.interpolate()` / `Scene.replace()`: dense Polyline arc-length morphs plus native-style 8-cubic primitive normalization for Circle/Rectangle/Line, with transform/style interpolation and lifetime handoff
-- basic shapes/text plus Python-compatible `Bounds2D`, `Frame`, `Anchor`, `Row`, `Column`, `Grid`, and animated `Scene.layout()`
-- retained `LineSet`, `CircleSet`, `RectSet`, `TextSet` using cached `Path2D`, with random-access `BatchClip` interpolation
-- `DynamicPolyline`, dynamic batch sets and `DynamicNumber`
-- `InfiniteLine` / `InfiniteGrid`
-- native Zig/WASM `MandelbrotSet`, `JuliaSet`, and inverse-mapped `ComplexMappedGrid`, sharing Native palette/homotopy semantics
-- explicit realtime quality controls for procedural fields
+- random-access `Scene` timeline
+- transform, opacity, style, trim, value and batch channels
+- `Group`, LOCAL/PARENT/WORLD transforms and `Camera2D`
+- shapes, text, `Polyline`, create/trim, interpolate/replace
+- `LineSet`, `CircleSet`, `RectSet`, dynamic batches and `DynamicNumber`
+- bounds, anchors, `Row`, `Column`, `Grid`, animated layout
+- `InfiniteLine`, `InfiniteGrid`
+- `MandelbrotSet`, `JuliaSet`, `ComplexMappedGrid`
+- `FunctionPlot` and `FourierEpicycles`
+- `VectorObject2D` for SVG/Typst cubic vector data
 
-The Gallery now uses three deliberately strict levels:
+Canvas2D is the default 2D backend. Batch paths are retained with `Path2D`; procedural fields use configurable WASM resolution.
 
-- **PARITY**: public Web API only, and timeline/geometry/transition semantics checked against the Python scene.
-- **NATIVE**: public Web API only, but visual/timeline parity has not yet been certified.
-- **PROTOTYPE**: still demonstrates a deferred subsystem with custom drawing code.
+## Scene IR
 
-The project goal is to grow PARITY slowly rather than call every browser-native demo finished.
-At this checkpoint the 29-page gallery contains **16 PARITY / 6 NATIVE / 7 PROTOTYPE** pages.
-PARITY currently covers the major 2D timing/interpolation paths: layout, coordinate-frame
-transforms, open-chain kinematics, lifetime/state, transient primitive morphs, batched neural
-signals, complete six-algorithm sorting traces, the complete red-black-tree trace, Hilbert and
-classic path fractals, De Casteljau, modular multiplication, infinite linear algebra, complex
-mapping, and Mandelbrot/Julia. The seven raster/media/3D compatibility pages remain intentionally
-deferred. Math/Typst, SVG VectorDocument, MIDI/audio and MNIST-specific parity are not claimed yet.
+`@zanim/web/ir` loads and exports Scene IR:
 
-## Performance model
+```ts
+import { Circle, Scene } from "@zanim/web";
+import { createSceneFromIR, sceneToIR } from "@zanim/web/ir";
 
-The primary 2D renderer remains Canvas2D, but it is retained rather than immediate:
-batch geometry compiles to `Path2D` once and animation changes the affine CTM. Dynamic
-geometry rebuilds one batched path per frame rather than constructing one JS object per
-primitive. Heavy mathematical pixel fields run in Zig/WASM and expose explicit realtime
-resolution tradeoffs. Their mathematical path, transform timeline and palette remain aligned to
-Native Zanim; browser playback may use a lower spatial sampling resolution to preserve 60 Hz.
+const scene = Scene.headless({ width: 1280, height: 720, unitSize: 90, fps: 60 });
+scene.add(new Circle(0.5)).move([3, 1], { duration: 1.5 });
+const ir = sceneToIR(scene);
 
-WebGPU/WebGL is therefore not required for ordinary 2D animation yet; it remains a
-future backend for cases whose real browser frame-time benchmarks exceed the 60 Hz
-budget after retained/batched optimization.
+const replay = await createSceneFromIR("#canvas", ir);
+```
 
+Runtime callbacks may be exported with sampled fallbacks. `FunctionPlot` and `FourierEpicycles` stay semantic and compact.
 
-## Parity contract
+Native video from the same IR:
 
-For features claimed as PARITY, Python is the semantic reference implementation. In
-particular, Web must preserve absolute-time random access, authored object lifetimes,
-clip easing/durations, path create/trim behavior, and geometry replacement semantics.
-Polyline replacement uses the denser endpoint segment count and uniform arc-length
-resampling, mirroring `src/interpolation.zig`; color, stroke width and affine transform
-are interpolated continuously. If a subsystem cannot satisfy this contract yet, it
-stays NATIVE or PROTOTYPE instead of receiving an approximate compatibility shim.
+```bash
+zanim render-ir scene.zanim.json -o scene.mp4
+```
+
+## Preview and Gallery
+
+Python Preview serves Scene IR to this runtime; it does not stream rendered frames.
+
+The Gallery shows all canonical Python example scripts. Entries are labeled as either TypeScript replicas or Python IR replays.

@@ -1,4 +1,4 @@
-"""Build the Zig renderer once when producing a platform wheel."""
+"""Build Native Zig + Web runtime assets when producing a platform wheel."""
 
 from __future__ import annotations
 
@@ -24,6 +24,28 @@ class CustomBuildHook(BuildHookInterface):
             return "zanim_core.dll"
         raise RuntimeError(f"unsupported wheel platform: {system} {platform.machine()}")
 
+    @staticmethod
+    def _build_web_wasm(root: Path) -> Path:
+        output = root / "web" / "dist" / "zanim_web_core.wasm"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                "zig",
+                "build-exe",
+                str(root / "src" / "web_core.zig"),
+                "-target",
+                "wasm32-freestanding",
+                "-O",
+                "ReleaseSmall",
+                "-fno-entry",
+                "-rdynamic",
+                f"-femit-bin={output}",
+            ],
+            cwd=root,
+            check=True,
+        )
+        return output
+
     def initialize(self, version: str, build_data: dict) -> None:
         if self.target_name != "wheel":
             return
@@ -39,6 +61,21 @@ class CustomBuildHook(BuildHookInterface):
         if not built.is_file():
             raise RuntimeError(f"Zig build did not produce {built}")
         build_data["force_include"][str(built)] = f"zanim/_native/{name}"
+
+        # Python Preview and static Web exports use the exact same browser runtime.
+        wasm = self._build_web_wasm(root)
+        web_assets = {
+            root / "web" / "src" / "zanim.js": "zanim/_web/src/zanim.js",
+            root / "web" / "src" / "ir.js": "zanim/_web/src/ir.js",
+            root / "web" / "preview" / "index.html": "zanim/_web/preview/index.html",
+            root / "web" / "preview" / "main.js": "zanim/_web/preview/main.js",
+            wasm: "zanim/_web/dist/zanim_web_core.wasm",
+        }
+        for source, destination in web_assets.items():
+            if not source.is_file():
+                raise RuntimeError(f"Web Preview asset is missing: {source}")
+            build_data["force_include"][str(source)] = destination
+
         # The wheel contains native code loaded through ctypes and must never be
         # advertised as a platform-independent py3-none-any artifact.
         build_data["pure_python"] = False
