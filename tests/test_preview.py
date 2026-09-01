@@ -27,6 +27,9 @@ class WebPreviewTests(unittest.TestCase):
                 html = response.read()
             self.assertIn(b"Zanim Web Preview", html)
             self.assertIn(b"/preview/main.js", html)
+            self.assertIn(b">Timeline<", html)
+            self.assertNotIn(b"Scene IR Inspector", html)
+            self.assertNotIn(b"sourceCode", html)
             self.assertNotIn(b"api/frame/raw", html)
 
             with urlopen(server.url + "api/meta") as response:

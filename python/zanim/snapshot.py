@@ -201,6 +201,12 @@ class Camera3DSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class Node3DSnapshot:
+    transform: Transform3D
+    opacity: float = 1.0
+
+
+@dataclass(frozen=True, slots=True)
 class Mesh3DSnapshot:
     mesh: TriangleMesh
     transform: Transform3D

@@ -6,6 +6,7 @@ from .audio import AudioObject
 from .batch import BatchGeometry, BatchObject2D, DynamicBatchObject2D
 from .camera import Camera2D
 from .geometry import Object2D
+from .group3d import Group3D
 from .infinite import ComplexMappedGrid, InfiniteObject2D
 from .mesh3d import MeshObject3D
 from .raster import RasterObject2D
@@ -14,6 +15,7 @@ from .snapshot import (
     Camera3DSnapshot,
     InfiniteSnapshot,
     Mesh3DSnapshot,
+    Node3DSnapshot,
     NodeSnapshot,
     ObjectSnapshot,
     RasterSnapshot,
@@ -42,8 +44,9 @@ from .timeline import (
     StyleClip,
     Transform3DClip,
     TransformClip,
+    VectorMorphClip,
 )
-from .vector import VectorObject2D
+from .vector import DynamicVectorObject2D, VectorObject2D
 
 if TYPE_CHECKING:
     from .scene import _RegisteredItem
@@ -184,7 +187,9 @@ class _SceneEvaluator:
         return RenderVector(
             registered.object_id,
             VectorSnapshot(
-                document=obj._document_at(time, initial.document),
+                document=self._vector_document_at(
+                    registered.object_id, obj, initial.document, time
+                ),
                 transform=parent_transform
                 @ self._transform_at(registered.object_id, initial.transform, time),
                 reveal=self._reveal_at(registered.object_id, initial.reveal, time),
@@ -193,6 +198,31 @@ class _SceneEvaluator:
                 z_index=parent_z + initial.z_index,
             ),
         )
+
+    def _vector_document_at(
+        self,
+        object_id: int,
+        obj: VectorObject2D,
+        initial,
+        time: float,
+    ):
+        clips = self._timeline._channel_clips(VectorMorphClip, object_id)
+        if isinstance(obj, DynamicVectorObject2D):
+            if clips:
+                raise RuntimeError("DynamicVectorObject2D cannot also have VectorMorphClip entries")
+            return obj._document_at(time, initial)
+        if not clips:
+            return obj._document_at(time, initial)
+
+        value = initial
+        for clip in clips:
+            if time < clip.span.start:
+                break
+            if time >= clip.span.end:
+                value = clip.after
+                continue
+            return clip.sample(time)
+        return value
 
     def _evaluate_infinite(
         self, registered: _RegisteredItem, obj: InfiniteObject2D, time: float
@@ -245,18 +275,32 @@ class _SceneEvaluator:
             ),
         )
 
+    def _context3d_at(self, registered: _RegisteredItem, time: float) -> tuple[Transform3D, float]:
+        transform = Transform3D()
+        opacity = 1.0
+        for parent_id in registered.parent_ids:
+            parent = self._by_id[parent_id]
+            if not isinstance(parent.object_ref, Group3D):
+                raise TypeError("3D parent chain contains a non-Group3D object")
+            assert isinstance(parent.initial, Node3DSnapshot)
+            transform = transform @ self._transform3d_at(parent_id, parent.initial.transform, time)
+            opacity *= self._opacity_at(parent_id, parent.initial.opacity, time)
+        return transform, opacity
+
     def _evaluate_mesh3d(
         self, registered: _RegisteredItem, obj: MeshObject3D, time: float
     ) -> RenderMesh3D:
         initial = registered.initial
         assert isinstance(initial, Mesh3DSnapshot)
+        parent_transform, parent_opacity = self._context3d_at(registered, time)
         return RenderMesh3D(
             registered.object_id,
             Mesh3DSnapshot(
                 initial.mesh,
-                self._transform3d_at(registered.object_id, initial.transform, time),
+                parent_transform
+                @ self._transform3d_at(registered.object_id, initial.transform, time),
                 initial.color,
-                self._opacity_at(registered.object_id, initial.opacity, time),
+                parent_opacity * self._opacity_at(registered.object_id, initial.opacity, time),
                 initial.geometry_transform,
             ),
         )
@@ -288,8 +332,9 @@ class _SceneEvaluator:
             if time >= clip.span.end:
                 value = clip.after.as_affine() if isinstance(clip, SE2TransformClip) else clip.after
                 continue
-            return clip.sample(time)
-        return value
+            value = clip.sample(time)
+            break
+        return self._simulation_transform_at(object_id, value, time)
 
     def _transform3d_at(self, object_id: int, initial: Transform3D, time: float) -> Transform3D:
         value = initial

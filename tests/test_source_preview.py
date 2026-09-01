@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from zanim import Canvas, Circle, Color, Scene, Style, Transform2D
+from zanim import Canvas, Circle, Color, Group, Scene, Square, Style
 from zanim.ir import scene_to_ir
 from zanim.preview import PreviewServer
 from zanim.source import get_preview_source, preview_source, reload_preview_source
@@ -35,12 +35,12 @@ def build_source_scene() -> Scene:
     scene = Scene(canvas=Canvas(80, 48, 12), fps=10)
     marker = Circle(1, style=Style(fill=Color(230, 90, 90)))
     marker = scene.add(marker)
-    marker.transform(to=Transform2D.translation(1, 0), duration=1.0)
+    marker.move(to=(1, 0), duration=1.0)
     return scene
 
 
 class PreviewSourceTests(unittest.TestCase):
-    def test_decorator_captures_object_name_and_clip_source(self):
+    def test_decorator_captures_object_name_without_source_locations(self):
         scene = build_source_scene()
         source = get_preview_source(scene)
         self.assertIsNotNone(source)
@@ -48,27 +48,27 @@ class PreviewSourceTests(unittest.TestCase):
         marker = scene.items[0]
         registered = scene._require_registered(marker)
         self.assertEqual(source.primary_name(registered.object_id), "marker")
+        self.assertFalse(hasattr(source, "text"))
+        self.assertFalse(hasattr(source, "clip_source"))
         clip = scene._timeline.clips[0]
-        span = source.clip_source(clip)
-        self.assertIsNotNone(span)
-        assert span is not None
-        block = "\n".join(source.text.splitlines()[span.start_line - 1 : span.end_line])
-        self.assertIn("marker.transform", block)
+        self.assertEqual(scene._timeline._event_actions[id(clip)], "move")
 
-    def test_scene_ir_carries_optional_source_debug_metadata(self):
+    def test_scene_ir_carries_timeline_debug_metadata(self):
         scene = build_source_scene()
         ir = scene_to_ir(scene, include_debug=True)
         marker_id = scene._require_registered(scene.items[0]).object_id
         self.assertEqual(ir["debug"]["objects"][str(marker_id)]["names"], ["marker"])
         self.assertEqual(ir["debug"]["objects"][str(marker_id)]["type"], "Circle")
-        source = ir["clips"][0]["debug"]["source"]
-        lines = ir["debug"]["source"]["text"].splitlines()
-        block = "\n".join(lines[source["start_line"] - 1 : source["end_line"]])
-        self.assertIn("marker.transform", block)
+        events = ir["debug"]["timeline"]
+        self.assertEqual(events[0]["type"], "point")
+        self.assertEqual(events[0]["label"], "marker-add")
+        self.assertEqual(events[1]["type"], "span")
+        self.assertEqual(events[1]["label"], "marker-move")
+        self.assertEqual(events[1]["start"], 0.0)
+        self.assertEqual(events[1]["duration"], 1.0)
 
         lean = scene_to_ir(scene)
         self.assertNotIn("debug", lean)
-        self.assertNotIn("debug", lean["clips"][0])
 
     def test_reload_supports_builder_defined_as_main_module(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -214,22 +214,59 @@ class PreviewSourceTests(unittest.TestCase):
                 self.assertIsNotNone(info)
                 assert info is not None
                 self.assertTrue(
-                    all(info.clip_source(c) is not None for c in reloaded._timeline.clips)
+                    all(
+                        id(c) in reloaded._timeline._event_actions for c in reloaded._timeline.clips
+                    )
                 )
             finally:
                 sys.modules.pop(name, None)
                 sys.path.remove(str(root))
 
-    def test_undecorated_scene_has_no_debug_source(self):
+    def test_timeline_debug_preserves_object_hierarchy_and_effective_lifetimes(self):
+        scene = Scene(canvas=Canvas(80, 48, 12), fps=10)
+        group = Group([Square(1), Circle(0.5)])
+        group = scene.add(group)
+        scene.wait(0.5)
+        scene.remove(group)
+        ir = scene_to_ir(scene, include_debug=True)
+
+        records = {int(record["id"]): record for record in ir["objects"]}
+        child_ids = [
+            object_id for object_id, record in records.items() if record.get("parent") == 1
+        ]
+        self.assertEqual(child_ids, [2, 3])
+        events = ir["debug"]["timeline"]
+        for object_id in (1, 2, 3):
+            removes = [
+                event
+                for event in events
+                if event["action"] == "remove" and event["targets"] == [object_id]
+            ]
+            self.assertEqual(len(removes), 1)
+            self.assertEqual(removes[0]["time"], 0.5)
+
+    def test_replace_event_targets_both_objects(self):
+        scene = Scene(canvas=Canvas(80, 48, 12), fps=10)
+        source = scene.add(Square(1))
+        scene.wait(0.25)
+        scene.replace(source, Circle(1), duration=0.5)
+        events = scene_to_ir(scene, include_debug=True)["debug"]["timeline"]
+        replace = next(event for event in events if event["action"] == "replace")
+        self.assertEqual(replace["targets"], [1, 2])
+        self.assertEqual(replace["start"], 0.25)
+        self.assertEqual(replace["duration"], 0.5)
+
+    def test_undecorated_scene_still_has_timeline_with_fallback_names(self):
         scene = Scene(canvas=Canvas(80, 48, 12), fps=10)
         scene.add(Circle(1, style=Style(fill=Color(230, 90, 90))))
         ir = scene_to_ir(scene, include_debug=True)
-        self.assertNotIn("debug", ir)
+        self.assertEqual(ir["debug"]["timeline"][0]["label"], "Circle#1-add")
+        self.assertNotIn("source", ir["debug"])
         server = PreviewServer(scene, host="127.0.0.1", port=0).start(open_browser=False)
         try:
-            with urlopen(server.url + "api/source") as response:
-                source = json.loads(response.read())
-            self.assertEqual(source, {"available": False})
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(server.url + "api/source")
+            self.assertEqual(caught.exception.code, 404)
         finally:
             server.close()
 

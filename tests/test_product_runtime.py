@@ -60,18 +60,15 @@ class ProductRuntimeTests(unittest.TestCase):
             assert info is not None
             marker = scene._require_registered(scene.items[0])
             self.assertEqual(info.primary_name(marker.object_id), "marker")
-            span = info.clip_source(scene._timeline.clips[0])
-            self.assertIsNotNone(span)
-            assert span is not None
-            self.assertEqual((span.start_line, span.end_line), (4, 7))
-
             reloaded = reload_preview_scene(scene)
             reloaded_info = get_preview_source(reloaded)
             self.assertIsNotNone(reloaded_info)
             assert reloaded_info is not None
             reloaded_marker = reloaded._require_registered(reloaded.items[0])
             self.assertEqual(reloaded_info.primary_name(reloaded_marker.object_id), "marker")
-            self.assertIsNotNone(reloaded_info.clip_source(reloaded._timeline.clips[0]))
+            self.assertEqual(
+                reloaded._timeline._event_actions[id(reloaded._timeline.clips[0])], "move"
+            )
 
     def test_cli_renders_scene_file(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -185,7 +182,7 @@ class ProductRuntimeTests(unittest.TestCase):
         try:
             with urlopen(base + "api/meta") as response:
                 meta = json.loads(response.read())
-            self.assertTrue(meta["source_available"])
+            self.assertNotIn("source_available", meta)
             self.assertFalse(meta["reload_available"])
 
             request = Request(base + "api/reload?t=0.5", method="POST")

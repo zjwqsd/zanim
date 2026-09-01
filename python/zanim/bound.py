@@ -319,6 +319,16 @@ class BoundObject2D(Bound2D[T]):
 
 @dataclass(frozen=True, slots=True)
 class BoundVector2D(Bound2D[T]):
+    def morph(
+        self,
+        *,
+        to,
+        duration: float | None = None,
+        easing: Easing = Easing.SMOOTHSTEP,
+        at: float = 0.0,
+    ):
+        return self.scene.morph(self.raw, to=to, duration=duration, easing=easing, at=at)
+
     def create(
         self,
         duration: float | None = None,
@@ -371,6 +381,49 @@ class BoundGroup(Bound2D[T]):
     @property
     def children(self):
         return tuple(self.scene.on(child) for child in self.raw.children)  # type: ignore[attr-defined]
+
+
+@dataclass(frozen=True, slots=True)
+class BoundGroup3D(BoundItem[T]):
+    @property
+    def children(self):
+        return tuple(self.scene.on(child) for child in self.raw.children)  # type: ignore[attr-defined]
+
+    @property
+    def transform_value(self):
+        return self.raw.transform  # type: ignore[attr-defined]
+
+    def transform(
+        self,
+        *,
+        by=None,
+        to=None,
+        frame=None,
+        duration: float | None = None,
+        easing=Easing.SMOOTHSTEP,
+        at=0.0,
+    ):
+        return self.scene.transform(
+            self.raw, by=by, to=to, frame=frame, duration=duration, easing=easing, at=at
+        )
+
+    def transform_function(
+        self, provider, *, duration: float | None = None, easing=Easing.SMOOTHSTEP, at=0.0
+    ):
+        return self.scene.transform_function(
+            self.raw, provider, duration=duration, easing=easing, at=at
+        )
+
+    def opacity(
+        self, *, to: float, duration: float | None = None, easing=Easing.SMOOTHSTEP, at=0.0
+    ):
+        return self.scene.opacity(self.raw, to=to, duration=duration, easing=easing, at=at)
+
+    def fade_in(self, duration: float | None = None, easing=Easing.SMOOTHSTEP, at=0.0):
+        return self.scene.fade_in(self.raw, duration=duration, easing=easing, at=at)
+
+    def fade_out(self, duration: float | None = None, easing=Easing.SMOOTHSTEP, at=0.0):
+        return self.scene.fade_out(self.raw, duration=duration, easing=easing, at=at)
 
 
 @dataclass(frozen=True, slots=True)

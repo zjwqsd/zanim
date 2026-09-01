@@ -12,3 +12,4 @@ media/
 web/dist/
 
 node_modules/
+release/

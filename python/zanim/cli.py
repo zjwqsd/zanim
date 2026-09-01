@@ -64,7 +64,7 @@ def _load_scene(path: str | Path, builder_name: str | None = None) -> Scene:
     sys.modules[module_name] = module
     try:
         # Capture the complete file execution, including a builder call below.
-        # This makes bare scripts source-aware without decorators.
+        # This captures runtime object names for bare scripts without decorators.
         with capture_runtime_source(source) as capture:
             # A file may also be directly runnable with `scene.preview()` at its
             # bottom. Under the CLI that call is a no-op; the CLI owns the server.
@@ -116,8 +116,8 @@ def _load_scene(path: str | Path, builder_name: str | None = None) -> Scene:
                 "or callable `build_scene()`"
             )
 
-        # @preview_source on a builder already captured its local names. Bare
-        # scripts use module globals, which are exact identities after exec().
+        # A decorated builder may already have local object names. Bare scripts use
+        # module globals plus any Scene-builder return locals captured at runtime.
         if get_preview_source(selected_scene) is None:
             attach_runtime_source(
                 selected_scene,

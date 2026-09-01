@@ -72,6 +72,7 @@ from .timeline import (
     TransformClip,
     TransformFunctionClip,
     ValueClip,
+    VectorMorphClip,
 )
 from .value import ScalarValue
 from .vector import (
@@ -415,7 +416,7 @@ def scene_to_ir(
 
     ``sample_transform_functions=True`` bakes TransformFunctionClip on the exact
     video frame grid. ``sample_dynamic_providers=True`` does the same for
-    DynamicGeometryObject2D, DynamicBatchObject2D and DynamicVectorObject2D.
+    DynamicGeometryObject2D, DynamicBatchObject2D, DynamicVectorObject2D and vector morphs.
     Both are explicit export fallbacks, not portable source code.
     """
     if not isinstance(scene, Scene):
@@ -691,19 +692,51 @@ def scene_to_ir(
             )
         elif isinstance(obj, VectorObject2D):
             assert isinstance(initial, VectorSnapshot)
-            objects.append(
-                {
-                    **common,
-                    "kind": "vector2d",
-                    "state": {
-                        "resource": vector_resource(initial.document),
-                        "transform": _transform(initial.transform),
-                        "reveal": initial.reveal,
-                        "opacity": initial.opacity,
-                        "z_index": initial.z_index,
-                    },
-                }
-            )
+            morph_clips = scene._timeline._channel_clips(VectorMorphClip, reg.object_id)
+            if morph_clips:
+                if not sample_dynamic_providers:
+                    raise SceneIRUnsupported(
+                        "Vector morph contains runtime glyph alignment; pass "
+                        "sample_dynamic_providers=True to bake it"
+                    )
+                end = min(
+                    float(reg.removed_at) if reg.removed_at is not None else scene.duration,
+                    scene.duration,
+                )
+                times = _frame_sample_times(reg.added_at, max(reg.added_at, end), sample_rate)
+                docs = [
+                    scene._vector_document_at(reg.object_id, obj, initial.document, time)
+                    for time in times
+                ]
+                objects.append(
+                    {
+                        **common,
+                        "kind": "sampled_vector2d",
+                        "state": {
+                            **_sampled_state(
+                                times, [vector_resource(doc) for doc in docs], sample_rate
+                            ),
+                            "transform": _transform(initial.transform),
+                            "reveal": initial.reveal,
+                            "opacity": initial.opacity,
+                            "z_index": initial.z_index,
+                        },
+                    }
+                )
+            else:
+                objects.append(
+                    {
+                        **common,
+                        "kind": "vector2d",
+                        "state": {
+                            "resource": vector_resource(initial.document),
+                            "transform": _transform(initial.transform),
+                            "reveal": initial.reveal,
+                            "opacity": initial.opacity,
+                            "z_index": initial.z_index,
+                        },
+                    }
+                )
         elif isinstance(obj, RasterObject2D):
             assert isinstance(initial, RasterState)
             media_object_ids.add(reg.object_id)
@@ -825,6 +858,12 @@ def scene_to_ir(
             raise SceneIRUnsupported(f"Scene IR v1 does not support {type(obj).__name__}")
 
     clips: list[dict[str, Any]] = []
+    if scene._simulation_bindings and not sample_dynamic_providers:
+        raise SceneIRUnsupported(
+            "Simulation bindings contain runtime code; pass "
+            "sample_dynamic_providers=True to bake them"
+        )
+
     for clip in scene._timeline.clips:
         if isinstance(clip, TransformClip):
             clips.append(
@@ -945,6 +984,14 @@ def scene_to_ir(
                     "source_duration": clip.source_duration,
                 }
             )
+        elif isinstance(clip, VectorMorphClip):
+            if not sample_dynamic_providers:
+                raise SceneIRUnsupported(
+                    "Vector morph contains runtime glyph alignment; pass "
+                    "sample_dynamic_providers=True to bake it"
+                )
+            # The owning vector object was baked as sampled_vector2d above.
+            continue
         elif isinstance(clip, InterpolationClip):
             clips.append(
                 {
@@ -956,6 +1003,42 @@ def scene_to_ir(
             )
         else:
             raise SceneIRUnsupported(f"Scene IR v1 does not support clip {type(clip).__name__}")
+
+    for object_id in scene._simulation_bindings:
+        reg = scene._by_id[object_id]
+        initial = reg.initial
+        if not isinstance(
+            initial,
+            (
+                ObjectSnapshot,
+                BatchSnapshot,
+                VectorSnapshot,
+                RasterState,
+                InfiniteSnapshot,
+                NodeSnapshot,
+            ),
+        ):
+            raise SceneIRUnsupported("Simulation transform binding requires a 2D transform")
+        end = min(
+            float(reg.removed_at) if reg.removed_at is not None else scene.duration,
+            scene.duration,
+        )
+        start = float(reg.added_at)
+        times = _frame_sample_times(start, max(start, end), sample_rate)
+        clips.append(
+            {
+                "kind": "sampled_transform",
+                "target": object_id,
+                "start": start,
+                "duration": max(0.0, end - start),
+                "sample_rate": sample_rate,
+                "sample_offsets": [time - start for time in times],
+                "samples": [
+                    _transform(scene._transform_at(object_id, initial.transform, time))
+                    for time in times
+                ],
+            }
+        )
 
     result = {
         "format": FORMAT,
@@ -979,32 +1062,135 @@ def scene_to_ir(
                 obj["kind"] in {"sampled_object2d", "sampled_batch2d", "sampled_vector2d"}
                 for obj in objects
             ),
+            "sampled_simulation_bindings": len(scene._simulation_bindings),
         },
     }
 
     if include_debug:
-        from .source import get_preview_source
+        from .source import get_preview_authoring
 
-        source = get_preview_source(scene)
-        if source is not None:
-            result["debug"] = {
-                "source": {"path": source.path, "text": source.text},
-                "objects": {
-                    str(reg.object_id): {
-                        "type": type(reg.object_ref).__name__,
-                        "names": list(source.object_names.get(reg.object_id, ())),
+        source = get_preview_authoring(scene)
+
+        def object_name(object_id: int) -> str:
+            reg = scene._by_id[int(object_id)]
+            if source is not None:
+                name = source.primary_name(object_id)
+                if name:
+                    return name
+            return f"{type(reg.object_ref).__name__}#{object_id}"
+
+        fallback_actions = {
+            "TransformClip": "transform",
+            "SE2TransformClip": "transform",
+            "TransformFunctionClip": "transform_function",
+            "Transform3DClip": "transform",
+            "SE3TransformClip": "transform",
+            "Transform3DFunctionClip": "transform_function",
+            "OpacityClip": "opacity",
+            "StyleClip": "style",
+            "PathTrimClip": "trim",
+            "BatchClip": "batch",
+            "VectorMorphClip": "morph",
+            "RevealClip": "reveal",
+            "ValueClip": "value",
+            "PlaybackClip": "media",
+            "InterpolationClip": "interpolate",
+        }
+
+        timeline_events: list[dict[str, Any]] = []
+        for reg in scene._registry:
+            if reg.object_id == 0:
+                continue
+            name = object_name(reg.object_id)
+            birth, death = scene._effective_lifetime(reg)
+            timeline_events.append(
+                {
+                    "type": "point",
+                    "time": float(birth),
+                    "action": "add",
+                    "label": f"{name}-add",
+                    "targets": [reg.object_id],
+                }
+            )
+            if death is not None:
+                timeline_events.append(
+                    {
+                        "type": "point",
+                        "time": float(death),
+                        "action": "remove",
+                        "label": f"{name}-remove",
+                        "targets": [reg.object_id],
                     }
-                    for reg in scene._registry
-                },
-            }
-            if len(clips) != len(scene._timeline.clips):
-                raise AssertionError(
-                    "Scene IR debug mapping requires one IR clip per Timeline clip"
                 )
-            for raw, authored in zip(clips, scene._timeline.clips):
-                span = source.clip_source(authored)
-                if span is not None:
-                    raw["debug"] = {"source": span.as_dict()}
+
+        for index, authored in enumerate(scene._timeline.clips):
+            if hasattr(authored, "object_id"):
+                targets = (int(authored.object_id),)
+            elif hasattr(authored, "value_id"):
+                targets = (int(authored.value_id),)
+            else:
+                targets = scene._timeline_event_targets.get(id(authored), ())
+
+            action = scene._timeline._event_actions.get(id(authored))
+            if not action:
+                action = fallback_actions.get(type(authored).__name__, type(authored).__name__)
+
+            names = [object_name(object_id) for object_id in targets if object_id in scene._by_id]
+            if action == "replace" and len(names) == 2:
+                label = f"{names[0]}→{names[1]}-replace"
+            elif action == "interpolate" and len(names) == 2:
+                label = f"{names[0]}↔{names[1]}-interpolate"
+            elif names:
+                label = f"{'+'.join(names)}-{action}"
+            else:
+                label = f"scene-{action}"
+
+            timeline_events.append(
+                {
+                    "type": "span",
+                    "start": float(authored.span.start),
+                    "duration": float(authored.span.duration),
+                    "action": action,
+                    "label": label,
+                    "targets": list(targets),
+                    "clip": index,
+                }
+            )
+
+        for object_id in scene._simulation_bindings:
+            reg = scene._by_id[object_id]
+            birth, death = scene._effective_lifetime(reg)
+            end = scene.duration if death is None else min(float(death), scene.duration)
+            timeline_events.append(
+                {
+                    "type": "span",
+                    "start": float(birth),
+                    "duration": max(0.0, end - float(birth)),
+                    "action": "bind",
+                    "label": f"{object_name(object_id)}-bind",
+                    "targets": [object_id],
+                }
+            )
+
+        timeline_events.sort(
+            key=lambda event: (
+                float(event.get("time", event.get("start", 0.0))),
+                0 if event["type"] == "point" else 1,
+                event["label"],
+            )
+        )
+        result["debug"] = {
+            "objects": {
+                str(reg.object_id): {
+                    "type": type(reg.object_ref).__name__,
+                    "names": (
+                        [] if source is None else list(source.object_names.get(reg.object_id, ()))
+                    ),
+                }
+                for reg in scene._registry
+            },
+            "timeline": timeline_events,
+        }
 
     return result
 

@@ -135,3 +135,40 @@ class ReplacementTimelineTests(unittest.TestCase):
         scene.add(a, b)
         with self.assertRaisesRegex(ValueError, "must not already"):
             scene.replace(a, b)
+
+    def test_replace_can_run_in_parallel_with_independent_handoff_durations(self):
+        a0 = Square(1, transform=Transform2D.translation(-3, 1))
+        a1 = Square(1, transform=Transform2D.translation(-3, -1))
+        b0 = Circle(1, transform=Transform2D.translation(3, 1))
+        b1 = Circle(1, transform=Transform2D.translation(3, -1))
+        scene = Scene()
+        scene.add(a0, a1)
+        scene.wait(0.5)
+
+        with scene.parallel():
+            h0 = scene.replace(a0, b0, duration=1.0, easing=Easing.LINEAR)
+            h1 = scene.replace(a1, b1, duration=2.0, easing=Easing.LINEAR)
+
+        self.assertIs(h0.raw, b0)
+        self.assertIs(h1.raw, b1)
+        self.assertAlmostEqual(scene._timeline.cursor, 2.5)
+
+        before = scene.evaluate(0.49)
+        self.assertEqual(len(before.objects), 2)
+        self.assertEqual(before.transients, ())
+
+        middle = scene.evaluate(1.0)
+        self.assertEqual(middle.objects, ())
+        self.assertEqual(len(middle.transients), 2)
+        self.assertAlmostEqual(middle.transients[0].alpha, 0.5)
+        self.assertAlmostEqual(middle.transients[1].alpha, 0.25)
+
+        first_done = scene.evaluate(1.5)
+        self.assertEqual(len(first_done.objects), 1)
+        self.assertEqual(first_done.objects[0].snapshot.transform, b0.transform)
+        self.assertEqual(len(first_done.transients), 1)
+        self.assertAlmostEqual(first_done.transients[0].alpha, 0.5)
+
+        end = scene.evaluate(2.5)
+        self.assertEqual(len(end.objects), 2)
+        self.assertEqual(end.transients, ())

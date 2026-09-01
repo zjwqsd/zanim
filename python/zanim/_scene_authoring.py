@@ -7,6 +7,7 @@ from .batch import BatchGeometry, BatchObject2D, DynamicBatchObject2D
 from .camera import Camera2D
 from .geometry import Object2D
 from .group import Group
+from .group3d import Group3D
 from .interpolation import ObjectInterpolation
 from .mesh3d import MeshObject3D
 from .object import SceneObject2D
@@ -33,9 +34,11 @@ from .timeline import (
     StyleClip,
     TransformClip,
     ValueClip,
+    VectorMorphClip,
 )
 from .value import ScalarValue
-from .vector import VectorObject2D
+from .vector import DynamicVectorObject2D, VectorDocument, VectorObject2D
+from .vector_morph import typst_semantic_keys
 
 if TYPE_CHECKING:
     from .scene import _RegisteredItem
@@ -121,6 +124,8 @@ class _SceneAuthoring:
         registered = self._require_alive_for_span(obj, duration, at)
         start, end = self._scheduled_span(duration, at)
         self._assert_no_descendant_world_dependency(registered, start, end)
+        if self._has_simulation_transform_binding(registered.object_id):
+            raise TypeError("Simulation-bound transform cannot also use Timeline transform clips")
         if isinstance(obj, Camera2D) and obj.is_dynamic:
             raise TypeError("dynamic Camera2D cannot also use transform clips")
         if rigid:
@@ -138,7 +143,7 @@ class _SceneAuthoring:
 
     def _transform_to_se3(
         self,
-        obj: MeshObject3D,
+        obj: MeshObject3D | Group3D,
         target: SE3,
         duration: float,
         easing: Easing,
@@ -156,7 +161,7 @@ class _SceneAuthoring:
 
     def _transform_to_3d(
         self,
-        obj: MeshObject3D,
+        obj: MeshObject3D | Group3D,
         target: Transform3D,
         duration: float,
         easing: Easing,
@@ -173,7 +178,7 @@ class _SceneAuthoring:
 
     def transform(
         self,
-        obj: SceneObject2D | MeshObject3D,
+        obj: SceneObject2D | MeshObject3D | Group3D,
         *,
         by: Transform2D | Transform3D | SE2 | SE3 | None = None,
         to: Transform2D | Transform3D | SE2 | SE3 | None = None,
@@ -200,25 +205,41 @@ class _SceneAuthoring:
         if to is not None and frame is not None:
             raise ValueError("transform(to=...) is absolute and does not accept frame=")
 
-        if isinstance(obj, MeshObject3D):
+        if isinstance(obj, (MeshObject3D, Group3D)):
             if isinstance(to, SE2) or isinstance(by, SE2):
-                raise TypeError("SE2 is a 2D rigid transform and cannot animate MeshObject3D")
+                raise TypeError("SE2 is a 2D rigid transform and cannot animate a 3D object")
             if to is not None:
                 if isinstance(to, SE3):
                     return self._transform_to_se3(obj, to, duration, easing, at)
                 if not isinstance(to, Transform3D):
-                    raise TypeError("MeshObject3D transform target must be Transform3D or SE3")
+                    raise TypeError("3D transform target must be Transform3D or SE3")
                 return self._transform_to_3d(obj, to, duration, easing, at)
             assert by is not None
             resolved = self._require_frame(frame)
             if isinstance(by, SE3):
-                current = SE3.from_affine(obj.transform)
-                target_pose = (
-                    by @ current if resolved is PARENT or resolved is WORLD else current @ by
+                registered = self._require_alive_for_span(obj, duration, at)
+                start, end = self._scheduled_span(duration, at)
+                self._assert_no_descendant_world_dependency(registered, start, end)
+                current = obj.transform
+                identity = SE3()
+
+                def relative_rigid3d(alpha: float) -> Transform3D:
+                    delta = identity.interpolate(by, alpha).as_affine()
+                    if resolved is LOCAL:
+                        return current @ delta
+                    # For top-level objects PARENT and WORLD are identical.
+                    # Nested WORLD currently keeps the pre-existing parent-frame
+                    # semantics; a future general affine 3D inverse can make the
+                    # distinction explicit without changing PARENT behavior.
+                    return delta @ current
+
+                clip = self._timeline.add_transform3d_function(
+                    registered.object_id, relative_rigid3d, current, duration, easing, at
                 )
-                return self._transform_to_se3(obj, target_pose, duration, easing, at)
+                obj._set_scene_state("transform", clip.after)
+                return clip
             if not isinstance(by, Transform3D):
-                raise TypeError("MeshObject3D relative transform must be Transform3D or SE3")
+                raise TypeError("3D relative transform must be Transform3D or SE3")
             if resolved is PARENT or resolved is WORLD:
                 target3d = by @ obj.transform
             elif resolved is LOCAL:
@@ -283,7 +304,7 @@ class _SceneAuthoring:
 
     def set_transform(
         self,
-        obj: SceneObject2D | MeshObject3D,
+        obj: SceneObject2D | MeshObject3D | Group3D,
         *,
         to: Transform2D | Transform3D | SE2,
         at: float = 0.0,
@@ -435,7 +456,7 @@ class _SceneAuthoring:
 
     def transform_function(
         self,
-        obj: SceneObject2D | MeshObject3D,
+        obj: SceneObject2D | MeshObject3D | Group3D,
         provider,
         *,
         duration: float | None = None,
@@ -451,14 +472,14 @@ class _SceneAuthoring:
 
     def _transform_function(
         self,
-        obj: SceneObject2D | MeshObject3D,
+        obj: SceneObject2D | MeshObject3D | Group3D,
         provider,
         duration: float | None = None,
         easing: Easing = Easing.SMOOTHSTEP,
         at: float = 0.0,
     ):
         registered = self._require_alive_for_span(obj, duration, at)
-        if isinstance(obj, MeshObject3D):
+        if isinstance(obj, (MeshObject3D, Group3D)):
 
             def affine3d_provider(alpha: float) -> Transform3D:
                 value = provider(alpha)
@@ -492,7 +513,7 @@ class _SceneAuthoring:
 
     def _opacity_to(
         self,
-        obj: SceneObject2D | MeshObject3D,
+        obj: SceneObject2D | MeshObject3D | Group3D,
         target: float,
         duration: float | None = None,
         easing: Easing = Easing.SMOOTHSTEP,
@@ -509,7 +530,7 @@ class _SceneAuthoring:
 
     def fade_in(
         self,
-        obj: SceneObject2D | MeshObject3D,
+        obj: SceneObject2D | MeshObject3D | Group3D,
         duration: float | None = None,
         easing: Easing = Easing.SMOOTHSTEP,
         at: float = 0.0,
@@ -530,7 +551,7 @@ class _SceneAuthoring:
 
     def fade_out(
         self,
-        obj: SceneObject2D | MeshObject3D,
+        obj: SceneObject2D | MeshObject3D | Group3D,
         duration: float | None = None,
         easing: Easing = Easing.SMOOTHSTEP,
         at: float = 0.0,
@@ -684,6 +705,57 @@ class _SceneAuthoring:
         obj._set_scene_state("reveal", 1.0)
         return clip
 
+    def _morph_vector(
+        self,
+        obj: VectorObject2D,
+        target: VectorObject2D | VectorDocument,
+        duration: float | None = None,
+        easing: Easing = Easing.SMOOTHSTEP,
+        at: float = 0.0,
+    ) -> VectorMorphClip:
+        if not isinstance(obj, VectorObject2D):
+            raise TypeError("morph() requires a VectorObject2D")
+        if isinstance(obj, DynamicVectorObject2D):
+            raise TypeError("DynamicVectorObject2D owns its document channel and cannot morph")
+        self._require_alive_for_span(obj, duration, at)
+
+        target_obj = target if isinstance(target, VectorObject2D) else None
+        if target_obj is not None:
+            target_document = target_obj.document
+            source_keys = typst_semantic_keys(obj)
+            target_keys = typst_semantic_keys(target_obj)
+        elif isinstance(target, VectorDocument):
+            target_document = target
+            source_keys = target_keys = None
+        else:
+            raise TypeError("morph() target must be VectorObject2D or VectorDocument")
+
+        clip = self._timeline.add_vector_morph(
+            self._require_registered(obj).object_id,
+            obj.document,
+            target_document,
+            duration,
+            easing,
+            at,
+            source_keys=source_keys,
+            target_keys=target_keys,
+        )
+        obj._set_scene_state("document", target_document)
+
+        # Keep high-level Typst metadata aligned with the authored target so a
+        # later morph can again use semantic glyph correspondence. This is
+        # authoring metadata only; renderers still consume VectorDocument.
+        if target_obj is not None and type(obj) is type(target_obj):
+            from .typst import Math, Text
+
+            if isinstance(obj, Text):
+                for name in ("content", "font_size", "font", "color"):
+                    obj._set_scene_state(name, getattr(target_obj, name))
+            elif isinstance(obj, Math):
+                for name in ("source", "font_size", "color"):
+                    obj._set_scene_state(name, getattr(target_obj, name))
+        return clip
+
     def _interpolate(
         self,
         source: Object2D,
@@ -694,9 +766,14 @@ class _SceneAuthoring:
     ) -> InterpolationClip:
         self._require_alive_for_span(source, duration, at)
         self._require_alive_for_span(target, duration, at)
-        return self._timeline.add_interpolation(
+        clip = self._timeline.add_interpolation(
             ObjectInterpolation.from_objects(source, target), duration, easing, at
         )
+        self._timeline_event_targets[id(clip)] = (
+            self._require_registered(source).object_id,
+            self._require_registered(target).object_id,
+        )
+        return clip
 
     def reveal(
         self,
@@ -710,7 +787,7 @@ class _SceneAuthoring:
 
     def opacity(
         self,
-        obj: SceneObject2D | MeshObject3D,
+        obj: SceneObject2D | MeshObject3D | Group3D,
         *,
         to: float,
         duration: float | None = None,
@@ -775,6 +852,26 @@ class _SceneAuthoring:
     ) -> BatchClip:
         return self._batch_to(obj, to, duration, easing, at)
 
+    def morph(
+        self,
+        obj: VectorObject2D,
+        *,
+        to: VectorObject2D | VectorDocument,
+        duration: float | None = None,
+        easing: Easing = Easing.SMOOTHSTEP,
+        at: float = 0.0,
+    ) -> VectorMorphClip:
+        """Morph one vector object's document in place on the Timeline.
+
+        Text uses visible-character correspondence so unchanged glyphs move and
+        restyle continuously. Math and generic vectors fall back to normalized
+        glyph-shape correspondence. Inserted/removed groups grow or shrink
+        locally instead of cross-fading the whole object.
+        """
+        obj = self._unwrap(obj)
+        to = self._unwrap(to)
+        return self._morph_vector(obj, to, duration, easing, at)
+
     def interpolate(
         self,
         source: Object2D,
@@ -810,11 +907,12 @@ class _SceneAuthoring:
         the clip end, ``target`` begins its Scene lifetime with exactly the state
         it was declared with. Neither endpoint's properties are rewritten.
 
-        Replacement is a lifetime boundary and is therefore not allowed inside
-        ``parallel()``. For now the source must be top-level so the target's
-        parentage is never guessed silently.
+        Replacement may be scheduled inside ``parallel()``. In that case its
+        handoff starts at the parallel block base time and contributes its clip
+        end to the block duration, exactly like other Timeline operations. For
+        now the source must be top-level so the target's parentage is never
+        guessed silently.
         """
-        self._require_lifetime_boundary()
         source = self._unwrap(source)
         target = self._unwrap(target)
         if not isinstance(source, Object2D) or not isinstance(target, Object2D):
@@ -826,14 +924,15 @@ class _SceneAuthoring:
             )
         if self._find_registered(target) is not None:
             raise ValueError("replace() target must not already be in the scene")
-        start = self._timeline.cursor
+        start = self._timeline._schedule_base()
         added_at, removed_at = self._effective_lifetime(source_registered)
         if start < added_at or (removed_at is not None and start >= removed_at):
             raise ValueError("replace() source is not alive at the current cursor")
         interpolation = ObjectInterpolation.from_objects(source, target)
         clip = self._timeline.add_interpolation(interpolation, duration, easing, at=0.0)
         source_registered.removed_at = clip.span.start
-        self._register(target, (), set(), clip.span.end)
+        target_id = self._register(target, (), set(), clip.span.end)
+        self._timeline_event_targets[id(clip)] = (source_registered.object_id, target_id)
         return self.on(target)
 
     def layout(

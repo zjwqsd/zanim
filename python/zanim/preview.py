@@ -1,8 +1,8 @@
 """Web-native development Preview for Python-authored Zanim scenes.
 
 Preview no longer rasterizes frames in Python.  The server only exposes the
-current Scene IR, source/debug metadata, the shared @zanim/web runtime assets,
-and an explicit source-reload endpoint.  Playback, seeking and inspection all
+current Scene IR, timeline/debug metadata, the shared @zanim/web runtime assets,
+and an explicit reload endpoint. Playback, seeking and inspection all
 run in the browser through the same Web runtime used by static exports.
 """
 
@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .geometry import Color
 from .ir import _vector_document, scene_to_ir
-from .source import get_preview_reload, get_preview_source, reload_preview_scene
+from .source import get_preview_reload, reload_preview_scene
 from .svg import load_svg
 from .typst import Math, compile_typst_svg
 
@@ -89,19 +89,6 @@ def _asset_path(relative: str) -> Path:
     if source.is_file():
         return source
     raise FileNotFoundError(relative)
-
-
-def _source_document(scene) -> dict:
-    source = get_preview_source(scene)
-    if source is None:
-        return {"available": False}
-    return {
-        "available": True,
-        "path": source.path,
-        "text": source.text,
-        "module": source.module_name,
-        "builder": source.builder_name,
-    }
 
 
 class PreviewServer:
@@ -233,10 +220,6 @@ class PreviewServer:
                         return
                     if parsed.path == "/api/meta":
                         self._json(owner.metadata())
-                        return
-                    if parsed.path == "/api/source":
-                        with owner._state_lock:
-                            self._json(_source_document(owner.scene))
                         return
                     if parsed.path == "/api/ir":
                         ir, error = owner.current_ir()
@@ -384,7 +367,6 @@ class PreviewServer:
 
     def metadata(self) -> dict:
         with self._state_lock:
-            source = get_preview_source(self.scene)
             return {
                 "renderer": "web-ir",
                 "revision": self._revision,
@@ -393,7 +375,6 @@ class PreviewServer:
                 "width": int(self.scene.width),
                 "height": int(self.scene.height),
                 "unit_size": float(self.scene.canvas.unit_size),
-                "source_available": source is not None,
                 "reload_available": bool(
                     self.reload_allowed and get_preview_reload(self.scene) is not None
                 ),

@@ -47,6 +47,7 @@ from .fourier import FourierEpicycles, FourierTerm
 from .fractal import JuliaSet, MandelbrotSet
 from .geometry import Color, StrokeStyle, Style
 from .group import Group
+from .group3d import Group3D
 from .infinite import ComplexMappedGrid, InfiniteGrid, InfiniteLine
 from .ir import (
     SceneIRUnsupported,
@@ -92,6 +93,7 @@ from .shapes import (
     Shape,
     Square,
 )
+from .simulation import Simulation
 from .space import (
     LOCAL,
     PARENT,
@@ -108,6 +110,7 @@ from .space3d import SE3, SO3, Transform3D, Vec3, pose3d
 from .svg import load_svg
 from .timeline import Easing
 from .typst import Math, Text
+from .vector_field import DynamicVectorField, VectorField, VectorSample
 
 __all__ = [
     "__version__",
@@ -116,6 +119,10 @@ __all__ = [
     "MediaError",
     "NativeError",
     "Scene",
+    "Simulation",
+    "VectorField",
+    "DynamicVectorField",
+    "VectorSample",
     "SceneIRUnsupported",
     "scene_to_ir",
     "scene_from_ir",
@@ -145,6 +152,7 @@ __all__ = [
     "Arrow",
     "NumberLine",
     "Group",
+    "Group3D",
     "Text",
     "Math",
     "Color",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Callable
 
 from ._scene_authoring import _SceneAuthoring
 from ._scene_evaluator import _SceneEvaluator
@@ -10,14 +11,17 @@ from .camera import Camera2D
 from .camera3d import Camera3D
 from .geometry import Object2D
 from .group import Group
+from .group3d import Group3D
 from .infinite import InfiniteObject2D
 from .mesh3d import MeshObject3D
 from .object import SceneObject2D
 from .raster import RasterObject2D
+from .simulation import Simulation
 from .snapshot import (
     BatchSnapshot,
     InfiniteSnapshot,
     Mesh3DSnapshot,
+    Node3DSnapshot,
     NodeSnapshot,
     ObjectSnapshot,
     RasterState,
@@ -30,26 +34,47 @@ from .space import (
     Vec2,
     as_vec2,
 )
+from .space3d import Transform3D
 from .timeline import (
     Timeline,
+    TransformClip,
 )
 from .value import ScalarValue
 from .vector import VectorObject2D
 
 RenderableObject = Object2D | BatchObject2D | VectorObject2D | RasterObject2D | InfiniteObject2D
 SceneObject = RenderableObject | Group | Camera2D
-SceneItem = SceneObject | MeshObject3D | ScalarValue | AudioObject
+SceneItem = SceneObject | MeshObject3D | Group3D | ScalarValue | AudioObject
 InitialSnapshot = (
     ObjectSnapshot
     | BatchSnapshot
     | VectorSnapshot
     | RasterState
     | Mesh3DSnapshot
+    | Node3DSnapshot
     | InfiniteSnapshot
     | NodeSnapshot
     | float
     | None
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _SimulationBinding:
+    simulation: Simulation
+    position: Callable[[object], Point2] | None = None
+    transform: Callable[[object], Transform2D] | None = None
+
+    def transform_at(self, time: float, base: Transform2D) -> Transform2D:
+        state = self.simulation._state_at_shared(time)
+        if self.transform is not None:
+            value = self.transform(state)
+            if not isinstance(value, Transform2D):
+                raise TypeError("Simulation transform binding must return Transform2D")
+            return value
+        assert self.position is not None
+        point = as_vec2(self.position(state), name="simulation position")
+        return Transform2D(base.xx, base.xy, base.yx, base.yy, point.x, point.y)
 
 
 @dataclass(slots=True)
@@ -79,8 +104,15 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         default_factory=dict, init=False, repr=False
     )
     _handles: dict[int, object] = field(default_factory=dict, init=False, repr=False)
-    _preview_source_info: object | None = field(default=None, init=False, repr=False)
+    _simulation_bindings: dict[int, _SimulationBinding] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    _simulations: list[Simulation] = field(default_factory=list, init=False, repr=False)
+    _preview_authoring_info: object | None = field(default=None, init=False, repr=False)
     _preview_reload_info: object | None = field(default=None, init=False, repr=False)
+    _timeline_event_targets: dict[int, tuple[int, ...]] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         # Camera uses the reserved id 0 so ordinary insertion order remains 1+.
@@ -134,6 +166,63 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         """All registered authoring objects except the implicit camera."""
         return tuple(item.object_ref for item in self._registry if item.object_id != 0)
 
+    @property
+    def simulations(self) -> tuple[Simulation, ...]:
+        """Global simulations referenced by scene bindings, in insertion order."""
+        return tuple(self._simulations)
+
+    def bind(
+        self,
+        obj: SceneObject2D,
+        simulation: Simulation,
+        *,
+        position: Callable[[object], Point2] | None = None,
+        transform: Callable[[object], Transform2D] | None = None,
+    ):
+        """Bind one render transform channel to shared simulation state.
+
+        Exactly one of ``position`` or ``transform`` is required. ``position``
+        replaces only local translation and preserves the object's authored
+        linear transform; ``transform`` supplies the complete local-to-parent
+        transform. Binding providers are read-only views of one global
+        ``Simulation`` state shared by every object at the sampled time.
+        """
+        obj = self._unwrap(obj)
+        if not isinstance(simulation, Simulation):
+            raise TypeError("bind() simulation must be Simulation")
+        if not isinstance(obj, SceneObject2D) or isinstance(obj, Camera2D):
+            raise TypeError("Simulation binding requires a registered 2D scene object")
+        if (position is None) == (transform is None):
+            raise ValueError("bind() requires exactly one of position= or transform=")
+        provider = position if position is not None else transform
+        if not callable(provider):
+            raise TypeError("Simulation binding provider must be callable")
+
+        registered = self._require_registered(obj)
+        if registered.object_id in self._simulation_bindings:
+            raise ValueError("object already has a Simulation transform binding")
+        if self._timeline._channel_clips(TransformClip, registered.object_id):
+            raise ValueError(
+                "Simulation transform binding cannot share a Timeline transform channel"
+            )
+
+        binding = _SimulationBinding(simulation, position=position, transform=transform)
+        # Validate the binding immediately against the initial shared state.
+        binding.transform_at(0.0, obj.transform)
+        self._simulation_bindings[registered.object_id] = binding
+        if all(existing is not simulation for existing in self._simulations):
+            self._simulations.append(simulation)
+        return self.on(obj)
+
+    def _has_simulation_transform_binding(self, object_id: int) -> bool:
+        return int(object_id) in self._simulation_bindings
+
+    def _simulation_transform_at(
+        self, object_id: int, base: Transform2D, time: float
+    ) -> Transform2D:
+        binding = self._simulation_bindings.get(int(object_id))
+        return base if binding is None else binding.transform_at(float(time), base)
+
     def add(self, *objects: SceneItem):
         """Begin object lifetime and return Scene-bound authoring handle(s).
 
@@ -149,7 +238,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         handles = []
         for obj in objects:
             if isinstance(obj, Camera2D) or not isinstance(
-                obj, (SceneObject2D, MeshObject3D, ScalarValue, AudioObject)
+                obj, (SceneObject2D, MeshObject3D, Group3D, ScalarValue, AudioObject)
             ):
                 raise TypeError(f"unsupported scene item: {type(obj).__name__}")
             self._register(obj, (), set(), added_at)
@@ -163,6 +252,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             BoundAudio,
             BoundBatch2D,
             BoundGroup,
+            BoundGroup3D,
             BoundItem,
             BoundMesh3D,
             BoundObject2D,
@@ -196,6 +286,8 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             handle = BoundGroup(self, raw)
         elif isinstance(raw, MeshObject3D):
             handle = BoundMesh3D(self, raw)
+        elif isinstance(raw, Group3D):
+            handle = BoundGroup3D(self, raw)
         elif isinstance(raw, ScalarValue):
             handle = BoundValue(self, raw)
         elif isinstance(raw, AudioObject):
@@ -257,9 +349,17 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         elif isinstance(obj, InfiniteObject2D):
             initial = InfiniteSnapshot.from_object(obj)
         elif isinstance(obj, MeshObject3D):
-            if parents:
-                raise TypeError("MeshObject3D cannot be a Group child")
+            if any(
+                not isinstance(self._by_id[parent_id].object_ref, Group3D) for parent_id in parents
+            ):
+                raise TypeError("MeshObject3D parents must be Group3D")
             initial = Mesh3DSnapshot.from_object(obj)
+        elif isinstance(obj, Group3D):
+            if any(
+                not isinstance(self._by_id[parent_id].object_ref, Group3D) for parent_id in parents
+            ):
+                raise TypeError("Group3D parents must be Group3D")
+            initial = Node3DSnapshot(obj.transform, obj.opacity)
         elif isinstance(obj, Group):
             initial = NodeSnapshot(obj.transform, obj.opacity, obj.z_index)
         elif isinstance(obj, ScalarValue):
@@ -278,7 +378,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         self._by_id[object_id] = registered
         self._by_identity[identity] = registered
 
-        if isinstance(obj, Group):
+        if isinstance(obj, (Group, Group3D)):
             next_ancestry = set(ancestry)
             next_ancestry.add(identity)
             child_parents = parents + (object_id,)
@@ -353,6 +453,47 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             assert isinstance(parent.initial, NodeSnapshot)
             result = result @ self._transform_at(parent_id, parent.initial.transform, time)
         return result
+
+    def _parent_world_transform3d_authored(self, registered: _RegisteredItem) -> Transform3D:
+        result = Transform3D()
+        for parent_id in registered.parent_ids:
+            parent = self._by_id[parent_id].object_ref
+            if not isinstance(parent, Group3D):
+                raise TypeError("3D parent chain contains a non-Group3D object")
+            result = result @ parent.transform
+        return result
+
+    def _parent_world_transform3d_at(self, registered: _RegisteredItem, time: float) -> Transform3D:
+        result = Transform3D()
+        for parent_id in registered.parent_ids:
+            parent = self._by_id[parent_id]
+            assert isinstance(parent.initial, Node3DSnapshot)
+            result = result @ self._transform3d_at(parent_id, parent.initial.transform, time)
+        return result
+
+    def world_transform3d(
+        self, obj: MeshObject3D | Group3D, *, time: float | None = None
+    ) -> Transform3D:
+        """Return local-to-world transform for one registered 3D node or mesh."""
+        obj = self._unwrap(obj)
+        registered = self._require_registered(obj)
+        if not isinstance(obj, (MeshObject3D, Group3D)):
+            raise TypeError("world_transform3d() requires MeshObject3D or Group3D")
+        if time is None:
+            return self._parent_world_transform3d_authored(registered) @ obj.transform
+        time = float(time)
+        if not self._is_alive(registered, time):
+            raise ValueError("object is outside its Scene lifetime at the requested time")
+        initial = registered.initial
+        if isinstance(initial, Mesh3DSnapshot):
+            transform = initial.transform
+        elif isinstance(initial, Node3DSnapshot):
+            transform = initial.transform
+        else:
+            raise TypeError("object has no 3D transform")
+        return self._parent_world_transform3d_at(registered, time) @ self._transform3d_at(
+            registered.object_id, transform, time
+        )
 
     def world_transform(self, obj: SceneObject2D, *, time: float | None = None) -> Transform2D:
         """Return ``local -> world`` for a registered 2D object or group.

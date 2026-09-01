@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
@@ -10,6 +11,8 @@ from .geometry import Color, StrokeStyle, Style
 from .interpolation import ObjectInterpolation
 from .space import SE2, Transform2D
 from .space3d import SE3, Transform3D
+from .vector import VectorDocument
+from .vector_morph import VectorMorphPlan, prepare_vector_morph
 
 
 class Easing(str, Enum):
@@ -190,6 +193,19 @@ class BatchClip:
 
 
 @dataclass(frozen=True, slots=True)
+class VectorMorphClip:
+    object_id: int
+    span: TimeSpan
+    before: VectorDocument
+    after: VectorDocument
+    plan: VectorMorphPlan
+    easing: Easing = Easing.SMOOTHSTEP
+
+    def sample(self, time: float) -> VectorDocument:
+        return self.plan.sample(self.span.alpha(time, self.easing))
+
+
+@dataclass(frozen=True, slots=True)
 class RevealClip:
     object_id: int
     span: TimeSpan
@@ -257,6 +273,7 @@ Clip = (
     | StyleClip
     | PathTrimClip
     | BatchClip
+    | VectorMorphClip
     | RevealClip
     | ValueClip
     | PlaybackClip
@@ -334,6 +351,7 @@ class Timeline:
     _channels: dict[tuple[object, int], list[Clip]] = field(
         default_factory=dict, init=False, repr=False
     )
+    _event_actions: dict[int, str] = field(default_factory=dict, init=False, repr=False)
 
     @staticmethod
     def _channel_token(clip_or_type) -> object:
@@ -364,7 +382,29 @@ class Timeline:
     def _span(self, duration: float | None, at: float) -> TimeSpan:
         return TimeSpan(self._schedule_base() + at, self._resolve_duration(duration))
 
+    @staticmethod
+    def _authoring_action() -> str | None:
+        """Return the outermost user-facing Zanim timeline function on the stack."""
+        frame = inspect.currentframe()
+        frame = None if frame is None else frame.f_back
+        action = None
+        seen_authoring = False
+        while frame is not None:
+            module = str(frame.f_globals.get("__name__", ""))
+            if module in {"zanim._scene_authoring", "zanim.bound"}:
+                seen_authoring = True
+                name = frame.f_code.co_name
+                if not name.startswith("_"):
+                    action = name
+            elif seen_authoring:
+                break
+            frame = frame.f_back
+        return action
+
     def _append(self, clip, *, key_name: str | None = "object_id"):
+        action = self._authoring_action()
+        if action is not None:
+            self._event_actions[id(clip)] = action
         if key_name is not None:
             key = int(getattr(clip, key_name))
             channel_key = (self._channel_token(clip), key)
@@ -403,6 +443,24 @@ class Timeline:
         if not isinstance(after, Transform2D):
             raise TypeError("transform function must return Transform2D")
         return self._append(TransformFunctionClip(object_id, span, provider, before, after, easing))
+
+    def add_vector_morph(
+        self,
+        object_id,
+        before,
+        after,
+        duration=None,
+        easing=Easing.SMOOTHSTEP,
+        at=0.0,
+        *,
+        source_keys=None,
+        target_keys=None,
+    ):
+        if not isinstance(before, VectorDocument) or not isinstance(after, VectorDocument):
+            raise TypeError("vector morph clips require VectorDocument endpoints")
+        span = self._span(duration, at)
+        plan = prepare_vector_morph(before, after, source_keys=source_keys, target_keys=target_keys)
+        return self._append(VectorMorphClip(object_id, span, before, after, plan, easing))
 
     def add_transform3d(
         self, object_id, before, after, duration=None, easing=Easing.SMOOTHSTEP, at=0.0
