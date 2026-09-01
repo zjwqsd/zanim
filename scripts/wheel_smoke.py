@@ -33,7 +33,8 @@ def main() -> None:
         assert source is not None
         marker = scene._require_registered(scene.items[0])
         assert source.primary_name(marker.object_id) == "marker"
-        assert source.clip_source(scene._timeline.clips[0]) is not None
+        clip = scene._timeline.clips[0]
+        assert scene._timeline._event_actions[id(clip)] == "move"
 
         scene.render(root / "frame.png", time=0.1)
         if ffmpeg_path() is not None and ffmpeg_has_libx264():
