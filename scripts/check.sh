@@ -4,7 +4,7 @@ uv run ruff check python/zanim tests scripts hatch_build.py
 uv run ruff format --check python/zanim tests scripts hatch_build.py
 zig build test
 zig build -Doptimize=ReleaseFast >/dev/null
-(cd web && ./build.sh >/dev/null && npm test)
+(cd web && npm ci --ignore-scripts --no-audit --no-fund >/dev/null && ./build.sh >/dev/null && npm test)
 uv run pytest -q
 uv run python - <<'PY'
 import tempfile
