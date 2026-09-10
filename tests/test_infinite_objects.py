@@ -35,7 +35,7 @@ class InfiniteObjectTests(unittest.TestCase):
         scene.add(line)
         scene.camera.affine(position=(0.5, -0.2), scale=2.0, duration=1.0)
         rendered = scene.evaluate(1.0).infinite2d[0].snapshot
-        expected = scene.camera.transform @ line.transform
+        expected = scene._authored_get(scene.camera, "transform") @ line.transform
         self.assertAlmostEqual(rendered.transform.xx, expected.xx)
         self.assertAlmostEqual(rendered.transform.xy, expected.xy)
         self.assertAlmostEqual(rendered.transform.tx, expected.tx)

@@ -1564,8 +1564,6 @@ def scene_from_ir(ir: dict[str, Any]) -> Scene:
             target = native_id[int(raw["target"])]
             clip = ValueClip(target, span, float(raw["before"]), float(raw["after"]), e)
             scene._timeline._append(clip, key_name="value_id")
-            value_obj = raw_by_ir[int(raw["target"])]
-            value_obj._clips.append(clip)
         elif kind == "interpolation":
             interp = ObjectInterpolation(
                 _object_snapshot_from(raw["source"]), _object_snapshot_from(raw["target"])
@@ -1575,6 +1573,7 @@ def scene_from_ir(ir: dict[str, Any]) -> Scene:
             raise SceneIRUnsupported(f"cannot load IR clip kind into Python: {kind}")
 
     scene._timeline.cursor = float(ir.get("duration", 0.0))
+    scene._rebuild_authored_heads()
     return scene
 
 

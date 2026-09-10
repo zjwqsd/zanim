@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import TYPE_CHECKING, Any, Callable, TypeVar, overload
 
 from ._scene_authoring import _SceneAuthoring
 from ._scene_evaluator import _SceneEvaluator
 from .audio import AudioObject
 from .batch import BatchObject2D
 from .camera import Camera2D
-from .camera3d import Camera3D
+from .camera3d import Camera3D, Camera3DState
 from .geometry import Object2D
 from .group import Group
 from .group3d import Group3D
@@ -42,6 +42,34 @@ from .timeline import (
 from .value import ScalarValue
 from .vector import VectorObject2D
 
+if TYPE_CHECKING:
+    from .bound import (
+        Bound2D,
+        BoundAudio,
+        BoundBatch2D,
+        BoundGroup,
+        BoundGroup3D,
+        BoundItem,
+        BoundMesh3D,
+        BoundObject2D,
+        BoundRaster2D,
+        BoundValue,
+        BoundVector2D,
+    )
+
+_TObject2D = TypeVar("_TObject2D", bound=Object2D)
+_TBatch2D = TypeVar("_TBatch2D", bound=BatchObject2D)
+_TVector2D = TypeVar("_TVector2D", bound=VectorObject2D)
+_TRaster2D = TypeVar("_TRaster2D", bound=RasterObject2D)
+_TInfinite2D = TypeVar("_TInfinite2D", bound=InfiniteObject2D)
+_TGroup2D = TypeVar("_TGroup2D", bound=Group)
+_TScene2D = TypeVar("_TScene2D", bound=SceneObject2D)
+_TMesh3D = TypeVar("_TMesh3D", bound=MeshObject3D)
+_TGroup3D = TypeVar("_TGroup3D", bound=Group3D)
+_TValue = TypeVar("_TValue", bound=ScalarValue)
+_TAudio = TypeVar("_TAudio", bound=AudioObject)
+_TState = TypeVar("_TState")
+
 RenderableObject = Object2D | BatchObject2D | VectorObject2D | RasterObject2D | InfiniteObject2D
 SceneObject = RenderableObject | Group | Camera2D
 SceneItem = SceneObject | MeshObject3D | Group3D | ScalarValue | AudioObject
@@ -61,9 +89,9 @@ InitialSnapshot = (
 
 @dataclass(frozen=True, slots=True)
 class _SimulationBinding:
-    simulation: Simulation
-    position: Callable[[object], Point2] | None = None
-    transform: Callable[[object], Transform2D] | None = None
+    simulation: Simulation[Any]
+    position: Callable[[Any], Point2] | None = None
+    transform: Callable[[Any], Transform2D] | None = None
 
     def transform_at(self, time: float, base: Transform2D) -> Transform2D:
         state = self.simulation._state_at_shared(time)
@@ -82,6 +110,7 @@ class _RegisteredItem:
     object_id: int
     object_ref: SceneItem
     initial: InitialSnapshot
+    authored: dict[str, object] = field(default_factory=dict)
     parent_ids: tuple[int, ...] = ()
     added_at: float = 0.0
     removed_at: float | None = None
@@ -96,6 +125,8 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
     _timeline: Timeline = field(default_factory=Timeline, init=False, repr=False)
     camera: Camera2D = field(default_factory=Camera2D)
     camera3d: Camera3D = field(default_factory=Camera3D)
+    _camera3d_initial: Camera3DState = field(init=False, repr=False)
+    _camera3d_authored: Camera3DState = field(init=False, repr=False)
     _registry: list[_RegisteredItem] = field(default_factory=list, init=False, repr=False)
     _by_id: dict[int, _RegisteredItem] = field(default_factory=dict, init=False, repr=False)
     _by_identity: dict[int, _RegisteredItem] = field(default_factory=dict, init=False, repr=False)
@@ -114,15 +145,52 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         default_factory=dict, init=False, repr=False
     )
 
+    def __setattr__(self, name: str, value) -> None:
+        if name in {"camera", "camera3d"} and hasattr(self, "_camera3d_initial"):
+            raise RuntimeError(
+                f"cannot replace Scene.{name} after construction; pass it to Scene(...) initially"
+            )
+        object.__setattr__(self, name, value)
+
+    def setup(self) -> None:
+        """Optional class-based hook for declarations and initial layout."""
+
+    def construct(self) -> None:
+        """Optional class-based hook for timeline authoring."""
+
+    def _run_authoring_hooks(self) -> Scene:
+        """Run the class-based authoring frontend in its fixed lifecycle order."""
+        self.setup()
+        self.construct()
+        return self
+
     def __post_init__(self) -> None:
         # Camera uses the reserved id 0 so ordinary insertion order remains 1+.
         initial = NodeSnapshot(self.camera.transform, self.camera.opacity, self.camera.z_index)
-        registered = _RegisteredItem(0, self.camera, initial, added_at=0.0)
+        registered = _RegisteredItem(
+            0, self.camera, initial, self._authored_state_from_object(self.camera), added_at=0.0
+        )
         self._registry.append(registered)
         self._by_id[0] = registered
         self._by_identity[id(self.camera)] = registered
         self.camera._mark_scene_registered()
         self.camera._bind_scene(self)
+        initial3d = self.camera3d.state()
+        self._camera3d_initial = initial3d
+        self._camera3d_authored = initial3d
+        self.camera3d._bind_scene(self)
+
+    def _camera3d_to(self, target: Camera3DState, *, duration=None, easing=None, at: float = 0.0):
+        from .timeline import Easing
+
+        resolved_easing = Easing.SMOOTHSTEP if easing is None else easing
+        if not isinstance(resolved_easing, Easing):
+            raise TypeError("camera3d easing must be Easing")
+        clip = self._timeline.add_camera3d(
+            self._camera3d_authored, target, duration, resolved_easing, at
+        )
+        self._camera3d_authored = target
+        return clip
 
     @property
     def frame(self):
@@ -173,11 +241,11 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
 
     def bind(
         self,
-        obj: SceneObject2D,
-        simulation: Simulation,
+        obj: SceneObject2D | "Bound2D[Any]",
+        simulation: Simulation[_TState],
         *,
-        position: Callable[[object], Point2] | None = None,
-        transform: Callable[[object], Transform2D] | None = None,
+        position: Callable[[_TState], Point2] | None = None,
+        transform: Callable[[_TState], Transform2D] | None = None,
     ):
         """Bind one render transform channel to shared simulation state.
 
@@ -208,7 +276,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
 
         binding = _SimulationBinding(simulation, position=position, transform=transform)
         # Validate the binding immediately against the initial shared state.
-        binding.transform_at(0.0, obj.transform)
+        binding.transform_at(0.0, self._authored_get(obj, "transform"))
         self._simulation_bindings[registered.object_id] = binding
         if all(existing is not simulation for existing in self._simulations):
             self._simulations.append(simulation)
@@ -223,7 +291,68 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         binding = self._simulation_bindings.get(int(object_id))
         return base if binding is None else binding.transform_at(float(time), base)
 
-    def add(self, *objects: SceneItem):
+    @overload
+    def add(self, obj: _TObject2D) -> "BoundObject2D[_TObject2D]": ...
+
+    @overload
+    def add(self, obj: _TBatch2D) -> "BoundBatch2D[_TBatch2D]": ...
+
+    @overload
+    def add(self, obj: _TVector2D) -> "BoundVector2D[_TVector2D]": ...
+
+    @overload
+    def add(self, obj: _TRaster2D) -> "BoundRaster2D[_TRaster2D]": ...
+
+    @overload
+    def add(self, obj: _TInfinite2D) -> "Bound2D[_TInfinite2D]": ...
+
+    @overload
+    def add(self, obj: _TGroup2D) -> "BoundGroup[_TGroup2D]": ...
+
+    @overload
+    def add(self, obj: _TMesh3D) -> "BoundMesh3D[_TMesh3D]": ...
+
+    @overload
+    def add(self, obj: _TGroup3D) -> "BoundGroup3D[_TGroup3D]": ...
+
+    @overload
+    def add(self, obj: _TValue) -> "BoundValue[_TValue]": ...
+
+    @overload
+    def add(self, obj: _TAudio) -> "BoundAudio[_TAudio]": ...
+
+    @overload
+    def add(
+        self, first: Object2D, second: Object2D, *rest: Object2D
+    ) -> tuple["BoundObject2D[Object2D]", ...]: ...
+
+    @overload
+    def add(
+        self, first: BatchObject2D, second: BatchObject2D, *rest: BatchObject2D
+    ) -> tuple["BoundBatch2D[BatchObject2D]", ...]: ...
+
+    @overload
+    def add(
+        self, first: VectorObject2D, second: VectorObject2D, *rest: VectorObject2D
+    ) -> tuple["BoundVector2D[VectorObject2D]", ...]: ...
+
+    @overload
+    def add(
+        self, first: RasterObject2D, second: RasterObject2D, *rest: RasterObject2D
+    ) -> tuple["BoundRaster2D[RasterObject2D]", ...]: ...
+
+    @overload
+    def add(
+        self, first: InfiniteObject2D, second: InfiniteObject2D, *rest: InfiniteObject2D
+    ) -> tuple["Bound2D[InfiniteObject2D]", ...]: ...
+
+    @overload
+    def add(self, first: Group, second: Group, *rest: Group) -> tuple["BoundGroup[Group]", ...]: ...
+
+    @overload
+    def add(self, first: SceneItem, second: SceneItem, *rest: SceneItem) -> tuple[Any, ...]: ...
+
+    def add(self, *objects: SceneItem) -> Any:
         """Begin object lifetime and return Scene-bound authoring handle(s).
 
         ``add`` is the explicit boundary between pre-Scene declaration/layout
@@ -245,7 +374,40 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             handles.append(self.on(obj))
         return handles[0] if len(handles) == 1 else tuple(handles)
 
-    def on(self, obj):
+    @overload
+    def on(self, obj: _TObject2D) -> "BoundObject2D[_TObject2D]": ...
+
+    @overload
+    def on(self, obj: _TBatch2D) -> "BoundBatch2D[_TBatch2D]": ...
+
+    @overload
+    def on(self, obj: _TVector2D) -> "BoundVector2D[_TVector2D]": ...
+
+    @overload
+    def on(self, obj: _TRaster2D) -> "BoundRaster2D[_TRaster2D]": ...
+
+    @overload
+    def on(self, obj: _TInfinite2D) -> "Bound2D[_TInfinite2D]": ...
+
+    @overload
+    def on(self, obj: _TGroup2D) -> "BoundGroup[_TGroup2D]": ...
+
+    @overload
+    def on(self, obj: _TMesh3D) -> "BoundMesh3D[_TMesh3D]": ...
+
+    @overload
+    def on(self, obj: _TGroup3D) -> "BoundGroup3D[_TGroup3D]": ...
+
+    @overload
+    def on(self, obj: _TValue) -> "BoundValue[_TValue]": ...
+
+    @overload
+    def on(self, obj: _TAudio) -> "BoundAudio[_TAudio]": ...
+
+    @overload
+    def on(self, obj: _TScene2D) -> "Bound2D[_TScene2D]": ...
+
+    def on(self, obj: Any) -> Any:
         """Return the stable Scene-bound handle for one registered item."""
         from .bound import (
             Bound2D,
@@ -303,7 +465,126 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
 
         return obj.raw if isinstance(obj, BoundItem) else obj
 
-    def remove(self, *objects: SceneItem) -> "Scene":
+    @staticmethod
+    def _authored_state_from_object(obj) -> dict[str, object]:
+        names = (
+            "transform",
+            "opacity",
+            "z_index",
+            "style",
+            "trim",
+            "batch",
+            "document",
+            "reveal",
+            "value",
+            "content",
+            "source",
+            "font_size",
+            "font",
+            "color",
+        )
+        return {name: getattr(obj, name) for name in names if hasattr(obj, name)}
+
+    def _authored_get(self, obj, name: str):
+        reg = self._require_registered(self._unwrap(obj))
+        if name not in reg.authored:
+            raise TypeError(f"{type(reg.object_ref).__name__} has no authored {name!r} state")
+        return reg.authored[name]
+
+    def _authored_set(self, obj, name: str, value) -> None:
+        reg = self._require_registered(self._unwrap(obj))
+        if name not in reg.authored:
+            raise TypeError(f"{type(reg.object_ref).__name__} has no authored {name!r} state")
+        reg.authored[name] = value
+
+    def _authored_clone(self, obj):
+        """Return a detached authoring view at the current timeline head."""
+        raw = self._unwrap(obj)
+        reg = self._require_registered(raw)
+        clone = object.__new__(type(raw))
+        for cls in reversed(type(raw).__mro__):
+            slots = getattr(cls, "__slots__", ())
+            if isinstance(slots, str):
+                slots = (slots,)
+            for name in slots:
+                if name in {"__dict__", "__weakref__"} or not hasattr(raw, name):
+                    continue
+                object.__setattr__(clone, name, getattr(raw, name))
+        if hasattr(raw, "__dict__"):
+            clone.__dict__.update(raw.__dict__)
+        for name, value in reg.authored.items():
+            object.__setattr__(clone, name, value)
+        if hasattr(clone, "_zanim_scene_registered"):
+            object.__setattr__(clone, "_zanim_scene_registered", False)
+        if isinstance(raw, Group):
+            object.__setattr__(
+                clone, "_children", [self._authored_clone(child) for child in raw.children]
+            )
+        elif isinstance(raw, Group3D):
+            object.__setattr__(
+                clone, "_children", [self._authored_clone(child) for child in raw.children]
+            )
+        return clone
+
+    def _authored_anchor(self, obj, anchor=None) -> Vec2:
+        clone = self._authored_clone(obj)
+        return clone.anchor(anchor) if anchor is not None else clone.center
+
+    def _rebuild_authored_heads(self) -> None:
+        """Reconstruct authoring heads after importing an already-authored Timeline."""
+        from .timeline import (
+            BatchClip,
+            Camera3DClip,
+            OpacityClip,
+            PathTrimClip,
+            RevealClip,
+            SE2TransformClip,
+            SE3TransformClip,
+            StyleClip,
+            Transform3DClip,
+            Transform3DFunctionClip,
+            TransformFunctionClip,
+            ValueClip,
+            VectorMorphClip,
+        )
+
+        for reg in self._registry:
+            reg.authored = self._authored_state_from_object(reg.object_ref)
+        self._camera3d_authored = self._camera3d_initial
+        for clip in self._timeline.clips:
+            if isinstance(clip, Camera3DClip):
+                self._camera3d_authored = clip.after
+                continue
+            if isinstance(clip, ValueClip):
+                self._by_id[clip.value_id].authored["value"] = float(clip.after)
+                continue
+            object_id = getattr(clip, "object_id", None)
+            if object_id is None or object_id not in self._by_id:
+                continue
+            authored = self._by_id[object_id].authored
+            if isinstance(clip, SE2TransformClip):
+                authored["transform"] = clip.after.as_affine()
+            elif isinstance(clip, SE3TransformClip):
+                authored["transform"] = clip.after.as_affine()
+            elif isinstance(
+                clip,
+                (TransformClip, TransformFunctionClip, Transform3DClip, Transform3DFunctionClip),
+            ):
+                authored["transform"] = clip.after
+            elif isinstance(clip, OpacityClip):
+                authored["opacity"] = float(clip.after)
+            elif isinstance(clip, StyleClip):
+                authored["style"] = clip.after
+            elif isinstance(clip, PathTrimClip):
+                authored["trim"] = float(clip.after)
+            elif isinstance(clip, BatchClip):
+                authored["batch"] = clip.after
+            elif isinstance(clip, RevealClip):
+                authored["reveal"] = float(clip.after)
+            elif isinstance(clip, VectorMorphClip):
+                authored["document"] = clip.after
+
+    def remove(self, *objects: SceneItem | "BoundItem[Any]") -> "Scene":
         """Remove existing objects from the scene at the current cursor.
 
         Lifetimes are half-open: ``[add_time, remove_time)``. Removing an
@@ -373,7 +654,14 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         else:
             raise TypeError(f"unsupported scene item: {type(obj).__name__}")
 
-        registered = _RegisteredItem(object_id, obj, initial, parents, added_at=added_at)
+        registered = _RegisteredItem(
+            object_id,
+            obj,
+            initial,
+            self._authored_state_from_object(obj),
+            parents,
+            added_at=added_at,
+        )
         self._registry.append(registered)
         self._by_id[object_id] = registered
         self._by_identity[identity] = registered
@@ -386,6 +674,8 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
                 self._register(child, child_parents, next_ancestry, added_at)
         if hasattr(obj, "_mark_scene_registered"):
             obj._mark_scene_registered()
+        if isinstance(obj, ScalarValue):
+            obj._bind_scene(self)
         return object_id
 
     def _scheduled_span(self, duration: float | None, at: float) -> tuple[float, float]:
@@ -442,7 +732,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             parent = self._by_id[parent_id].object_ref
             if not isinstance(parent, SceneObject2D):
                 raise TypeError("2D parent chain contains a non-2D object")
-            result = result @ parent.transform
+            result = result @ self._authored_get(parent, "transform")
         return result
 
     def _parent_world_transform_at(self, registered: _RegisteredItem, time: float) -> Transform2D:
@@ -460,7 +750,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             parent = self._by_id[parent_id].object_ref
             if not isinstance(parent, Group3D):
                 raise TypeError("3D parent chain contains a non-Group3D object")
-            result = result @ parent.transform
+            result = result @ self._authored_get(parent, "transform")
         return result
 
     def _parent_world_transform3d_at(self, registered: _RegisteredItem, time: float) -> Transform3D:
@@ -480,7 +770,9 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         if not isinstance(obj, (MeshObject3D, Group3D)):
             raise TypeError("world_transform3d() requires MeshObject3D or Group3D")
         if time is None:
-            return self._parent_world_transform3d_authored(registered) @ obj.transform
+            return self._parent_world_transform3d_authored(registered) @ self._authored_get(
+                obj, "transform"
+            )
         time = float(time)
         if not self._is_alive(registered, time):
             raise ValueError("object is outside its Scene lifetime at the requested time")
@@ -505,7 +797,9 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         obj = self._unwrap(obj)
         registered = self._require_registered(obj)
         if time is None:
-            return self._parent_world_transform_authored(registered) @ obj.transform
+            return self._parent_world_transform_authored(registered) @ self._authored_get(
+                obj, "transform"
+            )
         time = float(time)
         if not self._is_alive(registered, time):
             raise ValueError("object is outside its Scene lifetime at the requested time")
@@ -540,7 +834,9 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         obj = self._unwrap(obj)
         registered = self._require_registered(obj)
         chosen = CENTER if anchor is None else anchor
-        return self._parent_world_transform_authored(registered).apply(obj.anchor(chosen))
+        return self._parent_world_transform_authored(registered).apply(
+            self._authored_anchor(obj, chosen)
+        )
 
     @property
     def duration(self) -> float:

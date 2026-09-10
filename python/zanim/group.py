@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from math import ceil
 
@@ -24,7 +25,7 @@ class Group(SceneObject2D):
 
     def __init__(
         self,
-        children: list[SceneObject2D] | None = None,
+        children: Sequence[SceneObject2D] | None = None,
         transform: Transform2D | SE2 | None = None,
         opacity: float = 1.0,
         z_index: int = 0,

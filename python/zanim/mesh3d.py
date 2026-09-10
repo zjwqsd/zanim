@@ -50,9 +50,6 @@ class MeshObject3D:
     def _mark_scene_registered(self) -> None:
         object.__setattr__(self, "_zanim_scene_registered", True)
 
-    def _set_scene_state(self, name: str, value) -> None:
-        object.__setattr__(self, name, value)
-
     def __post_init__(self) -> None:
         if not 0.0 <= float(self.opacity) <= 1.0:
             raise ValueError("opacity must be in [0, 1]")

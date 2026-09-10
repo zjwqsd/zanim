@@ -67,14 +67,14 @@ class ConstructorSugarTests(unittest.TestCase):
         obj = scene.add(obj)
 
         obj.paint(fill=RED.with_alpha(128), stroke=RED, stroke_width=0.045)
-        self.assertEqual(obj.raw.style, Style.paint(RED.with_alpha(128), RED, 0.045))
+        self.assertEqual(obj.style_value, Style.paint(RED.with_alpha(128), RED, 0.045))
         self.assertEqual(len(scene._timeline.clips), 1)
 
         obj.outline(WHITE, width=0.02)
-        self.assertEqual(obj.raw.style, Style.outline(WHITE, 0.02))
+        self.assertEqual(obj.style_value, Style.outline(WHITE, 0.02))
 
         obj.fill(RED)
-        self.assertEqual(obj.raw.style, Style.solid(RED))
+        self.assertEqual(obj.style_value, Style.solid(RED))
 
 
 if __name__ == "__main__":

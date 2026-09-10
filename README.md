@@ -26,6 +26,27 @@ zanim render scene.py --time 1.25 -o frame.png
 zanim info
 ```
 
+A Manim-like class frontend is also available. It is intentionally only an authoring wrapper over the same Scene state model:
+
+```python
+from zanim import BLUE, WORLD, Circle, Row, Scene, Square
+
+
+class Demo(Scene):
+    def setup(self):
+        self.square = Square(1)
+        self.circle = Circle(0.6, fill=BLUE)
+        Row(gap=0.5).place(self.square, self.circle)
+
+    def construct(self):
+        square, circle = self.add(self.square, self.circle)
+        with self.parallel(duration=1):
+            square.move(by=(-1, 0), frame=WORLD)
+            circle.move(by=(1, 0), frame=WORLD)
+```
+
+`zanim preview demo.py` and `zanim render demo.py` automatically select the single Scene subclass and run `setup()` followed by `construct()`. `setup()` is for raw declarations, resource/data preparation, and one-time initial layout; `construct()` crosses `Scene.add()` and authors temporal behavior. Objects created later as explicit timeline events may still be created in `construct()`. If a file defines multiple Scene subclasses, select one with `--scene Demo`. Nothing in `setup()` is auto-registered: `Scene.add()` remains the explicit ownership boundary.
+
 Jupyter uses the same API:
 
 ```python
@@ -90,8 +111,10 @@ Python Preview is separate: it explicitly configures its local `/api/typst` brid
 
 Core authoring rules:
 
-- Objects have stable identity.
-- Time is explicit and seekable.
+- Raw objects are declaration/layout values and keep the state captured by `Scene.add()`.
+- `Scene` owns the mutable authored head and all timeline clips after that boundary.
+- Bound authoring operations advance the Scene-owned head without rewriting the raw object.
+- Time is explicit and seekable; `evaluate(t)` / Web `stateAt(...)` reconstruct historical state.
 - Transform channels are absolute-time functions, not frame-to-frame mutation.
 - Relative transforms require an explicit `LOCAL`, `PARENT` or `WORLD` frame.
 - `parallel()` freezes one scheduling base.

@@ -10,9 +10,10 @@ class BatchTimelineTests(unittest.TestCase):
         after = RectSet((Vec2(2, 0),), (Vec2(1, 1),), (Color(240, 240, 240),))
         obj = BatchObject2D(before)
         scene = Scene()
-        scene.add(obj)
-        scene.batch(obj, to=after, duration=2.0)
-        self.assertIs(obj.batch, after)
+        bound = scene.add(obj)
+        bound.batch(to=after, duration=2.0)
+        self.assertIs(obj.batch, before)
+        self.assertIs(bound.batch_value, after)
         start = scene.evaluate(0.0).batches[0]
         mid = scene.evaluate(1.0).batches[0]
         end = scene.evaluate(2.0).batches[0]

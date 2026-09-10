@@ -40,11 +40,11 @@ class Bound2D(BoundItem[T]):
 
     @property
     def transform_value(self) -> Transform2D:
-        return self.raw.transform  # type: ignore[attr-defined]
+        return self.scene._authored_get(self.raw, "transform")
 
     @property
     def opacity_value(self) -> float:
-        return float(self.raw.opacity)  # type: ignore[attr-defined]
+        return float(self.scene._authored_get(self.raw, "opacity"))
 
     @property
     def center(self) -> Vec2:
@@ -236,6 +236,14 @@ class Bound2D(BoundItem[T]):
 
 @dataclass(frozen=True, slots=True)
 class BoundObject2D(Bound2D[T]):
+    @property
+    def style_value(self):
+        return self.scene._authored_get(self.raw, "style")
+
+    @property
+    def trim_value(self) -> float:
+        return float(self.scene._authored_get(self.raw, "trim"))
+
     def create(
         self,
         duration: float | None = None,
@@ -319,6 +327,14 @@ class BoundObject2D(Bound2D[T]):
 
 @dataclass(frozen=True, slots=True)
 class BoundVector2D(Bound2D[T]):
+    @property
+    def document_value(self):
+        return self.scene._authored_get(self.raw, "document")
+
+    @property
+    def reveal_value(self) -> float:
+        return float(self.scene._authored_get(self.raw, "reveal"))
+
     def morph(
         self,
         *,
@@ -349,6 +365,10 @@ class BoundVector2D(Bound2D[T]):
 
 @dataclass(frozen=True, slots=True)
 class BoundBatch2D(Bound2D[T]):
+    @property
+    def batch_value(self):
+        return self.scene._authored_get(self.raw, "batch")
+
     def batch(
         self,
         *,
@@ -391,7 +411,7 @@ class BoundGroup3D(BoundItem[T]):
 
     @property
     def transform_value(self):
-        return self.raw.transform  # type: ignore[attr-defined]
+        return self.scene._authored_get(self.raw, "transform")
 
     def transform(
         self,
@@ -430,7 +450,7 @@ class BoundGroup3D(BoundItem[T]):
 class BoundMesh3D(BoundItem[T]):
     @property
     def transform_value(self):
-        return self.raw.transform  # type: ignore[attr-defined]
+        return self.scene._authored_get(self.raw, "transform")
 
     def transform(
         self,
@@ -475,13 +495,13 @@ class BoundMesh3D(BoundItem[T]):
 class BoundValue(BoundItem[T]):
     @property
     def current(self) -> float:
-        return float(self.raw.value)  # type: ignore[attr-defined]
+        return float(self.scene._authored_get(self.raw, "value"))
 
     def value(self, *, to: float, duration: float | None = None, easing=Easing.SMOOTHSTEP, at=0.0):
         return self.scene.value(self.raw, to=to, duration=duration, easing=easing, at=at)
 
     def at(self, time: float) -> float:
-        return self.raw.value_at(time)  # type: ignore[attr-defined]
+        return self.scene.value_at(self.raw, time)
 
 
 @dataclass(frozen=True, slots=True)

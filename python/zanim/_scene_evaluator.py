@@ -34,6 +34,7 @@ from .space import Transform2D
 from .space3d import Transform3D
 from .timeline import (
     BatchClip,
+    Camera3DClip,
     InterpolationClip,
     OpacityClip,
     PathTrimClip,
@@ -93,8 +94,19 @@ class _SceneEvaluator:
             tuple(infinite2d),
             transients,
             tuple(meshes3d),
-            Camera3DSnapshot.from_camera(self.camera3d) if meshes3d else None,
+            Camera3DSnapshot.from_state(self._camera3d_at(time)) if meshes3d else None,
         )
+
+    def _camera3d_at(self, time: float):
+        value = self._camera3d_initial
+        for clip in self._timeline._channel_clips(Camera3DClip, -1):
+            if time < clip.span.start:
+                break
+            if time >= clip.span.end:
+                value = clip.after
+                continue
+            return clip.sample(time)
+        return value
 
     def _context_at(
         self, registered: _RegisteredItem, time: float
@@ -346,6 +358,16 @@ class _SceneEvaluator:
                 continue
             return clip.sample(time)
         return value
+
+    def value_at(self, value, time: float) -> float:
+        registered = self._require_registered(self._unwrap(value))
+        if not isinstance(registered.initial, float):
+            raise TypeError("value_at() requires a ScalarValue")
+        from .timeline import ValueClip
+
+        return self._scalar_object_channel_at(
+            ValueClip, registered.object_id, registered.initial, float(time)
+        )
 
     def _opacity_at(self, object_id: int, initial: float, time: float) -> float:
         return self._scalar_object_channel_at(OpacityClip, object_id, initial, time)

@@ -5,6 +5,7 @@ import subprocess
 import threading
 from bisect import bisect_right
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -308,7 +309,12 @@ class AlphaMaskSource(RasterSource):
     """Apply one raster source's alpha channel to another source."""
 
     def __init__(
-        self, content: RasterSource, mask: RasterSource, *, invert=0.0, feather=0.0
+        self,
+        content: RasterSource,
+        mask: RasterSource,
+        *,
+        invert: float | Callable[[float], float] = 0.0,
+        feather: float | Callable[[float], float] = 0.0,
     ) -> None:
         if content.width != mask.width or content.height != mask.height:
             raise ValueError("content and mask raster dimensions must match")
@@ -323,7 +329,7 @@ class AlphaMaskSource(RasterSource):
         self.feather = feather
 
     @staticmethod
-    def _value(value, time: float) -> float:
+    def _value(value: float | Callable[[float], float], time: float) -> float:
         return float(value(time) if callable(value) else value)
 
     def frame_at(self, source_time: float) -> RasterFrame:

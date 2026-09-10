@@ -69,10 +69,13 @@ export class Scene {
     this.values = [];
     this.interpolations = [];
     this.initial = new Map();
+    this.authored = new Map();
     this._trackedObjects = new Map();
     this._clipsByObject = new Map();
     this._valueClipsByValue = new Map();
+    this._valueAuthored = new Map();
     this._batchInitial = new Map();
+    this._batchAuthored = new Map();
     this._batchClipsByObject = new Map();
     this._mediaClipsByObject = new Map();
     this._worldSpaceSpans = new Map();
@@ -114,8 +117,14 @@ export class Scene {
       this._trackedObjects.set(object.id, object);
       object._scene = this;
       object.birth = birth;
-      this.initial.set(object.id, cloneState(object));
-      if (object instanceof CachedBatch2D) this._batchInitial.set(object.id, object.items.map(item => [...item]));
+      const initial = cloneState(object);
+      this.initial.set(object.id, initial);
+      this.authored.set(object.id, { ...initial });
+      if (object instanceof CachedBatch2D) {
+        const batch = object.items.map(item => [...item]);
+        this._batchInitial.set(object.id, batch);
+        this._batchAuthored.set(object.id, batch.map(item => [...item]));
+      }
       if (object instanceof Group) {
         for (const child of object.children) {
           child._parent = object;
@@ -153,8 +162,54 @@ export class Scene {
   invalidateOrder() { this._renderListDirty = true; return this; }
 
   addValue(...values) {
-    for (const value of values) if (!this.values.includes(value)) this.values.push(value);
+    for (const value of values) {
+      if (!this.values.includes(value)) this.values.push(value);
+      if (!this._valueAuthored.has(value.id)) this._valueAuthored.set(value.id, value.initial);
+    }
     return values.length === 1 ? values[0] : values;
+  }
+
+  authoredState(object) {
+    const state = this.authored.get(object.id);
+    if (!state) throw new Error('object must be added before reading authored state');
+    return { ...state };
+  }
+
+  authoredValue(value) {
+    if (!this._valueAuthored.has(value.id)) throw new Error('value must be added before reading authored state');
+    return this._valueAuthored.get(value.id);
+  }
+
+  authoredCenter(object) {
+    return this._withAuthoredObjects([object], () => object.center);
+  }
+
+  _withAuthoredObjects(objects, callback) {
+    const saved = [];
+    const expanded = [];
+    const visit = object => {
+      if (expanded.includes(object)) return;
+      expanded.push(object);
+      if (object instanceof Group) for (const child of object.children) visit(child);
+    };
+    for (const object of objects) visit(object);
+    for (const object of expanded) {
+      if (!this.authored.has(object.id)) continue;
+      const batch = object instanceof CachedBatch2D ? object.items.map(item => [...item]) : null;
+      saved.push([object, cloneState(object), batch]);
+      assignState(object, this.authoredState(object));
+      if (batch && this._batchAuthored.has(object.id)) {
+        object.items = this._batchAuthored.get(object.id).map(item => [...item]);
+      }
+    }
+    try { return callback(); }
+    finally {
+      for (let i = saved.length - 1; i >= 0; i--) {
+        const [object, state, batch] = saved[i];
+        assignState(object, state);
+        if (batch) object.items = batch;
+      }
+    }
   }
 
   _scheduleBase() { return this._parallelBase == null ? this.cursor : this._parallelBase; }
@@ -188,7 +243,7 @@ export class Scene {
     this.valueClips.push(clip);
     appendOrdered(this._valueClipsByValue, value.id, clip);
     this._advanceAfterSchedule(clip.end);
-    value.value = Number(to);
+    this._valueAuthored.set(value.id, Number(to));
     return value;
   }
 
@@ -313,9 +368,9 @@ export class Scene {
     this._assertObjectChannelsAvailable(object, Object.keys(changes).map(key => key === 'reveal' ? 'trim' : key), span);
     const clip = { kind: 'state', object, start: span.start, end: span.end, easing, changes };
     this._scheduleClip(object, clip);
-    const authored = { ...before };
+    const authored = { ...(this.authored.get(object.id) ?? before) };
     for (const [key, value] of Object.entries(changes)) authored[key] = value.after;
-    assignState(object, authored);
+    this.authored.set(object.id, authored);
     return object;
   }
 
@@ -329,7 +384,7 @@ export class Scene {
     if (!(target instanceof Transform2D)) throw new TypeError('transformFunction provider must return Transform2D');
     const clip = { kind: 'transformFunction', object, start: span.start, end: span.end, easing, provider, before: before.transform, after: target };
     this._scheduleClip(object, clip);
-    object.transform = target;
+    this.authored.set(object.id, { ...this.authoredState(object), transform: target });
     return object;
   }
 
@@ -404,7 +459,7 @@ export class Scene {
     appendOrdered(this._batchClipsByObject, object.id, clip);
     this.clips.push(clip);
     this._advanceAfterSchedule(clip.end);
-    object.items = clip.after.map(item => [...item]);
+    this._batchAuthored.set(object.id, clip.after.map(item => [...item]));
     return object;
   }
 
@@ -414,7 +469,7 @@ export class Scene {
 
   move(object, by, { frame = WORLD, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
     const span = this._span(duration, at);
-    const v = Vec2.from(by), current = object.transform, delta = Transform2D.translation(v.x, v.y);
+    const v = Vec2.from(by), current = this.authoredState(object).transform, delta = Transform2D.translation(v.x, v.y);
     let target;
     if (frame === LOCAL) target = current.mul(delta);
     else if (frame === PARENT) target = delta.mul(current);
@@ -430,7 +485,7 @@ export class Scene {
 
   rotate(object, by, { frame = PARENT, about = null, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
     const span = this._span(duration, at);
-    const current = object.transform, R = Transform2D.rotation(by);
+    const current = this.authoredState(object).transform, R = Transform2D.rotation(by);
     let target;
     if (about) {
       const q = Vec2.from(about), parent = this._parentWorldAt(object, span.start);
@@ -453,7 +508,7 @@ export class Scene {
 
   scale(object, by, { frame = PARENT, about = null, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
     const span = this._span(duration, at);
-    const S = Transform2D.scaling(by), current = object.transform;
+    const S = Transform2D.scaling(by), current = this.authoredState(object).transform;
     let target;
     if (about) {
       const q = Vec2.from(about), parent = this._parentWorldAt(object, span.start);
@@ -480,15 +535,18 @@ export class Scene {
 
   interpolate(source, target, { duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
     const span = this._span(duration, at);
-    const transient = (source instanceof Polyline && target instanceof Polyline && !source.closed && !target.closed)
-      ? new PolylineInterpolation(source, target, span.start, span.end, easing)
-      : new PrimitiveInterpolation(source, target, span.start, span.end, easing);
+    const sourceState = this.authored.has(source.id) ? this.authoredState(source) : cloneState(source);
+    const targetState = this.authored.has(target.id) ? this.authoredState(target) : cloneState(target);
+    const transient = this._withAuthoredObjects([source, target], () =>
+      (source instanceof Polyline && target instanceof Polyline && !source.closed && !target.closed)
+        ? new PolylineInterpolation(source, target, span.start, span.end, easing)
+        : new PrimitiveInterpolation(source, target, span.start, span.end, easing));
     transient._transientInterpolation = true;
     this.objects.push(transient);
     this._track(transient, span.start);
     transient.birth = span.start;
     transient.death = span.end;
-    this.interpolations.push({ source, target, start: span.start, end: span.end, easing, transient });
+    this.interpolations.push({ source, target, sourceState, targetState, start: span.start, end: span.end, easing, transient });
     this._renderListDirty = true;
     this._advanceAfterSchedule(span.end);
     return transient;
@@ -554,7 +612,7 @@ export class Scene {
     if (!options || typeof options !== 'object' || !('to' in options)) throw new TypeError('Scene.layout requires {to, duration?, easing?, at?}');
     args = args.slice(0, -1);
     const objects = args.length === 1 && args[0] instanceof Group ? args[0].children : args;
-    const targets = options.to.targets(...objects);
+    const targets = this._withAuthoredObjects(objects, () => options.to.targets(...objects));
     this.parallel(options.duration ?? 1, api => objects.forEach((object, i) => api.animate(object, { transform: targets[i], easing: options.easing ?? Easing.SMOOTHSTEP, at: options.at ?? 0 })));
     return objects;
   }
@@ -564,6 +622,6 @@ export class Scene {
   play(options = {}) { return playScene(this, options); }
   pause() { return pauseScene(this); }
   destroy() { return destroyScene(this); }
-  setMatrix(matrix) { for (const object of this.objects) object.transform = Transform2D.fromMat2(matrix); for (const object of this.objects) this.initial.set(object.id, cloneState(object)); this.render(); }
+  setMatrix(matrix) { for (const object of this.objects) { object.transform = Transform2D.fromMat2(matrix); const state = cloneState(object); this.initial.set(object.id, state); this.authored.set(object.id, { ...state }); } this.render(); }
   animateTo(target, duration = 1000) { const seconds = duration / 1000, start = this.time || 0, targets = this.objects.map(object => [object, Transform2D.fromMat2(target)]); this.at(start); this.parallel(seconds, api => { for (const [object, transform] of targets) api.animate(object, { transform }); }); this.play({ from: start }); }
 }

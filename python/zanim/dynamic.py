@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 from numbers import Real
-from typing import Callable, Literal
+from typing import Callable, Literal, TypeAlias
 
 from .geometry import Color, CubicBezierGeometry
 from .space import Transform2D
@@ -16,6 +16,8 @@ from .vector import (
     VectorPath,
     vector_path_bounds,
 )
+
+RealValue: TypeAlias = int | float | Real
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +40,7 @@ class NumberFormat:
         if self.sign not in ("negative", "space", "always"):
             raise ValueError("invalid number sign policy")
 
-    def format(self, value: Real) -> str:
+    def format(self, value: RealValue) -> str:
         if not isinstance(value, Real):
             raise TypeError("dynamic number value must be real")
         sign_char = {"negative": "-", "space": " ", "always": "+"}[self.sign]
@@ -198,7 +200,7 @@ class DynamicNumber(VectorObject2D):
 
     def __init__(
         self,
-        provider: Callable[[float], Real] | ScalarValue,
+        provider: Callable[[float], RealValue] | ScalarValue,
         *,
         number_format: NumberFormat,
         font_size: float = 38.0,
@@ -229,10 +231,10 @@ class DynamicNumber(VectorObject2D):
     def fixed_size(self) -> tuple[float, float]:
         return self._atlas.reserved_width(self.number_format), self._atlas.height
 
-    def value_at(self, time: float) -> Real:
+    def value_at(self, time: float) -> RealValue:
         return self.provider(float(time))
 
-    def _document_for_value(self, value: Real) -> VectorDocument:
+    def _document_for_value(self, value: RealValue) -> VectorDocument:
         text = self.number_format.format(value)
         return self._atlas.document(text, self.number_format, self.align)
 

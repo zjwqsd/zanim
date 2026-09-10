@@ -57,6 +57,18 @@ def test_scene_ir_round_trip_preserves_random_access_state():
         assert _snapshot_signature(restored, time) == _snapshot_signature(scene, time)
 
 
+def test_scene_ir_restores_authoring_head_for_continued_animation():
+    scene = Scene()
+    square = scene.add(Square(1))
+    square.move(to=(2, 1), duration=1.0)
+    restored = scene_from_ir(json.loads(json.dumps(scene_to_ir(scene))))
+    restored_square = restored.on(restored.items[0])
+    assert restored_square.center == Vec2(2, 1)
+    restored_square.move(by=(1, 0), frame=WORLD, duration=1.0)
+    assert restored_square.center == Vec2(3, 1)
+    assert restored.evaluate(2.0).objects[0].snapshot.transform == Transform2D.translation(3, 1)
+
+
 def test_scene_ir_deduplicates_immutable_vector_resources():
     cubic = CubicBezierGeometry(Vec2(0, 0), Vec2(0.3, 0.8), Vec2(0.7, 0.8), Vec2(1, 0))
     document = VectorDocument(

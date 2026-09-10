@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import {
   Circle, Cube3D, DynamicPolyline, FourierEpicycles, FunctionPlot, LineSet,
-  Math as TypstMath, Mat2, Polyline, Scene, Square, TIME, Transform2D,
+  Math as TypstMath, Mat2, PARENT, Polyline, ScalarValue, Scene, Square, TIME, Transform2D,
   Transform3D, Vec3, ZObject, ZanimWasm, resamplePolylineByArcLength,
 } from './src/zanim.js';
 import { parseSceneIR, sceneFromIR, sceneToIR, stringifySceneIR } from './src/ir.js';
@@ -27,6 +27,18 @@ scene.create(source,{duration:.4});scene.wait(.2);
 const target=new Polyline([[0,0],[.5,1],[1,0]]);const handoff=scene.cursor;
 scene.replace(source,target,{duration:.8});
 assert.equal(source.death,handoff);assert.equal(target.birth,handoff+.8);
+
+const ownership=Scene.headless();
+const owned=ownership.add(new Square(1));
+const rawOwned=owned.transform;
+owned.move([2,1],{frame:PARENT,duration:1});
+assert.equal(owned.transform,rawOwned);
+assert.equal(ownership.authoredState(owned).transform.tx,2);
+assert.equal(ownership.authoredState(owned).transform.ty,1);
+const ownedValue=ownership.addValue(new ScalarValue(1));
+ownership.animateValue(ownedValue,{to:5,duration:1});
+assert.equal(ownedValue.value,1);
+assert.equal(ownership.authoredValue(ownedValue),5);
 
 const batchScene=new Scene({});
 const lines=batchScene.add(new LineSet([[0,0,1,0,'#60a6ff',.02]],{worldStroke:true}));
@@ -73,6 +85,13 @@ globalThis.Path2D??=class{moveTo(){}lineTo(){}rect(){}arc(){}closePath(){}bezier
 const fakeRenderer={canvas:{width:640,height:360},ctx:fakeCtx,baseUnitSize:80,unitSize:80,dpr:1,resize(){},clear(){},time:0,toDevice(x,y){return[x,y]}};
 const roundtrip=sceneFromIR(parsed,fakeRenderer),roundtripSquare=roundtrip.objects.find(o=>o instanceof Square);
 assert.ok(Math.abs(roundtrip.stateAt(roundtripSquare,1.5).transform.tx-.5)<1e-12);
+const renderOwnership=new Scene(fakeRenderer);
+const renderOwned=renderOwnership.add(new Square(1));
+const renderRaw=renderOwned.transform;
+renderOwned.move([2,0],{frame:PARENT,duration:1});
+renderOwnership.seek(.5);
+assert.equal(renderOwned.transform,renderRaw);
+assert.ok(Math.abs(renderOwnership.stateAt(renderOwned,.5).transform.tx-1)<1e-12);
 
 const cube=Cube3D(2,{transform:Transform3D.translation(1,0,0).mul(Transform3D.rotationY(Math.PI/3))});
 assert.equal(cube.mesh.vertexCount,24);assert.equal(cube.mesh.indexCount,36);

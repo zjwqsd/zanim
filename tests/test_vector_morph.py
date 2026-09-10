@@ -25,7 +25,7 @@ class VectorMorphTests(unittest.TestCase):
         self.assertEqual(end, target_document)
         self.assertEqual(middle, middle_again)
         self.assertGreater(middle.group_count, source_document.group_count)
-        self.assertEqual(source.content, target.content)
+        self.assertNotEqual(source.content, target.content)
 
     def test_unchanged_text_glyphs_move_and_restyle_instead_of_whole_object_crossfade(self):
         source = Text("styles", font_size=28, color=BLUE)
@@ -61,7 +61,8 @@ class VectorMorphTests(unittest.TestCase):
         scene.add(source)
         scene.morph(source, to=middle, duration=1.0)
         second = scene.morph(source, to=target, duration=1.0)
-        self.assertEqual(source.content, target.content)
+        self.assertEqual(source.content, "abc")
+        self.assertEqual(scene._authored_get(source, "content"), target.content)
         self.assertGreaterEqual(len(second.plan.matched), 3)
         self.assertEqual(scene.evaluate(2.0).vectors[0].snapshot.document, target.document)
 

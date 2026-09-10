@@ -76,6 +76,11 @@ class Mesh3DTests(unittest.TestCase):
         self.assertEqual(len(surface.mesh.indices), 6 * 6 * 4)
         self.assertTrue(all(abs(n.length - 1.0) < 1e-6 for n in surface.mesh.normals))
 
+    def test_scene_camera3d_cannot_be_replaced_after_construction(self):
+        scene = Scene(camera3d=Camera3D(position=Vec3(5, 3, 6)))
+        with self.assertRaisesRegex(RuntimeError, "cannot replace Scene.camera3d"):
+            scene.camera3d = Camera3D()
+
     def test_scene_evaluates_3d_transform_random_access(self):
         scene = Scene(canvas=Canvas(320, 180, 25), fps=30)
         cube = Cube3D(color=Color(80, 160, 255))

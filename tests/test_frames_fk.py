@@ -35,15 +35,15 @@ class TransformFrameTests(unittest.TestCase):
         parent_scene = Scene()
         parent_scene.add(parent_obj)
         parent_scene.move(parent_obj, by=RIGHT, frame=PARENT, duration=0)
-        self.assertAlmostEqual(parent_obj.transform.tx, 3.0)
+        self.assertAlmostEqual(parent_scene._authored_get(parent_obj, "transform").tx, 3.0)
         self.assertAlmostEqual(parent_obj.transform.ty, 0.0)
 
         local_obj = Line(ORIGIN, RIGHT, transform=base)
         local_scene = Scene()
         local_scene.add(local_obj)
         local_scene.move(local_obj, by=RIGHT, frame=LOCAL, duration=0)
-        self.assertAlmostEqual(local_obj.transform.tx, 2.0)
-        self.assertAlmostEqual(local_obj.transform.ty, 1.0)
+        self.assertAlmostEqual(local_scene._authored_get(local_obj, "transform").tx, 2.0)
+        self.assertAlmostEqual(local_scene._authored_get(local_obj, "transform").ty, 1.0)
 
     def test_world_delta_is_conjugated_through_parent(self):
         child = Line(ORIGIN, RIGHT, transform=Transform2D.translation(2, 0))

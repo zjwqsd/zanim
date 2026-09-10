@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .batch import BatchGeometry, BatchObject2D
-from .camera3d import Camera3D
+from .camera3d import Camera3D, Camera3DState
 from .fractal import FractalField2D
 from .geometry import Color, Geometry, Object2D, Style
 from .infinite import ComplexMappedGrid, InfiniteGrid, InfiniteLine, InfiniteObject2D
@@ -187,17 +187,21 @@ class Camera3DSnapshot:
     layer_z_index: int
 
     @staticmethod
-    def from_camera(camera: Camera3D) -> "Camera3DSnapshot":
+    def from_state(state: Camera3DState) -> "Camera3DSnapshot":
         return Camera3DSnapshot(
-            camera.position,
-            camera.target,
-            camera.up,
-            camera.fov_y_degrees,
-            camera.near,
-            camera.far,
-            camera.orthographic_height,
-            camera.layer_z_index,
+            state.position,
+            state.target,
+            state.up,
+            state.fov_y_degrees,
+            state.near,
+            state.far,
+            state.orthographic_height,
+            state.layer_z_index,
         )
+
+    @staticmethod
+    def from_camera(camera: Camera3D) -> "Camera3DSnapshot":
+        return Camera3DSnapshot.from_state(camera.state())
 
 
 @dataclass(frozen=True, slots=True)

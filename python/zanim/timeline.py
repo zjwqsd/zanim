@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Callable, Iterator
 
 from .batch import BatchGeometry
+from .camera3d import Camera3DState
 from .geometry import Color, StrokeStyle, Style
 from .interpolation import ObjectInterpolation
 from .space import SE2, Transform2D
@@ -145,6 +146,18 @@ class Transform3DFunctionClip:
 
 
 @dataclass(frozen=True, slots=True)
+class Camera3DClip:
+    object_id: int
+    span: TimeSpan
+    before: Camera3DState
+    after: Camera3DState
+    easing: Easing = Easing.SMOOTHSTEP
+
+    def sample(self, time: float) -> Camera3DState:
+        return self.before.interpolate(self.after, self.span.alpha(time, self.easing))
+
+
+@dataclass(frozen=True, slots=True)
 class OpacityClip:
     object_id: int
     span: TimeSpan
@@ -269,6 +282,7 @@ Clip = (
     | Transform3DClip
     | SE3TransformClip
     | Transform3DFunctionClip
+    | Camera3DClip
     | OpacityClip
     | StyleClip
     | PathTrimClip
@@ -488,6 +502,22 @@ class Timeline:
         return self._append(
             Transform3DFunctionClip(object_id, span, provider, before, after, easing)
         )
+
+    def add_camera3d(
+        self,
+        before: Camera3DState,
+        after: Camera3DState,
+        duration=None,
+        easing=Easing.SMOOTHSTEP,
+        at=0.0,
+    ):
+        resolved = self._resolve_duration(duration)
+        if resolved > 0.0:
+            if before.layer_z_index != after.layer_z_index:
+                raise ValueError("Camera3D layer_z_index changes must be instantaneous")
+            if (before.orthographic_height is None) != (after.orthographic_height is None):
+                raise ValueError("Camera3D projection mode changes must be instantaneous")
+        return self._append(Camera3DClip(-1, self._span(duration, at), before, after, easing))
 
     def add_opacity(
         self, object_id, before, after, duration=None, easing=Easing.SMOOTHSTEP, at=0.0

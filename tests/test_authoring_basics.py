@@ -63,31 +63,34 @@ class AuthoringBasicsTests(unittest.TestCase):
         obj = Square(1)
         obj.shift(RIGHT)
         scene = Scene()
-        scene.add(obj)
+        bound = scene.add(obj)
         with self.assertRaisesRegex(RuntimeError, "Scene timeline operations"):
             obj.shift(UP)
-        scene.move(obj, by=UP, frame=PARENT, duration=1)
-        self.assertEqual(obj.center, Vec2(1, 1))
+        bound.move(by=UP, frame=PARENT, duration=1)
+        self.assertEqual(obj.center, Vec2(1, 0))
+        self.assertEqual(bound.center, Vec2(1, 1))
 
     def test_explicit_move_changes_the_same_object(self):
         obj = Square(1)
         scene = Scene()
-        scene.add(obj)
-        scene.move(obj, by=2 * RIGHT + UP, frame=PARENT, duration=2)
+        bound = scene.add(obj)
+        bound.move(by=2 * RIGHT + UP, frame=PARENT, duration=2)
 
         self.assertIs(scene.objects[0], obj)
         self.assertEqual(len(scene.objects), 1)
         self.assertEqual(scene.evaluate(1).transients, ())
         self.assertAlmostEqual(scene.evaluate(1).objects[0].snapshot.transform.tx, 1.0)
         self.assertAlmostEqual(scene.evaluate(1).objects[0].snapshot.transform.ty, 0.5)
-        self.assertEqual(obj.center, Vec2(2, 1))
+        self.assertEqual(obj.center, Vec2(0, 0))
+        self.assertEqual(bound.center, Vec2(2, 1))
 
     def test_move_to_uses_explicit_center_target(self):
         obj = Square(2, transform=Transform2D.translation(-3, 1))
         scene = Scene()
-        scene.add(obj)
-        scene.move(obj, to=Vec2(4, -2), duration=1)
-        self.assertEqual(obj.center, Vec2(4, -2))
+        bound = scene.add(obj)
+        bound.move(to=Vec2(4, -2), duration=1)
+        self.assertEqual(obj.center, Vec2(-3, 1))
+        self.assertEqual(bound.center, Vec2(4, -2))
         end = scene.evaluate(1).objects[0].snapshot.transform
         self.assertAlmostEqual(end.tx, 4)
         self.assertAlmostEqual(end.ty, -2)
@@ -95,24 +98,28 @@ class AuthoringBasicsTests(unittest.TestCase):
     def test_rotate_and_scale_require_explicit_pivot(self):
         obj = Square(2, transform=Transform2D.translation(2, 0))
         scene = Scene()
-        scene.add(obj)
-        pivot = obj.center
-        scene.rotate(obj, by=3.141592653589793 / 2, about=pivot, duration=1)
-        self.assertAlmostEqual(obj.center.x, 2)
-        self.assertAlmostEqual(obj.center.y, 0)
-        scene.scale(obj, by=2, about=obj.center, duration=1)
-        self.assertAlmostEqual(obj.center.x, 2)
-        self.assertAlmostEqual(obj.bounds().width, 4)
+        bound = scene.add(obj)
+        pivot = bound.center
+        bound.rotate(by=3.141592653589793 / 2, about=pivot, duration=1)
+        self.assertAlmostEqual(bound.center.x, 2)
+        self.assertAlmostEqual(bound.center.y, 0)
+        bound.scale(by=2, about=bound.center, duration=1)
+        self.assertAlmostEqual(bound.center.x, 2)
+        end = scene.evaluate(scene.duration).objects[0].snapshot
+        from zanim.bounds import bounds_from_snapshot
+
+        self.assertAlmostEqual(bounds_from_snapshot(end, end.transform).width, 4)
 
     def test_transform_by_and_to_are_explicit_and_seekable(self):
         obj = Square(1, transform=Transform2D.translation(1, 0))
         scene = Scene()
-        scene.add(obj)
-        scene.transform(obj, by=Transform2D.translation(2, 0), frame=PARENT, duration=1)
+        bound = scene.add(obj)
+        bound.transform(by=Transform2D.translation(2, 0), frame=PARENT, duration=1)
         self.assertAlmostEqual(scene.evaluate(0.5).objects[0].snapshot.transform.tx, 2)
-        self.assertAlmostEqual(obj.transform.tx, 3)
-        scene.transform(obj, to=Transform2D.translation(-1, 0), duration=1)
-        self.assertAlmostEqual(obj.transform.tx, -1)
+        self.assertAlmostEqual(obj.transform.tx, 1)
+        self.assertAlmostEqual(bound.transform_value.tx, 3)
+        bound.transform(to=Transform2D.translation(-1, 0), duration=1)
+        self.assertAlmostEqual(bound.transform_value.tx, -1)
         with self.assertRaises(ValueError):
             scene.transform(obj)
         with self.assertRaises(ValueError):
@@ -121,11 +128,12 @@ class AuthoringBasicsTests(unittest.TestCase):
     def test_target_state_aliases_keep_explicit_to_keyword(self):
         obj = Square(1, style=Style.solid(Color(10, 20, 30)))
         scene = Scene()
-        scene.add(obj)
-        scene.style(obj, to=Style.solid(Color(30, 20, 10)), duration=0.5)
-        scene.opacity(obj, to=0.25, duration=0.5)
-        self.assertEqual(obj.style.fill, Color(30, 20, 10))
-        self.assertAlmostEqual(obj.opacity, 0.25)
+        bound = scene.add(obj)
+        bound.style(to=Style.solid(Color(30, 20, 10)), duration=0.5)
+        bound.opacity(to=0.25, duration=0.5)
+        self.assertEqual(obj.style.fill, Color(10, 20, 30))
+        self.assertEqual(bound.style_value.fill, Color(30, 20, 10))
+        self.assertAlmostEqual(bound.opacity_value, 0.25)
 
     def test_set_transform_is_an_explicit_instantaneous_timeline_event(self):
         obj = Square(1)
@@ -197,16 +205,19 @@ class AuthoringBasicsTests(unittest.TestCase):
             obj.opacity = 0.0
         with self.assertRaisesRegex(RuntimeError, "after Scene.add"):
             obj.transform = Transform2D.translation(1, 0)
-        scene.opacity(obj, to=0.5, duration=0.2)
-        self.assertAlmostEqual(obj.opacity, 0.5)
+        bound = scene.on(obj)
+        bound.opacity(to=0.5, duration=0.2)
+        self.assertAlmostEqual(obj.opacity, 1.0)
+        self.assertAlmostEqual(bound.opacity_value, 0.5)
 
         value = ScalarValue(1)
         value_scene = Scene()
-        value_scene.add(value)
+        bound_value = value_scene.add(value)
         with self.assertRaisesRegex(RuntimeError, "after Scene.add"):
             value.value = 2
-        value_scene.value(value, to=2, duration=0.2)
-        self.assertEqual(value.value, 2)
+        bound_value.value(to=2, duration=0.2)
+        self.assertEqual(value.value, 1)
+        self.assertEqual(bound_value.current, 2)
 
     def test_create_requires_explicit_trim_zero(self):
         obj = Square(1)

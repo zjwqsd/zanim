@@ -16,6 +16,10 @@ Browser runtime and TypeScript authoring API for Zanim.
 
 The repository no longer contains a Gallery or browser demo suite. User-facing examples are maintained in the separate tutorial repository.
 
+## State ownership
+
+Objects are ordinary declaration/layout values until `Scene.add()`. After registration, animation authoring updates `Scene.authored` and timeline clips; it does not rewrite the object's declaration state. `stateAt(object, t)` reconstructs historical state, while `authoredState(object)` exposes the current authoring head. Rendering temporarily applies sampled state and restores the raw object immediately afterward.
+
 ## Math / Typst
 
 Use the Vite plugin once:

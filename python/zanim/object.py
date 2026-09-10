@@ -27,10 +27,6 @@ class SceneObject2D:
             )
         object.__setattr__(self, name, value)
 
-    def _set_scene_state(self, name: str, value) -> None:
-        """Update authored target state after Scene has recorded the change."""
-        object.__setattr__(self, name, value)
-
     def _validate_scene_state(self) -> None:
         # Constructors may use SE2 as an exact rigid-pose shorthand. Runtime
         # storage remains Transform2D so every renderer sees one representation.

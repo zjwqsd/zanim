@@ -54,7 +54,11 @@ class Camera2D(SceneObject2D):
 
     def transform_at(self, time: float, initial: Transform2D | None = None) -> Transform2D:
         if self.transform_provider is None:
-            return self.transform if initial is None else initial
+            if initial is not None:
+                return initial
+            if self._scene is not None:
+                return self._scene._authored_get(self, "transform")
+            return self.transform
         value = self.transform_provider(float(time))
         if not isinstance(value, Transform2D):
             raise TypeError("camera transform_provider must return Transform2D")
@@ -137,7 +141,7 @@ class Camera2D(SceneObject2D):
         produces ``V' = V @ Translation(-d)``.
         """
         d = as_vec2(by, name="by")
-        current = self.transform
+        current = self._require_scene()._authored_get(self, "transform")
         return self.transform_function(
             lambda a: current @ Transform2D.translation(-d.x * a, -d.y * a),
             duration=duration,
@@ -159,7 +163,7 @@ class Camera2D(SceneObject2D):
         if factor <= 0.0:
             raise ValueError("camera zoom factor must be > 0")
         center = as_vec2(about, name="about")
-        current = self.transform
+        current = self._require_scene()._authored_get(self, "transform")
 
         def provider(a: float) -> Transform2D:
             s = 1.0 + (factor - 1.0) * a
@@ -189,7 +193,7 @@ class Camera2D(SceneObject2D):
         """
         center = as_vec2(about, name="about")
         angle = float(by)
-        current = self.transform
+        current = self._require_scene()._authored_get(self, "transform")
 
         def provider(a: float) -> Transform2D:
             return (

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .audio import AudioObject
 from .batch import BatchGeometry, BatchObject2D, DynamicBatchObject2D
@@ -41,6 +41,7 @@ from .vector import DynamicVectorObject2D, VectorDocument, VectorObject2D
 from .vector_morph import typst_semantic_keys
 
 if TYPE_CHECKING:
+    from .bound import BoundObject2D, BoundVector2D
     from .scene import _RegisteredItem
 
 
@@ -129,16 +130,21 @@ class _SceneAuthoring:
         if isinstance(obj, Camera2D) and obj.is_dynamic:
             raise TypeError("dynamic Camera2D cannot also use transform clips")
         if rigid:
-            before_se2 = SE2.from_affine(obj.transform)
+            before_se2 = SE2.from_affine(self._authored_get(obj, "transform"))
             after_se2 = SE2.from_affine(target)
             clip = self._timeline.add_se2_transform(
                 registered.object_id, before_se2, after_se2, duration, easing, at
             )
         else:
             clip = self._timeline.add_transform(
-                registered.object_id, obj.transform, target, duration, easing, at
+                registered.object_id,
+                self._authored_get(obj, "transform"),
+                target,
+                duration,
+                easing,
+                at,
             )
-        obj._set_scene_state("transform", target)
+        self._authored_set(obj, "transform", target)
         return clip
 
     def _transform_to_se3(
@@ -152,11 +158,11 @@ class _SceneAuthoring:
         registered = self._require_alive_for_span(obj, duration, at)
         start, end = self._scheduled_span(duration, at)
         self._assert_no_descendant_world_dependency(registered, start, end)
-        before = SE3.from_affine(obj.transform)
+        before = SE3.from_affine(self._authored_get(obj, "transform"))
         clip = self._timeline.add_se3_transform(
             registered.object_id, before, target, duration, easing, at
         )
-        obj._set_scene_state("transform", target.as_affine())
+        self._authored_set(obj, "transform", target.as_affine())
         return clip
 
     def _transform_to_3d(
@@ -171,9 +177,9 @@ class _SceneAuthoring:
         start, end = self._scheduled_span(duration, at)
         self._assert_no_descendant_world_dependency(registered, start, end)
         clip = self._timeline.add_transform3d(
-            registered.object_id, obj.transform, target, duration, easing, at
+            registered.object_id, self._authored_get(obj, "transform"), target, duration, easing, at
         )
-        obj._set_scene_state("transform", target)
+        self._authored_set(obj, "transform", target)
         return clip
 
     def transform(
@@ -220,7 +226,7 @@ class _SceneAuthoring:
                 registered = self._require_alive_for_span(obj, duration, at)
                 start, end = self._scheduled_span(duration, at)
                 self._assert_no_descendant_world_dependency(registered, start, end)
-                current = obj.transform
+                current = self._authored_get(obj, "transform")
                 identity = SE3()
 
                 def relative_rigid3d(alpha: float) -> Transform3D:
@@ -236,14 +242,14 @@ class _SceneAuthoring:
                 clip = self._timeline.add_transform3d_function(
                     registered.object_id, relative_rigid3d, current, duration, easing, at
                 )
-                obj._set_scene_state("transform", clip.after)
+                self._authored_set(obj, "transform", clip.after)
                 return clip
             if not isinstance(by, Transform3D):
                 raise TypeError("3D relative transform must be Transform3D or SE3")
             if resolved is PARENT or resolved is WORLD:
-                target3d = by @ obj.transform
+                target3d = by @ self._authored_get(obj, "transform")
             elif resolved is LOCAL:
-                target3d = obj.transform @ by
+                target3d = self._authored_get(obj, "transform") @ by
             else:
                 raise AssertionError
             return self._transform_to_3d(obj, target3d, duration, easing, at)
@@ -251,7 +257,7 @@ class _SceneAuthoring:
         if not isinstance(obj, (SceneObject2D, Camera2D)):
             raise TypeError("2D transform requires a 2D scene object")
         registered = self._require_alive_for_span(obj, duration, at)
-        current = obj.transform
+        current = self._authored_get(obj, "transform")
 
         if to is not None:
             if isinstance(to, SE2):
@@ -290,7 +296,7 @@ class _SceneAuthoring:
             clip = self._timeline.add_transform_function(
                 registered.object_id, relative_rigid, current, duration, easing, at
             )
-            obj._set_scene_state("transform", clip.after)
+            self._authored_set(obj, "transform", clip.after)
             if resolved is WORLD and registered.parent_ids:
                 self._record_world_span(registered.object_id, start, end)
             return clip
@@ -352,7 +358,7 @@ class _SceneAuthoring:
             raise ValueError("move(to=...) is an absolute world target and does not accept frame=")
         to = as_vec2(to, name="to")
         registered = self._require_registered(obj)
-        anchor_parent = obj.anchor(chosen_anchor)
+        anchor_parent = self._authored_anchor(obj, chosen_anchor)
         current_world = self._parent_world_transform_authored(registered).apply(anchor_parent)
         delta_world = to - current_world
         return self.transform(
@@ -389,7 +395,7 @@ class _SceneAuthoring:
             self._assert_no_descendant_world_dependency(registered, start, end)
             parent_world = self._parent_world_transform_at(registered, start)
             parent_world_inv = parent_world.inverse()
-            current = obj.transform
+            current = self._authored_get(obj, "transform")
             angle = float(by)
 
             def around_world_pivot(alpha: float) -> Transform2D:
@@ -403,7 +409,7 @@ class _SceneAuthoring:
             clip = self._timeline.add_transform_function(
                 registered.object_id, around_world_pivot, current, duration, easing, at
             )
-            obj._set_scene_state("transform", clip.after)
+            self._authored_set(obj, "transform", clip.after)
             if registered.parent_ids:
                 self._record_world_span(registered.object_id, start, end)
             return clip
@@ -490,9 +496,14 @@ class _SceneAuthoring:
                 raise TypeError("3D transform function must return Transform3D or SE3")
 
             clip = self._timeline.add_transform3d_function(
-                registered.object_id, affine3d_provider, obj.transform, duration, easing, at
+                registered.object_id,
+                affine3d_provider,
+                self._authored_get(obj, "transform"),
+                duration,
+                easing,
+                at,
             )
-            obj._set_scene_state("transform", clip.after)
+            self._authored_set(obj, "transform", clip.after)
             return clip
         if isinstance(obj, Camera2D) and obj.is_dynamic:
             raise TypeError("dynamic Camera2D cannot also use transform clips")
@@ -506,9 +517,14 @@ class _SceneAuthoring:
             raise TypeError("2D transform function must return Transform2D or SE2")
 
         clip = self._timeline.add_transform_function(
-            registered.object_id, affine_provider, obj.transform, duration, easing, at
+            registered.object_id,
+            affine_provider,
+            self._authored_get(obj, "transform"),
+            duration,
+            easing,
+            at,
         )
-        obj._set_scene_state("transform", clip.after)
+        self._authored_set(obj, "transform", clip.after)
         return clip
 
     def _opacity_to(
@@ -523,9 +539,9 @@ class _SceneAuthoring:
             raise TypeError("Camera2D only participates in the transform channel")
         registered = self._require_alive_for_span(obj, duration, at)
         clip = self._timeline.add_opacity(
-            registered.object_id, obj.opacity, target, duration, easing, at
+            registered.object_id, self._authored_get(obj, "opacity"), target, duration, easing, at
         )
-        obj._set_scene_state("opacity", float(target))
+        self._authored_set(obj, "opacity", float(target))
         return clip
 
     def fade_in(
@@ -543,9 +559,9 @@ class _SceneAuthoring:
         """
         if isinstance(obj, Camera2D):
             raise TypeError("Camera2D only participates in the transform channel")
-        if abs(float(obj.opacity)) > 1e-12:
+        if abs(float(self._authored_get(obj, "opacity"))) > 1e-12:
             raise ValueError(
-                f"fade_in() requires current opacity to be 0; current opacity is {obj.opacity:g}"
+                f"fade_in() requires current opacity to be 0; current opacity is {self._authored_get(obj, 'opacity'):g}"
             )
         return self._opacity_to(obj, 1.0, duration, easing, at)
 
@@ -560,9 +576,9 @@ class _SceneAuthoring:
             raise TypeError("Camera2D only participates in the transform channel")
         registered = self._require_alive_for_span(obj, duration, at)
         clip = self._timeline.add_opacity(
-            registered.object_id, obj.opacity, 0.0, duration, easing, at
+            registered.object_id, self._authored_get(obj, "opacity"), 0.0, duration, easing, at
         )
-        obj._set_scene_state("opacity", 0.0)
+        self._authored_set(obj, "opacity", 0.0)
         return clip
 
     def _style_to(
@@ -575,9 +591,9 @@ class _SceneAuthoring:
     ) -> StyleClip:
         registered = self._require_alive_for_span(obj, duration, at)
         clip = self._timeline.add_style(
-            registered.object_id, obj.style, target, duration, easing, at
+            registered.object_id, self._authored_get(obj, "style"), target, duration, easing, at
         )
-        obj._set_scene_state("style", target)
+        self._authored_set(obj, "style", target)
         return clip
 
     def _trim_to(
@@ -590,9 +606,9 @@ class _SceneAuthoring:
     ) -> PathTrimClip:
         registered = self._require_alive_for_span(obj, duration, at)
         clip = self._timeline.add_path_trim(
-            registered.object_id, obj.trim, target, duration, easing, at
+            registered.object_id, self._authored_get(obj, "trim"), target, duration, easing, at
         )
-        obj._set_scene_state("trim", float(target))
+        self._authored_set(obj, "trim", float(target))
         return clip
 
     def create(
@@ -612,9 +628,9 @@ class _SceneAuthoring:
             return self._reveal(obj, duration, easing, at)
         if not isinstance(obj, Object2D):
             raise TypeError("create() requires Object2D or VectorObject2D")
-        if abs(float(obj.trim)) > 1e-12:
+        if abs(float(self._authored_get(obj, "trim"))) > 1e-12:
             raise ValueError(
-                f"create() requires current trim to be 0; current trim is {obj.trim:g}"
+                f"create() requires current trim to be 0; current trim is {self._authored_get(obj, 'trim'):g}"
             )
         return self._trim_to(obj, 1.0, duration, easing, at)
 
@@ -628,10 +644,9 @@ class _SceneAuthoring:
     ) -> ValueClip:
         registered = self._require_alive_for_span(value, duration, at)
         clip = self._timeline.add_value(
-            registered.object_id, value.value, target, duration, easing, at
+            registered.object_id, self._authored_get(value, "value"), target, duration, easing, at
         )
-        value._clips.append(clip)
-        value._set_scene_state("value", float(target))
+        self._authored_set(value, "value", float(target))
         return clip
 
     def _media(
@@ -675,9 +690,9 @@ class _SceneAuthoring:
         if isinstance(obj, DynamicBatchObject2D):
             raise TypeError("DynamicBatchObject2D owns its batch channel and cannot use BatchClip")
         clip = self._timeline.add_batch(
-            registered.object_id, obj.batch, target, duration, easing, at
+            registered.object_id, self._authored_get(obj, "batch"), target, duration, easing, at
         )
-        obj._set_scene_state("batch", target)
+        self._authored_set(obj, "batch", target)
         return clip
 
     def _reveal(
@@ -689,9 +704,9 @@ class _SceneAuthoring:
     ) -> RevealClip:
         if not isinstance(obj, VectorObject2D):
             raise TypeError("reveal() requires a VectorObject2D")
-        if abs(float(obj.reveal)) > 1e-12:
+        if abs(float(self._authored_get(obj, "reveal"))) > 1e-12:
             raise ValueError(
-                f"reveal() requires current reveal to be 0; current reveal is {obj.reveal:g}"
+                f"reveal() requires current reveal to be 0; current reveal is {self._authored_get(obj, 'reveal'):g}"
             )
         registered = self._require_alive_for_span(obj, duration, at)
         clip = self._timeline.add_reveal(
@@ -699,10 +714,10 @@ class _SceneAuthoring:
             duration=duration,
             easing=easing,
             at=at,
-            before=obj.reveal,
+            before=self._authored_get(obj, "reveal"),
             after=1.0,
         )
-        obj._set_scene_state("reveal", 1.0)
+        self._authored_set(obj, "reveal", 1.0)
         return clip
 
     def _morph_vector(
@@ -722,7 +737,7 @@ class _SceneAuthoring:
         target_obj = target if isinstance(target, VectorObject2D) else None
         if target_obj is not None:
             target_document = target_obj.document
-            source_keys = typst_semantic_keys(obj)
+            source_keys = typst_semantic_keys(self._authored_clone(obj))
             target_keys = typst_semantic_keys(target_obj)
         elif isinstance(target, VectorDocument):
             target_document = target
@@ -732,7 +747,7 @@ class _SceneAuthoring:
 
         clip = self._timeline.add_vector_morph(
             self._require_registered(obj).object_id,
-            obj.document,
+            self._authored_get(obj, "document"),
             target_document,
             duration,
             easing,
@@ -740,7 +755,7 @@ class _SceneAuthoring:
             source_keys=source_keys,
             target_keys=target_keys,
         )
-        obj._set_scene_state("document", target_document)
+        self._authored_set(obj, "document", target_document)
 
         # Keep high-level Typst metadata aligned with the authored target so a
         # later morph can again use semantic glyph correspondence. This is
@@ -750,10 +765,10 @@ class _SceneAuthoring:
 
             if isinstance(obj, Text):
                 for name in ("content", "font_size", "font", "color"):
-                    obj._set_scene_state(name, getattr(target_obj, name))
+                    self._authored_set(obj, name, getattr(target_obj, name))
             elif isinstance(obj, Math):
                 for name in ("source", "font_size", "color"):
-                    obj._set_scene_state(name, getattr(target_obj, name))
+                    self._authored_set(obj, name, getattr(target_obj, name))
         return clip
 
     def _interpolate(
@@ -767,7 +782,12 @@ class _SceneAuthoring:
         self._require_alive_for_span(source, duration, at)
         self._require_alive_for_span(target, duration, at)
         clip = self._timeline.add_interpolation(
-            ObjectInterpolation.from_objects(source, target), duration, easing, at
+            ObjectInterpolation.from_objects(
+                self._authored_clone(source), self._authored_clone(target)
+            ),
+            duration,
+            easing,
+            at,
         )
         self._timeline_event_targets[id(clip)] = (
             self._require_registered(source).object_id,
@@ -854,7 +874,7 @@ class _SceneAuthoring:
 
     def morph(
         self,
-        obj: VectorObject2D,
+        obj: VectorObject2D | "BoundVector2D[Any]",
         *,
         to: VectorObject2D | VectorDocument,
         duration: float | None = None,
@@ -874,8 +894,8 @@ class _SceneAuthoring:
 
     def interpolate(
         self,
-        source: Object2D,
-        target: Object2D,
+        source: Object2D | "BoundObject2D[Any]",
+        target: Object2D | "BoundObject2D[Any]",
         *,
         duration: float | None = None,
         easing: Easing = Easing.SMOOTHSTEP,
@@ -894,7 +914,7 @@ class _SceneAuthoring:
 
     def replace(
         self,
-        source: Object2D,
+        source: Object2D | "BoundObject2D[Any]",
         target: Object2D,
         *,
         duration: float | None = None,
@@ -928,7 +948,7 @@ class _SceneAuthoring:
         added_at, removed_at = self._effective_lifetime(source_registered)
         if start < added_at or (removed_at is not None and start >= removed_at):
             raise ValueError("replace() source is not alive at the current cursor")
-        interpolation = ObjectInterpolation.from_objects(source, target)
+        interpolation = ObjectInterpolation.from_objects(self._authored_clone(source), target)
         clip = self._timeline.add_interpolation(interpolation, duration, easing, at=0.0)
         source_registered.removed_at = clip.span.start
         target_id = self._register(target, (), set(), clip.span.end)
@@ -959,7 +979,8 @@ class _SceneAuthoring:
             raise ValueError("layout() requires at least one object")
         if any(isinstance(obj, Group) for obj in items):
             raise TypeError("layout() expects 2D leaf objects, or one Group")
-        targets = to.targets(*items)
+        views = tuple(self._authored_clone(obj) for obj in items)
+        targets = to.targets(*views)
 
         def schedule():
             return tuple(

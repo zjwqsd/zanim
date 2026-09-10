@@ -26,15 +26,17 @@ class TimelineTests(unittest.TestCase):
 
 
 class SceneTimelineTests(unittest.TestCase):
-    def test_transform_clip_mutates_authoring_object_but_history_is_reconstructed(self):
+    def test_transform_clip_advances_scene_head_without_mutating_raw_object(self):
         obj = Square(2, transform=Transform2D.translation(1, 0))
         scene = Scene()
         scene.add(obj)
         target = Transform2D.translation(5, 2)
 
-        scene.transform(obj, to=target, duration=2, easing=Easing.LINEAR)
+        bound = scene.on(obj)
+        bound.transform(to=target, duration=2, easing=Easing.LINEAR)
 
-        self.assertEqual(obj.transform, target)
+        self.assertEqual(obj.transform, Transform2D.translation(1, 0))
+        self.assertEqual(bound.transform_value, target)
         self.assertEqual(scene.evaluate(-1).objects, ())
         self.assertEqual(scene.evaluate(3).objects[0].snapshot.transform, target)
         mid = scene.evaluate(1).objects[0].snapshot.transform
@@ -46,10 +48,12 @@ class SceneTimelineTests(unittest.TestCase):
         scene.add(obj)
         t1 = Transform2D.translation(2, 0)
         t2 = Transform2D.translation(2, 3)
-        scene.transform(obj, to=t1, duration=1, easing=Easing.LINEAR)
-        scene.transform(obj, to=t2, duration=2, easing=Easing.LINEAR)
+        bound = scene.on(obj)
+        bound.transform(to=t1, duration=1, easing=Easing.LINEAR)
+        bound.transform(to=t2, duration=2, easing=Easing.LINEAR)
 
-        self.assertEqual(obj.transform, t2)
+        self.assertEqual(obj.transform, Transform2D())
+        self.assertEqual(bound.transform_value, t2)
         self.assertEqual(scene.evaluate(0.5).objects[0].snapshot.transform.tx, 1)
         second = scene.evaluate(2).objects[0].snapshot.transform
         self.assertEqual(second.tx, 2)

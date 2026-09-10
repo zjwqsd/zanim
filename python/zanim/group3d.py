@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from .mesh3d import MeshObject3D
@@ -23,7 +24,7 @@ class Group3D:
 
     def __init__(
         self,
-        children: list[MeshObject3D | "Group3D"] | None = None,
+        children: Sequence[MeshObject3D | "Group3D"] | None = None,
         transform: Transform3D | SE3 | None = None,
         opacity: float = 1.0,
         *,
@@ -65,9 +66,6 @@ class Group3D:
 
     def _mark_scene_registered(self) -> None:
         object.__setattr__(self, "_zanim_scene_registered", True)
-
-    def _set_scene_state(self, name: str, value) -> None:
-        object.__setattr__(self, name, value)
 
     @property
     def children(self) -> tuple[MeshObject3D | "Group3D", ...]:

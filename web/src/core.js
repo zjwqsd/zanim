@@ -217,7 +217,7 @@ export class ZObject {
 export class Camera2D extends ZObject {
   constructor(scene){super();this._scene=scene;}
   affine({position=[0,0],rotation=0,scale=1,shear=[0,0],...options}={}){this._scene.animate(this,{...options,transform:Transform2D.affine({position,rotation,scale,shear})});return this;}
-  pan(by,options={}){const current=this.transform,v=Vec2.from(by);return this.transformFunction(a=>current.mul(Transform2D.translation(-v.x*a,-v.y*a)),options);}
+  pan(by,options={}){const current=this._scene.authoredState(this).transform,v=Vec2.from(by);return this.transformFunction(a=>current.mul(Transform2D.translation(-v.x*a,-v.y*a)),options);}
 }
 
 export class CustomObject2D extends ZObject {

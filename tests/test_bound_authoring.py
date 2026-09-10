@@ -55,7 +55,7 @@ class BoundAuthoringTests(unittest.TestCase):
         obj.pose(position=(2, 1), rotation=math.pi / 2, duration=2, easing=Easing.LINEAR)
 
         expected = SE2(theta=math.pi / 2, translation=Vec2(2, 1)).as_affine()
-        self.assertEqual(raw.transform, expected)
+        self.assertEqual(obj.transform_value, expected)
         mid = scene.evaluate(1).objects[0].snapshot.transform
         self.assertAlmostEqual(mid.tx, 1.0)
         self.assertAlmostEqual(mid.ty, 0.5)
@@ -72,7 +72,7 @@ class BoundAuthoringTests(unittest.TestCase):
             @ Transform2D.shear(0.2, -0.1)
             @ Transform2D.scaling(2, 0.5)
         )
-        self.assertEqual(raw.transform, expected)
+        self.assertEqual(obj.transform_value, expected)
 
     def test_relative_motion_still_requires_explicit_frame(self):
         scene = Scene()

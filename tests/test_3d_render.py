@@ -34,11 +34,12 @@ class Integrated3DRenderTests(unittest.TestCase):
             base = ((scene.height // 2) * scene.width + scene.width // 2) * 4
             return tuple(rgba[base : base + 3])
 
-        scene.camera3d.layer_z_index = 0
         above = center_rgb()
         self.assertGreater(above[0], above[2])  # red 2D square above 3D
 
-        scene.camera3d.layer_z_index = 2
+        from dataclasses import replace
+
+        scene.camera3d.configure(replace(scene.camera3d.state(), layer_z_index=2), duration=0)
         below = center_rgb()
         self.assertGreater(below[2], below[0])  # blue cube above 2D square
 

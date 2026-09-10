@@ -44,7 +44,7 @@ class BoundCameraSugarTests(unittest.TestCase):
         scene.add(obj)
         scene.camera.affine(position=(-0.3, -0.08), scale=1.15, duration=1.3)
         expected = Transform2D.translation(-0.3, -0.08) @ Transform2D.scaling(1.15)
-        self.assertEqual(scene.camera.transform, expected)
+        self.assertEqual(scene._authored_get(scene.camera, "transform"), expected)
         self.assertEqual(scene.evaluate(1.3).objects[0].snapshot.transform, expected)
 
     def test_camera_pose_uses_rigid_interpolation(self):
@@ -62,8 +62,8 @@ class BoundCameraSugarTests(unittest.TestCase):
         scene.camera.affine(position=(0, 0), scale=2, duration=0)
         scene.camera.pan(by=(1, 0), duration=1, easing=Easing.LINEAR)
         # V' = V @ T(-d), so one world unit becomes two view units at zoom 2.
-        self.assertAlmostEqual(scene.camera.transform.tx, -2.0)
-        self.assertAlmostEqual(scene.camera.transform.xx, 2.0)
+        self.assertAlmostEqual(scene._authored_get(scene.camera, "transform").tx, -2.0)
+        self.assertAlmostEqual(scene._authored_get(scene.camera, "transform").xx, 2.0)
 
     def test_camera_rotate_view_preserves_radius_mid_clip(self):
         import math

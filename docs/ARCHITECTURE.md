@@ -34,6 +34,18 @@ Main modules:
 - `web/src/typst.js`: Web Math/Typst compiler boundary.
 - `web/src/svg.js`: SVG → `VectorDocument` lowering.
 
+## State ownership
+
+```text
+raw declaration --layout--> initial state --Scene.add()--> Scene authored head + Timeline
+                                                        |
+                                                        +--> evaluate(t) --> RenderSnapshot / Web draw state
+```
+
+The raw declaration remains the captured initial definition after registration. Python bound handles and Web Scene authoring operations read/write the Scene-owned authored head. Seeking and rendering reconstruct state from `initial + clips`; Web applies sampled state only for the duration of a draw and restores raw objects afterward.
+
+`Camera2D` follows the same timeline model. Python `Camera3D` is constructed with the Scene and uses `camera3d.configure(...)` for temporal state; it cannot be replaced or field-mutated after Scene construction.
+
 ## Typst
 
 ```text
@@ -53,3 +65,8 @@ Callbacks are runtime behavior and therefore require explicit sampling when cros
 ## Repository boundary
 
 The core repository contains runtime code, tests and technical documentation. Tutorials/examples live in a separate repository and are not imported by core tests.
+
+
+## Class-based authoring
+
+Python Scene subclasses may define `setup()` and `construct()`. The CLI runs them in that order. `setup()` prepares raw declarations/resources and one-time initial layout; `construct()` crosses `Scene.add()` and authors the Timeline. Temporally-created objects may still be declared inside `construct()` at the point their lifetime begins. These hooks are a thin frontend only: `Scene.add()` remains the state-ownership boundary and Timeline/evaluation semantics are unchanged.

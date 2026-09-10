@@ -15,10 +15,9 @@ from zanim.cli import _load_scene, main as cli_main
 from zanim.preview import PreviewServer
 from zanim.render.abi import ABI_VERSION, load_library
 from zanim.runtime import ffmpeg_path, require_ffmpeg
-from zanim.source import get_preview_source, preview_source, reload_preview_scene
+from zanim.source import get_preview_source, reload_preview_scene
 
 
-@preview_source
 def _source_scene() -> Scene:
     scene = Scene(canvas=Canvas(80, 48, 12), fps=10)
     obj = scene.add(Circle(1))
@@ -70,6 +69,73 @@ class ProductRuntimeTests(unittest.TestCase):
                 reloaded._timeline._event_actions[id(reloaded._timeline.clips[0])], "move"
             )
 
+    def test_cli_loads_scene_subclass_with_setup_then_construct(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "class_scene.py"
+            source.write_text(
+                "from zanim import Canvas, Circle, Scene\n"
+                "class Demo(Scene):\n"
+                "    def setup(self):\n"
+                "        self.order = ['setup']\n"
+                "        self.canvas = Canvas(80, 48, 12)\n"
+                "        self.marker = Circle(1)\n"
+                "        self.marker.move_to((0.5, 0))\n"
+                "    def construct(self):\n"
+                "        self.order.append('construct')\n"
+                "        marker = self.add(self.marker)\n"
+                "        marker.move(to=(1.5, 0), duration=1)\n",
+                encoding="utf-8",
+            )
+            scene = _load_scene(source)
+            self.assertEqual(scene.order, ["setup", "construct"])
+            self.assertEqual(len(scene.items), 1)
+            self.assertEqual(scene.items[0].transform.tx, 0.5)
+            self.assertAlmostEqual(scene.evaluate(1.0).objects[0].snapshot.transform.tx, 1.5)
+            info = get_preview_source(scene)
+            self.assertIsNotNone(info)
+            assert info is not None
+            marker = scene._require_registered(scene.items[0])
+            self.assertIn("marker", info.object_names[marker.object_id])
+
+            reloaded = reload_preview_scene(scene)
+            self.assertEqual(reloaded.order, ["setup", "construct"])
+            self.assertAlmostEqual(reloaded.evaluate(1.0).objects[0].snapshot.transform.tx, 1.5)
+
+    def test_cli_scene_subclass_can_be_selected_with_scene_option(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "classes.py"
+            source.write_text(
+                "from zanim import Circle, Scene\n"
+                "class First(Scene):\n"
+                "    def construct(self):\n"
+                "        self.add(Circle(0.5))\n"
+                "class Second(Scene):\n"
+                "    def construct(self):\n"
+                "        self.add(Circle(1.0))\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ZanimError, "multiple Scene subclasses"):
+                _load_scene(source)
+            scene = _load_scene(source, "Second")
+            self.assertEqual(len(scene.items), 1)
+            self.assertAlmostEqual(scene.items[0].geometry.radius, 1.0)
+
+    def test_build_scene_function_is_not_a_supported_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "legacy.py"
+            source.write_text(
+                "from zanim import Circle, Scene\n"
+                "def build_scene():\n"
+                "    scene = Scene()\n"
+                "    scene.add(Circle(1))\n"
+                "    return scene\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ZanimError, "Scene subclass"):
+                _load_scene(source)
+
     def test_cli_renders_scene_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -96,10 +162,11 @@ class ProductRuntimeTests(unittest.TestCase):
             source.write_text(
                 "from helper import RADIUS\n"
                 "from zanim import Canvas, Circle, Scene\n"
-                "def build_scene():\n"
-                "    scene = Scene(canvas=Canvas(80, 48, 12))\n"
-                "    scene.add(Circle(RADIUS))\n"
-                "    return scene\n",
+                "class Demo(Scene):\n"
+                "    def setup(self):\n"
+                "        self.canvas = Canvas(80, 48, 12)\n"
+                "    def construct(self):\n"
+                "        self.add(Circle(RADIUS))\n",
                 encoding="utf-8",
             )
             with redirect_stdout(StringIO()):
@@ -119,10 +186,11 @@ class ProductRuntimeTests(unittest.TestCase):
             source.write_text(
                 "from .helper import RADIUS\n"
                 "from zanim import Canvas, Circle, Scene\n"
-                "def build_scene():\n"
-                "    scene = Scene(canvas=Canvas(80, 48, 12))\n"
-                "    scene.add(Circle(RADIUS))\n"
-                "    return scene\n",
+                "class Demo(Scene):\n"
+                "    def setup(self):\n"
+                "        self.canvas = Canvas(80, 48, 12)\n"
+                "    def construct(self):\n"
+                "        self.add(Circle(RADIUS))\n",
                 encoding="utf-8",
             )
             with redirect_stdout(StringIO()):

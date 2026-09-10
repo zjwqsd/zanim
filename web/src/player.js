@@ -1,14 +1,9 @@
-import { CachedBatch2D, assignState } from './core.js';
+import { CachedBatch2D, assignState, cloneState } from './core.js';
 
 export function seekScene(scene, time) {
   const t0 = performance.now();
   scene.time = Math.max(0, Math.min(scene.duration || time, time));
   scene.renderer.time = scene.time;
-  for (const object of scene._trackedObjects.values()) {
-    assignState(object, scene.stateAt(object, scene.time));
-    if (object instanceof CachedBatch2D && scene._batchInitial.has(object.id) && scene.time >= object.birth && scene.time < object.death) object.items = scene.batchAt(object, scene.time);
-  }
-  for (const value of scene.values) value.value = scene.valueAt(value, scene.time);
   scene.render();
   scene.stats.seekMs = performance.now() - t0;
   return scene;
@@ -23,7 +18,38 @@ export function renderScene(scene) {
     scene._renderList = [...scene.objects].sort((a, b) => a.zIndex - b.zIndex);
     scene._renderListDirty = false;
   }
-  for (const object of scene._renderList) if (object.visible && scene.time >= object.birth && scene.time < object.death) object.draw(scene.renderer, scene.camera.transform);
+
+  const savedObjects = [];
+  const savedValues = scene.values.map(value => [value, value.value]);
+  try {
+    for (const object of scene._trackedObjects.values()) {
+      const batch = object instanceof CachedBatch2D ? object.items.map(item => [...item]) : null;
+      savedObjects.push([object, cloneState(object), batch]);
+      assignState(object, scene.stateAt(object, scene.time));
+      if (
+        object instanceof CachedBatch2D
+        && scene._batchInitial.has(object.id)
+        && scene.time >= object.birth
+        && scene.time < object.death
+      ) {
+        object.items = scene.batchAt(object, scene.time);
+      }
+    }
+    for (const value of scene.values) value.value = scene.valueAt(value, scene.time);
+    for (const object of scene._renderList) {
+      if (object.visible && scene.time >= object.birth && scene.time < object.death) {
+        object.draw(scene.renderer, scene.camera.transform);
+      }
+    }
+  } finally {
+    for (let i = savedObjects.length - 1; i >= 0; i--) {
+      const [object, state, batch] = savedObjects[i];
+      assignState(object, state);
+      if (batch) object.items = batch;
+    }
+    for (const [value, raw] of savedValues) value.value = raw;
+  }
+
   scene.stats.renderMs = performance.now() - t0;
   scene.stats.frames++;
 }

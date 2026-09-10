@@ -1,13 +1,15 @@
-"""Zanim's compact authoring API.
+"""Zanim's public authoring API.
 
-The root package contains objects and values used to describe scenes. Scheduler,
-bound-handle, wire-format and render implementation types live in submodules.
+Define class-based scenes with ``Scene.setup()`` for raw declarations and initial
+layout, then ``Scene.construct()`` for Scene ownership and timeline authoring. The
+root package exposes the objects and values used for authoring; scheduler, bound
+handle, wire-format, and render implementation types live in submodules.
 """
 
 from ._version import __version__
 from .audio import Audio
 from .camera import Camera2D
-from .camera3d import Camera3D
+from .camera3d import Camera3D, Camera3DState
 from .constants import (
     BLACK,
     BLUE,
@@ -225,6 +227,7 @@ __all__ = [
     "Video",
     "Audio",
     "Camera3D",
+    "Camera3DState",
     "Vec3",
     "Transform3D",
     "pose3d",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import importlib.util
+import inspect
 import platform
 import sys
 from importlib.metadata import PackageNotFoundError, version
@@ -42,7 +43,19 @@ def _module_context(source: Path) -> tuple[str, Path]:
     return f"_zanim_cli_{source.stem}_{abs(hash(str(source))):x}", source.parent
 
 
-def _load_scene(path: str | Path, builder_name: str | None = None) -> Scene:
+def _scene_subclass(value: object, *, module_name: str | None = None) -> bool:
+    if not inspect.isclass(value) or value is Scene or not issubclass(value, Scene):
+        return False
+    return module_name is None or value.__module__ == module_name
+
+
+def _instantiate_scene_class(scene_class: type[Scene]) -> Scene:
+    scene = scene_class()
+    scene._run_authoring_hooks()
+    return scene
+
+
+def _load_scene(path: str | Path, scene_class_name: str | None = None) -> Scene:
     source = Path(path).expanduser().resolve()
     if not source.is_file():
         raise ZanimError(f"scene file does not exist: {source}")
@@ -63,8 +76,6 @@ def _load_scene(path: str | Path, builder_name: str | None = None) -> Scene:
     previous = sys.modules.get(module_name)
     sys.modules[module_name] = module
     try:
-        # Capture the complete file execution, including a builder call below.
-        # This captures runtime object names for bare scripts without decorators.
         with capture_runtime_source(source) as capture:
             # A file may also be directly runnable with `scene.preview()` at its
             # bottom. Under the CLI that call is a no-op; the CLI owns the server.
@@ -73,51 +84,57 @@ def _load_scene(path: str | Path, builder_name: str | None = None) -> Scene:
 
             selected_scene: Scene | None = None
             scene_name: str | None = None
-            selected_builder: str | None = None
+            selected_class_name: str | None = None
 
-            if builder_name is not None:
-                builder = getattr(module, builder_name, None)
-                if not callable(builder):
-                    raise ZanimError(f"{source.name} does not define callable `{builder_name}()`")
-                selected_scene = builder()
-                selected_builder = builder_name
+            if scene_class_name is not None:
+                candidate = getattr(module, scene_class_name, None)
+                if not _scene_subclass(candidate, module_name=module_name):
+                    raise ZanimError(
+                        f"{source.name} does not define Scene subclass `{scene_class_name}`"
+                    )
+                selected_class_name = scene_class_name
+                selected_scene = _instantiate_scene_class(candidate)
             else:
                 direct = getattr(module, "scene", None)
                 if isinstance(direct, Scene):
                     selected_scene = direct
                     scene_name = "scene"
                 else:
-                    builder = getattr(module, "build_scene", None)
-                    if callable(builder):
-                        selected_scene = builder()
-                        selected_builder = "build_scene"
+                    instances = [
+                        (name, value)
+                        for name, value in vars(module).items()
+                        if isinstance(value, Scene) and not name.startswith("_")
+                    ]
+                    if len(instances) == 1:
+                        scene_name, selected_scene = instances[0]
+                    elif len(instances) > 1:
+                        names = ", ".join(name for name, _ in instances)
+                        raise ZanimError(
+                            f"{source.name} defines multiple Scene globals ({names}); "
+                            "name the intended one `scene`"
+                        )
                     else:
-                        candidates = [
+                        scene_classes = [
                             (name, value)
                             for name, value in vars(module).items()
-                            if isinstance(value, Scene) and not name.startswith("_")
+                            if not name.startswith("_")
+                            and _scene_subclass(value, module_name=module_name)
                         ]
-                        if len(candidates) == 1:
-                            scene_name, selected_scene = candidates[0]
-                        elif len(candidates) > 1:
-                            names = ", ".join(name for name, _ in candidates)
+                        if len(scene_classes) == 1:
+                            selected_class_name, scene_class = scene_classes[0]
+                            selected_scene = _instantiate_scene_class(scene_class)
+                        elif len(scene_classes) > 1:
+                            names = ", ".join(name for name, _ in scene_classes)
                             raise ZanimError(
-                                f"{source.name} defines multiple Scene globals ({names}); "
-                                "name the intended one `scene` or pass --builder"
+                                f"{source.name} defines multiple Scene subclasses ({names}); "
+                                "pass --scene with the intended class name"
                             )
 
         if not isinstance(selected_scene, Scene):
-            if builder_name is not None:
-                raise ZanimError(
-                    f"{builder_name}() must return Scene, got {type(selected_scene).__name__}"
-                )
             raise ZanimError(
-                f"{source.name} must define `scene = Scene(...)`, exactly one Scene global, "
-                "or callable `build_scene()`"
+                f"{source.name} must define `scene = Scene(...)` or exactly one Scene subclass"
             )
 
-        # A decorated builder may already have local object names. Bare scripts use
-        # module globals plus any Scene-builder return locals captured at runtime.
         if get_preview_source(selected_scene) is None:
             attach_runtime_source(
                 selected_scene,
@@ -125,7 +142,7 @@ def _load_scene(path: str | Path, builder_name: str | None = None) -> Scene:
                 vars(module),
                 module_name=module_name,
                 package_name=package_name,
-                builder_name=selected_builder,
+                scene_class_name=selected_class_name,
             )
         attach_preview_reload(
             selected_scene,
@@ -133,7 +150,7 @@ def _load_scene(path: str | Path, builder_name: str | None = None) -> Scene:
             module_name=module_name,
             package_name=package_name,
             scene_name=scene_name,
-            builder_name=selected_builder,
+            scene_class_name=selected_class_name,
         )
         return selected_scene
     except Exception:
@@ -144,13 +161,8 @@ def _load_scene(path: str | Path, builder_name: str | None = None) -> Scene:
         raise
 
 
-# Kept as a private compatibility alias while product code moves to _load_scene.
-def _load_builder(path: str | Path, builder_name: str = "build_scene") -> Scene:
-    return _load_scene(path, builder_name)
-
-
 def _cmd_preview(args) -> int:
-    scene = _load_scene(args.file, args.builder)
+    scene = _load_scene(args.file, args.scene)
     scene.preview(
         host=args.host,
         port=args.port,
@@ -161,7 +173,7 @@ def _cmd_preview(args) -> int:
 
 
 def _cmd_render(args) -> int:
-    scene = _load_scene(args.file, args.builder)
+    scene = _load_scene(args.file, args.scene)
     source = Path(args.file).resolve()
     if args.time is not None and (args.start is not None or args.end is not None):
         raise ZanimError("--time cannot be combined with --start/--end")
@@ -179,7 +191,7 @@ def _cmd_render(args) -> int:
 
 
 def _cmd_export_ir(args) -> int:
-    scene = _load_scene(args.file, args.builder)
+    scene = _load_scene(args.file, args.scene)
     from .ir import write_scene_ir
 
     source = Path(args.file).resolve()
@@ -245,7 +257,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     preview = sub.add_parser("preview", help="open browser-native Scene IR preview")
     preview.add_argument("file", help="Python scene script")
-    preview.add_argument("--builder", help="explicit Scene builder function (optional)")
+    preview.add_argument(
+        "--scene", help="explicit Scene subclass name when the file defines more than one"
+    )
     preview.add_argument("--host", default="127.0.0.1")
     preview.add_argument("--port", type=int, default=8765)
     preview.add_argument("--no-browser", action="store_true")
@@ -259,7 +273,9 @@ def build_parser() -> argparse.ArgumentParser:
     render = sub.add_parser("render", help="render a Scene from a Python file")
     render.add_argument("file", help="Python scene script")
     render.add_argument("-o", "--output")
-    render.add_argument("--builder", help="explicit Scene builder function (optional)")
+    render.add_argument(
+        "--scene", help="explicit Scene subclass name when the file defines more than one"
+    )
     render.add_argument("--time", type=float, help="render one absolute-time image")
     render.add_argument("--start", type=float, help="video interval start time")
     render.add_argument("--end", type=float, help="video interval end time")
@@ -268,7 +284,9 @@ def build_parser() -> argparse.ArgumentParser:
     export_ir = sub.add_parser("export-ir", help="compile a Python Scene to portable Scene IR")
     export_ir.add_argument("file", help="Python scene script")
     export_ir.add_argument("-o", "--output")
-    export_ir.add_argument("--builder", help="explicit Scene builder function (optional)")
+    export_ir.add_argument(
+        "--scene", help="explicit Scene subclass name when the file defines more than one"
+    )
     export_ir.add_argument(
         "--sample-transform-functions",
         action="store_true",

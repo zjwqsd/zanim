@@ -54,11 +54,11 @@ class LayoutTests(unittest.TestCase):
         Row(gap=0.4, at=Vec2(0, 1.5)).place(*items)
         group = Group(items)
         scene = Scene()
-        scene.add(group)
+        bound_group = scene.add(group)
         scene.layout(group, to=Grid(rows=2, cols=2, gap=0.6, at=Vec2()), duration=2)
         self.assertEqual(len(scene._timeline.clips), 4)
         self.assertEqual(scene._timeline.cursor, 2)
-        end_centers = [obj.center for obj in items]
+        end_centers = [obj.center for obj in bound_group.children]
         self.assertEqual(len({(round(p.x, 6), round(p.y, 6)) for p in end_centers}), 4)
         mid = scene.evaluate(1)
         self.assertEqual(len(mid.objects), 4)
