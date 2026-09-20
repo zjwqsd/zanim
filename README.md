@@ -1,5 +1,7 @@
 # Zanim
 
+[Website](https://zjwqsd.github.io/zanim/) · [PyPI](https://pypi.org/project/zanim/) · [npm](https://www.npmjs.com/package/@zanim/web)
+
 Cross-platform animation engine with Python and TypeScript authoring.
 
 - Python video rendering: Python Scene → absolute-time evaluator → Zig/z2d → FFmpeg/libx264.
