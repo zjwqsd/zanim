@@ -25,11 +25,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="hero-stage">
+  <div class="hero-demo">
     <canvas ref="canvas"></canvas>
-    <div class="hero-stage-label">
-      <span class="live-dot"></span>
-      live @zanim/web
-    </div>
+    <div class="hero-demo-badge">Live Zanim</div>
   </div>
 </template>

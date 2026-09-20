@@ -1,5 +1,8 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import Prism from 'prismjs'
+import 'prismjs/components/prism-python.js'
+import 'prismjs/components/prism-javascript.js'
 
 const props = defineProps({ lesson: { type: Object, required: true } })
 
@@ -19,6 +22,10 @@ let raf = 0
 let observer = null
 
 const code = computed(() => activeCode.value === 'python' ? props.lesson.python : props.lesson.js)
+const highlighted = computed(() => {
+  const language = activeCode.value === 'python' ? Prism.languages.python : Prism.languages.javascript
+  return Prism.highlight(code.value, language, activeCode.value)
+})
 const progress = computed(() => duration.value > 0 ? currentTime.value / duration.value : 0)
 
 async function build() {
@@ -100,7 +107,7 @@ onMounted(() => {
       scene.pause()
       playing.value = false
     }
-  }, { rootMargin: '180px 0px', threshold: 0.08 })
+  }, { rootMargin: '160px 0px', threshold: 0.08 })
   observer.observe(root.value)
   tick()
 })
@@ -113,60 +120,65 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <article :id="lesson.id" ref="root" class="lesson">
-    <header class="lesson-copy">
-      <div class="lesson-kicker"><span>{{ lesson.index }}</span>{{ lesson.eyebrow }}</div>
-      <h2>{{ lesson.title }}</h2>
-      <p>{{ lesson.summary }}</p>
-      <ul>
-        <li v-for="point in lesson.points" :key="point">{{ point }}</li>
-      </ul>
-    </header>
-
-    <div class="demo-shell">
-      <div class="stage">
-        <canvas ref="canvas"></canvas>
-        <div v-if="!scene && !error" class="stage-idle">
-          <span v-if="loading" class="spinner"></span>
-          <span>{{ loading ? 'building scene' : 'scroll to run' }}</span>
-        </div>
-        <div v-if="error" class="stage-error">
-          <strong>Scene failed</strong>
-          <pre>{{ error }}</pre>
-        </div>
-        <div v-if="lesson.id === 'frames'" class="frame-labels" aria-hidden="true">
-          <span>LOCAL</span><span>PARENT</span><span>WORLD</span>
-        </div>
+  <article :id="lesson.id" ref="root" class="example">
+    <div class="example-heading">
+      <div class="example-number">{{ lesson.index }}</div>
+      <div>
+        <p class="example-eyebrow">{{ lesson.eyebrow }}</p>
+        <h3>{{ lesson.title }}</h3>
+        <p class="example-summary">{{ lesson.summary }}</p>
+        <ul>
+          <li v-for="point in lesson.points" :key="point">{{ point }}</li>
+        </ul>
       </div>
+    </div>
 
-      <div class="transport">
-        <button class="play-button" :disabled="!scene || !!error" @click="toggle">
-          <span>{{ playing ? 'Ⅱ' : '▶' }}</span>{{ playing ? 'Pause' : 'Play' }}
-        </button>
-        <button class="ghost-button" :disabled="!scene || !!error" @click="restart">↺</button>
-        <input
-          type="range"
-          min="0"
-          :max="Math.max(duration, .001)"
-          step=".001"
-          :value="currentTime"
-          :disabled="!scene || !!error"
-          @input="seek"
-        />
-        <span class="time">{{ currentTime.toFixed(2) }} / {{ duration.toFixed(2) }}s</span>
-      </div>
-      <div class="transport-progress"><i :style="{ width: `${progress * 100}%` }"></i></div>
-
-      <div class="code-panel">
+    <div class="example-grid">
+      <section class="code-card">
         <div class="code-toolbar">
           <div class="code-tabs">
             <button :class="{ active: activeCode === 'python' }" @click="activeCode = 'python'">Python</button>
             <button :class="{ active: activeCode === 'js' }" @click="activeCode = 'js'">JavaScript</button>
           </div>
-          <button class="copy-button" @click="copyCode">{{ copied ? 'Copied' : 'Copy' }}</button>
+          <button class="copy-button" @click="copyCode">{{ copied ? 'Copied!' : 'Copy' }}</button>
         </div>
-        <pre><code>{{ code }}</code></pre>
-      </div>
+        <pre><code :class="'language-' + activeCode" v-html="highlighted"></code></pre>
+      </section>
+
+      <section class="preview-card">
+        <div class="stage">
+          <canvas ref="canvas"></canvas>
+          <div v-if="!scene && !error" class="stage-placeholder">
+            <span v-if="loading" class="spinner"></span>
+            <span>{{ loading ? 'Loading example…' : 'Scroll here to run' }}</span>
+          </div>
+          <div v-if="error" class="stage-error">
+            <strong>Scene failed</strong>
+            <pre>{{ error }}</pre>
+          </div>
+          <div v-if="lesson.id === 'frames'" class="frame-labels" aria-hidden="true">
+            <span>LOCAL</span><span>PARENT</span><span>WORLD</span>
+          </div>
+        </div>
+
+        <div class="transport">
+          <button class="transport-primary" :disabled="!scene || !!error" @click="toggle">
+            {{ playing ? 'Pause' : 'Play' }}
+          </button>
+          <button class="transport-secondary" :disabled="!scene || !!error" @click="restart">Restart</button>
+          <input
+            type="range"
+            min="0"
+            :max="Math.max(duration, .001)"
+            step=".001"
+            :value="currentTime"
+            :disabled="!scene || !!error"
+            @input="seek"
+          />
+          <span>{{ currentTime.toFixed(2) }} / {{ duration.toFixed(2) }} s</span>
+        </div>
+        <div class="transport-progress"><i :style="{ width: `${progress * 100}%` }"></i></div>
+      </section>
     </div>
   </article>
 </template>
