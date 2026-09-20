@@ -26,6 +26,7 @@ export {
   DynamicPolyline,
   DynamicRectSet,
   DynamicTextSet,
+  DynamicVectorObject2D,
   Easing,
   FourierEpicycles,
   FractalField,
@@ -82,6 +83,7 @@ export {
   ZObject,
   ZanimWasm,
   affine2d,
+  prepareVectorMorph,
   resamplePolylineByArcLength,
   sampleValue,
 } from './core.js';
@@ -89,6 +91,7 @@ export { Column } from './core.js';
 export { Scene } from './scene.js';
 
 export { Audio, GIF, Image, MediaObject2D, Video } from './media.js';
+export { SceneRasterObject2D } from './compositing.js';
 export { Math, Typst, configureTypstCompiler } from './typst.js';
 
 export { Box3D, Camera3D, Cube3D, MeshObject3D, Scene3DLayer, Transform3D, TriangleMesh, Vec3, unitBoxMesh } from './three.js';

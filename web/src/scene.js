@@ -485,25 +485,31 @@ export class Scene {
 
   rotate(object, by, { frame = PARENT, about = null, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
     const span = this._span(duration, at);
-    const current = this.authoredState(object).transform, R = Transform2D.rotation(by);
-    let target;
+    const current = this.authoredState(object).transform;
+    const angle = Number(by);
+    if (!Number.isFinite(angle)) throw new RangeError('rotation angle must be finite');
+    let provider;
     if (about) {
       const q = Vec2.from(about), parent = this._parentWorldAt(object, span.start);
       if (object._parent) this._assertWorldParentStatic(object, span.start, span.end);
       this._assertNoDescendantWorldDependency(object, span.start, span.end);
-      const op = Transform2D.translation(q.x, q.y).mul(R).mul(Transform2D.translation(-q.x, -q.y));
-      target = parent.inverse().mul(op).mul(parent).mul(current);
+      const inverse = parent.inverse();
+      provider = alpha => inverse.mul(Transform2D.translation(q.x, q.y))
+        .mul(Transform2D.rotation(angle * alpha)).mul(Transform2D.translation(-q.x, -q.y))
+        .mul(parent).mul(current);
       if (object._parent) this._recordWorldSpan(object, span.start, span.end);
-    } else if (frame === LOCAL) target = current.mul(R);
-    else if (frame === PARENT) target = R.mul(current);
+    } else if (frame === LOCAL) provider = alpha => current.mul(Transform2D.rotation(angle * alpha));
+    else if (frame === PARENT) provider = alpha => Transform2D.rotation(angle * alpha).mul(current);
     else if (frame === WORLD) {
       const parent = this._parentWorldAt(object, span.start);
       if (object._parent) this._assertWorldParentStatic(object, span.start, span.end);
       this._assertNoDescendantWorldDependency(object, span.start, span.end);
-      target = parent.inverse().mul(R).mul(parent).mul(current);
+      const inverse = parent.inverse();
+      provider = alpha => inverse.mul(Transform2D.rotation(angle * alpha)).mul(parent).mul(current);
       if (object._parent) this._recordWorldSpan(object, span.start, span.end);
     } else throw new Error(`unknown frame ${frame}`);
-    return this.animate(object, { transform: target, duration, easing, at });
+    // Angle interpolation preserves length, pivot arcs and full revolutions.
+    return this.transformFunction(object, provider, { duration, easing, at });
   }
 
   scale(object, by, { frame = PARENT, about = null, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {

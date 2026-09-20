@@ -253,6 +253,7 @@ def _cmd_info(_args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="zanim", description="Zanim animation tools")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {_package_version()}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     preview = sub.add_parser("preview", help="open browser-native Scene IR preview")

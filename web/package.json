@@ -1,6 +1,6 @@
 {
   "name": "@zanim/web",
-  "version": "0.0.2",
+  "version": "0.1.0-beta.1",
   "type": "module",
   "sideEffects": false,
   "main": "./src/zanim.js",
@@ -25,20 +25,52 @@
     "dist",
     "vite.js",
     "vite.d.ts",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "./build.sh",
-    "test": "node ./test.mjs && node ./vite.test.mjs"
+    "test": "node ./test.mjs && node ./rotation.test.mjs && node ./primitive-draw.test.mjs && node ./vite.test.mjs"
   },
   "dependencies": {
-    "@babel/parser": "^7.28.4",
+    "@babel/parser": "^7.29.9",
     "magic-string": "^0.30.17"
   },
   "peerDependencies": {
     "vite": ">=5"
   },
   "devDependencies": {
-    "vite": "^5.4.10"
+    "vite": "^6.4.3"
+  },
+  "description": "Random-access browser animation runtime and TypeScript authoring API for Zanim",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zjwqsd/zanim.git",
+    "directory": "web"
+  },
+  "homepage": "https://github.com/zjwqsd/zanim#readme",
+  "bugs": {
+    "url": "https://github.com/zjwqsd/zanim/issues"
+  },
+  "keywords": [
+    "animation",
+    "graphics",
+    "canvas",
+    "wasm",
+    "typst",
+    "visualization"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
   }
 }

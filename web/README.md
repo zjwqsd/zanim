@@ -2,6 +2,16 @@
 
 Browser runtime and TypeScript authoring API for Zanim.
 
+> **Release status:** `0.1.0-beta.1` is a pre-1.0 public beta. Random-access scene semantics are stable enough for real projects, but API names may still evolve in 0.x releases.
+
+## Install
+
+```bash
+npm install @zanim/web@0.1.0-beta.1
+```
+
+For build-time `Math` / `Typst` authoring, also install Vite 5+ and enable `@zanim/web/vite`. Vite is an optional peer dependency; runtime-only consumers do not need it.
+
 ## Runtime
 
 - `src/core.js`: retained 2D objects, Canvas2D rendering and WASM bridge.
@@ -55,6 +65,14 @@ The npm runtime contains no Typst compiler/WASM and makes no font/CDN requests. 
 Formula source, `fontSize` and `color` are intentionally build-time static. Use `DynamicNumber` / `FormulaTemplate` for runtime-changing values. A dynamic formula source is a build error rather than a reason to ship a browser compiler.
 
 `configureTypstCompiler(...)` remains available for explicit development integrations. Python Preview uses it to point Web Preview at Python's `/api/typst`; production apps normally use the Vite-precompiled SVG path.
+
+## Dynamic vector morphs
+
+`prepareVectorMorph(source, target)` builds stable glyph/path correspondence between two `VectorDocument`s. `DynamicVectorObject2D` can then sample that plan from absolute time, so Typst text and other vector artwork can morph while remaining random-access rather than accumulating updater state. Matched groups interpolate cubic geometry directly; inserted/removed groups grow or shrink locally with opacity.
+
+## Multi-scene embedding
+
+`ZanimWasm.load(url)` is promise-cached per resolved URL. Pages that mount many independent `Scene` instances (for example a slide deck with several embedded Zanim views) therefore share one WebAssembly engine instead of refetching and reinstantiating the runtime for every canvas. Failed loads are evicted so a later mount can retry.
 
 ## Build
 

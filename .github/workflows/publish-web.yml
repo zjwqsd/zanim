@@ -1,0 +1,57 @@
+name: Publish Web
+
+on:
+  push:
+    tags:
+      - "web-v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - uses: typst-community/setup-typst@v4
+
+      - name: Install and test
+        working-directory: web
+        run: |
+          npm ci
+          ./build.sh
+          npm test
+
+      - name: Verify tag matches package version
+        working-directory: web
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#web-v}"
+          package_version="$(node -p "require('./package.json').version")"
+          test "$tag_version" = "$package_version"
+          npm pack --dry-run
+          if [[ "$package_version" == *-* ]]; then
+            echo "NPM_DIST_TAG=beta" >> "$GITHUB_ENV"
+          else
+            echo "NPM_DIST_TAG=latest" >> "$GITHUB_ENV"
+          fi
+
+      - name: Publish npm package
+        working-directory: web
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance --tag "$NPM_DIST_TAG"

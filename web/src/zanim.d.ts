@@ -12,7 +12,7 @@ export const ORIGIN:Point2; export const RIGHT:Point2; export const LEFT:Point2;
 export const WHITE:string; export const MUTED:string; export const BLUE:string; export const GREEN:string;
 export const RED:string; export const ORANGE:string; export const YELLOW:string; export const CYAN:string;
 export const PINK:string; export const PURPLE:string; export const GRAY:string; export const BLACK:string;
-export const Easing:Readonly<{LINEAR:EasingFunction;SMOOTHSTEP:EasingFunction;EASE_IN_OUT:EasingFunction}>;
+export const Easing:Readonly<{LINEAR:EasingFunction;SMOOTHSTEP:EasingFunction;SMOOTH:EasingFunction;EASE_IN_OUT:EasingFunction}>;
 export const DEFAULT_WASM_URL:URL;
 
 export class Vec2 {
@@ -111,7 +111,10 @@ export class Dot extends Circle { constructor(point?:Point2,options?:ObjectOptio
 export class Arrow extends Line {}
 export class Text extends ZObject { text:string|((time:number,object:Text)=>string); fontSize:number; color:string; fontFamily:string; constructor(text:string|((time:number,object:Text)=>string),options?:ObjectOptions&{fontSize?:number;color?:string;fontFamily?:string;align?:CanvasTextAlign;weight?:number}); }
 export interface VectorDocumentData { width:number; height:number; group_count:number; paths:Array<{group:number;fill:string|null;stroke:{color:string;width:number}|null;contours:Array<{closed:boolean;segments:Array<[Point2,Point2,Point2,Point2]>}>}> }
-export class VectorObject2D extends ZObject { document:VectorDocumentData; reveal:ScalarLike; constructor(document:VectorDocumentData,options?:ObjectOptions&{reveal?:ScalarLike}); invalidate():this; }
+export class VectorObject2D extends ZObject { document:VectorDocumentData; reveal:ScalarLike; tint:string|null; constructor(document:VectorDocumentData,options?:ObjectOptions&{reveal?:ScalarLike;tint?:string|null}); invalidate():this; }
+export interface VectorMorphPlan { source:VectorDocumentData; target:VectorDocumentData; matched:readonly (readonly [number,number])[]; sourceOnly:readonly number[]; targetOnly:readonly number[]; sample(alpha:number):VectorDocumentData; }
+export function prepareVectorMorph(source:VectorDocumentData,target:VectorDocumentData):VectorMorphPlan;
+export class DynamicVectorObject2D extends VectorObject2D { provider:(time:number,object:DynamicVectorObject2D|null)=>VectorDocumentData; constructor(provider:(time:number,object:DynamicVectorObject2D|null)=>VectorDocumentData,options?:ObjectOptions&{reveal?:ScalarLike;tint?:string|null}); }
 export class Group extends ZObject { readonly children:ZObject[]; constructor(children?:ZObject[],options?:ObjectOptions); add(...items:ZObject[]):this; }
 
 export class InfiniteLine extends ZObject { constructor(point?:Point2,direction?:Point2,options?:ObjectOptions&{stroke?:string;width?:number;strokeWidth?:number}); }
@@ -175,6 +178,11 @@ export class CanvasRenderer {
 
 export class Audio extends ZObject { url:string; duration:number|null; gain:number; readonly ready:Promise<this>; constructor(url:string|URL,options?:ObjectOptions&{gain?:number;duration?:number|null;crossOrigin?:string|null;preload?:string}); media(options?:MediaPlaybackOptions):this; destroy():void; }
 export class MediaObject2D extends ZObject { url:string; width:number; height:number; sourceWidth:number; sourceHeight:number; duration:number|null; readonly ready:Promise<this>; media(options?:MediaPlaybackOptions):this; }
+export class SceneRasterObject2D extends ZObject {
+  scene:Scene; width:number; height:number; sourceTime:ScalarLike; ownsScene:boolean;
+  constructor(scene:Scene,options?:ObjectOptions&{width?:number|null;height?:number|null;sourceTime?:ScalarLike;ownsScene?:boolean});
+  sample(time:number):this; destroy():void;
+}
 export class Image extends MediaObject2D { constructor(url:string|URL,options?:ObjectOptions&{width?:number|null;height?:number|null;sourceWidth?:number;sourceHeight?:number;crossOrigin?:string|null}); }
 export class GIF extends MediaObject2D { constructor(url:string|URL,options?:ObjectOptions&{width?:number|null;height?:number|null;sourceWidth?:number;sourceHeight?:number;duration?:number|null;crossOrigin?:string|null}); }
 export class Video extends MediaObject2D { constructor(url:string|URL,options?:ObjectOptions&{width?:number|null;height?:number|null;sourceWidth?:number;sourceHeight?:number;duration?:number|null;crossOrigin?:string|null;muted?:boolean;playsInline?:boolean;preload?:string}); destroy():void; }
@@ -182,8 +190,8 @@ export interface MediaPlaybackOptions { duration?:number|null; sourceStart?:numb
 export type TypstCompilerResult = VectorDocumentData | {document:VectorDocumentData} | string | {svg:string};
 export type TypstCompiler = (payload:{kind:'typst'|'math';source:string;font_size?:number;color?:string},context:{object:Typst})=>Promise<TypstCompilerResult>;
 export function configureTypstCompiler(compiler:TypstCompiler|null):void;
-export class Typst extends VectorObject2D { source:string; compiler:TypstCompiler|null; readonly ready:Promise<this>; constructor(source:string,options?:ObjectOptions&{reveal?:number;compiler?:TypstCompiler|null}); compile(source?:string):Promise<this>; }
-export class Math extends Typst { fontSize:number; color:string; constructor(source:string,options?:ObjectOptions&{reveal?:number;compiler?:TypstCompiler|null;fontSize?:number;color?:string}); }
+export class Typst extends VectorObject2D { source:string; compiler:TypstCompiler|null; readonly ready:Promise<this>; constructor(source:string,options?:ObjectOptions&{reveal?:number;tint?:string|null;compiler?:TypstCompiler|null}); compile(source?:string):Promise<this>; }
+export class Math extends Typst { fontSize:number; color:string; constructor(source:string,options?:ObjectOptions&{reveal?:number;tint?:string|null;compiler?:TypstCompiler|null;fontSize?:number;color?:string}); }
 
 export interface AnimationOptions extends TimeOptions { transform?:Transform2D; opacity?:number; reveal?:number; style?:StyleState }
 export interface ParallelAPI {

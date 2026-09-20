@@ -5,11 +5,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { mkdtempSync, rmSync } from 'node:fs';
 
 const VIRTUAL_PREFIX='\0zanim:typst-svg:';
 const PUBLIC_PREFIX='virtual:zanim-typst-svg:';
 const DEFAULT_MATH_COLOR='#eef2fa';
+const PACKAGE_ROOT=dirname(fileURLToPath(import.meta.url));
 
 function walk(node,visit){if(!node||typeof node!=='object')return;if(typeof node.type==='string')visit(node);for(const value of Object.values(node)){if(Array.isArray(value)){for(const child of value)if(child&&typeof child==='object'&&typeof child.type==='string')walk(child,visit);}else if(value&&typeof value==='object'&&typeof value.type==='string')walk(value,visit);}}
 function staticValue(node,constants){if(!node)return undefined;if(node.type==='StringLiteral'||node.type==='NumericLiteral'||node.type==='BooleanLiteral')return node.value;if(node.type==='TemplateLiteral'&&node.expressions.length===0)return node.quasis.map(q=>q.value.cooked??q.value.raw).join('');if(node.type==='Identifier'&&constants.has(node.name))return constants.get(node.name);if(node.type==='UnaryExpression'&&(node.operator==='+'||node.operator==='-')){const v=staticValue(node.argument,constants);if(typeof v==='number')return node.operator==='-'?-v:v;}return undefined;}
@@ -65,6 +68,10 @@ export function zanim(options={}){
   }
   return{
     name:'zanim-typst',enforce:'pre',
+    // Keep @zanim/web as a source module in dev. Its default WASM URL is
+    // intentionally relative to import.meta.url; Vite dependency pre-bundling
+    // would relocate the JS into node_modules/.vite and break that asset URL.
+    config(){return{optimizeDeps:{exclude:['@zanim/web']},server:{fs:{allow:[process.cwd(),PACKAGE_ROOT]}}};},
     configResolved(resolved){config=resolved;cacheDir=resolve(options.cacheDir??join(config.root,'node_modules','.cache','zanim','typst'));},
     resolveId(id){if(id.startsWith(PUBLIC_PREFIX))return VIRTUAL_PREFIX+id.slice(PUBLIC_PREFIX.length);return null;},
     load(id){if(!id.startsWith(VIRTUAL_PREFIX))return null;const digest=id.slice(VIRTUAL_PREFIX.length),record=compiled.get(digest);if(!record)throw new Error(`[zanim] missing compiled Typst asset ${digest}`);if(config.command==='serve')return `export default ${JSON.stringify(record.svg)};`;const ref=this.emitFile({type:'asset',name:`zanim-typst-${digest.slice(0,12)}.svg`,source:record.svg});return `export default import.meta.ROLLUP_FILE_URL_${ref};`;},

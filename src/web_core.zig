@@ -22,7 +22,7 @@ const web3d_max_height = 720;
 const web3d_max_pixels = web3d_max_width * web3d_max_height;
 const web3d_max_vertices = 65_536;
 const web3d_max_indices = 262_144;
-const web3d_max_meshes = 64;
+const web3d_max_meshes = 256;
 
 var web3d_positions: [web3d_max_vertices * 3]f32 = undefined;
 var web3d_normals: [web3d_max_vertices * 3]f32 = undefined;

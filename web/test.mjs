@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import {
-  Circle, Cube3D, DynamicPolyline, FourierEpicycles, FunctionPlot, LineSet,
+  Circle, Cube3D, DynamicLineSet, DynamicPolyline, DynamicVectorObject2D, FourierEpicycles, FunctionPlot, LineSet,
   Math as TypstMath, Mat2, PARENT, Polyline, ScalarValue, Scene, Square, TIME, Transform2D,
-  Transform3D, Vec3, ZObject, ZanimWasm, resamplePolylineByArcLength,
+  Transform3D, Vec3, ZObject, ZanimWasm, prepareVectorMorph, resamplePolylineByArcLength,
 } from './src/zanim.js';
 import { parseSceneIR, sceneFromIR, sceneToIR, stringifySceneIR } from './src/ir.js';
 
@@ -50,9 +50,47 @@ const media=new ZObject();media._mediaKind='video';media.duration=2;mediaScene.a
 mediaScene.media(media,{duration:4,sourceStart:.25,speed:1.5,loop:true,sourceDuration:2});
 assert.ok(Math.abs(mediaScene.mediaTimeAt(media,1)-1.75)<1e-12);
 
+// Bitmap media must compensate the world-space Y-up transform explicitly.
+// Negative drawImage destination heights do not mirror image pixels.
+const {MediaObject2D}=await import('./src/media.js');
+const mediaCalls=[];
+const mediaCtx={
+  globalAlpha:1, save(){}, restore(){},
+  setTransform(...args){mediaCalls.push(['setTransform',...args]);},
+  scale(...args){mediaCalls.push(['scale',...args]);},
+  drawImage(...args){mediaCalls.push(['drawImage',...args]);},
+};
+const mediaRenderer={canvas:{width:640,height:360},ctx:mediaCtx,unitSize:80};
+const bitmap=new MediaObject2D('test.png',{width:2,height:1});
+const element={tag:'bitmap'};
+bitmap._drawElement(mediaRenderer,Transform2D.identity(),element);
+assert.deepEqual(mediaCalls.find(call=>call[0]==='scale'),['scale',1,-1]);
+assert.deepEqual(mediaCalls.find(call=>call[0]==='drawImage'),['drawImage',element,-1,-.5,2,1]);
+
+// A child Scene remains a live full-resolution surface when embedded.
+const {SceneRasterObject2D}=await import('./src/compositing.js');
+const childCanvas={width:1600,height:900};
+const sampledTimes=[];
+const childScene={renderer:{canvas:childCanvas},duration:2,stats:{frames:1},seek(time){sampledTimes.push(time);this.time=time;return this;},destroy(){this.destroyed=true;}};
+const nested=new SceneRasterObject2D(childScene,{width:8,sourceTime:1.25});
+const nestedCalls=[];
+const nestedCtx={globalAlpha:1,save(){},restore(){},setTransform(){},scale(...args){nestedCalls.push(['scale',...args]);},drawImage(...args){nestedCalls.push(['drawImage',...args]);}};
+const nestedRenderer={canvas:{width:640,height:360},ctx:nestedCtx,unitSize:40,dpr:1,time:.5};
+nested.draw(nestedRenderer,Transform2D.identity());
+assert.deepEqual(sampledTimes,[1.25]);
+assert.equal(nested.height,4.5);
+assert.deepEqual(nestedCalls.find(call=>call[0]==='scale'),['scale',1,-1]);
+assert.deepEqual(nestedCalls.find(call=>call[0]==='drawImage'),['drawImage',childCanvas,-4,-2.25,8,4.5]);
+
+const morphDocA={width:1,height:1,group_count:1,paths:[{group:0,fill:'#ffffff',stroke:null,contours:[{closed:true,segments:[[[0,0],[0,0],[1,0],[1,0]],[[1,0],[1,0],[1,1],[1,1]],[[1,1],[1,1],[0,1],[0,1]],[[0,1],[0,1],[0,0],[0,0]]]}]}]};
+const morphDocB={width:2,height:1,group_count:2,paths:[{group:0,fill:'#58b9f2',stroke:null,contours:[{closed:true,segments:[[[1,0],[1,0],[2,0],[2,0]],[[2,0],[2,0],[2,1],[2,1]],[[2,1],[2,1],[1,1],[1,1]],[[1,1],[1,1],[1,0],[1,0]]]}]},{group:1,fill:'#ffd166',stroke:null,contours:[{closed:true,segments:[[[3,0],[3,0],[4,0],[4,0]],[[4,0],[4,0],[4,1],[4,1]],[[4,1],[4,1],[3,1],[3,1]],[[3,1],[3,1],[3,0],[3,0]]]}]}]};
+const morphPlan=prepareVectorMorph(morphDocA,morphDocB),morphMid=morphPlan.sample(.5);
+assert.equal(morphPlan.matched.length,1);assert.equal(morphPlan.targetOnly.length,1);assert.equal(morphMid.group_count,2);assert.ok(Math.abs(morphMid.width-1.5)<1e-12);
+const dynamicVector=new DynamicVectorObject2D(time=>morphPlan.sample(time));assert.equal(dynamicVector.document,morphDocA);
+
 const fakeVector={width:1,height:.5,group_count:0,paths:[]};
-const webMath=new TypstMath('x^2',{compiler:async()=>fakeVector});
-await webMath.ready;assert.equal(webMath.document.width,1);
+const webMath=new TypstMath('x^2',{compiler:async()=>fakeVector,tint:'#123456'});
+await webMath.ready;assert.equal(webMath.document.width,1);assert.equal(webMath.tint,'#123456');
 const webMathScene=Scene.headless();webMathScene.add(webMath);
 assert.throws(()=>sceneToIR(webMathScene),/runtime code|portable/);
 
@@ -81,10 +119,26 @@ assert.throws(()=>sceneToIR(callback),/sampleTransformFunctions/);
 assert.equal(sceneToIR(callback,{sampleTransformFunctions:true}).clips.find(c=>c.kind==='sampled_transform').samples.length,61);
 
 const fakeCtx={save(){},restore(){},setTransform(){},stroke(){},fill(){},beginPath(){},moveTo(){},lineTo(){},rect(){},arc(){},ellipse(){},translate(){},transform(){},fillText(){},setLineDash(){},globalAlpha:1};
-globalThis.Path2D??=class{moveTo(){}lineTo(){}rect(){}arc(){}closePath(){}bezierCurveTo(){}};
+let pathBuildCount=0;
+globalThis.Path2D??=class{constructor(){pathBuildCount++;}moveTo(){}lineTo(){}rect(){}arc(){}closePath(){}bezierCurveTo(){}};
 const fakeRenderer={canvas:{width:640,height:360},ctx:fakeCtx,baseUnitSize:80,unitSize:80,dpr:1,resize(){},clear(){},time:0,toDevice(x,y){return[x,y]}};
 const roundtrip=sceneFromIR(parsed,fakeRenderer),roundtripSquare=roundtrip.objects.find(o=>o instanceof Square);
 assert.ok(Math.abs(roundtrip.stateAt(roundtripSquare,1.5).transform.tx-.5)<1e-12);
+const retainedBatchScene=new Scene(fakeRenderer);
+const retainedLines=retainedBatchScene.add(new LineSet([[0,0,1,0,'#60a6ff',1]]));
+retainedBatchScene.render();
+const retainedBuilds=pathBuildCount;
+retainedBatchScene.render();
+assert.equal(pathBuildCount,retainedBuilds,'retained LineSet cache should survive repeated renders');
+
+const stableDynamicItems=[[0,0,1,0,'#60a6ff',1]];
+const stableDynamicScene=new Scene(fakeRenderer);
+const stableDynamic=stableDynamicScene.add(new DynamicLineSet(()=>stableDynamicItems));
+stableDynamicScene.render();
+const dynamicBuilds=pathBuildCount;
+stableDynamicScene.render();
+assert.equal(pathBuildCount,dynamicBuilds,'DynamicLineSet should reuse cache when provider returns the same array');
+
 const renderOwnership=new Scene(fakeRenderer);
 const renderOwned=renderOwnership.add(new Square(1));
 const renderRaw=renderOwned.transform;

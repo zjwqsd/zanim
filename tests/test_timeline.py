@@ -23,6 +23,9 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual(Easing.LINEAR.apply(-1), 0)
         self.assertEqual(Easing.LINEAR.apply(2), 1)
         self.assertAlmostEqual(Easing.SMOOTHSTEP.apply(0.5), 0.5)
+        self.assertAlmostEqual(Easing.SMOOTH.apply(0.5), 0.5)
+        self.assertAlmostEqual(Easing.SMOOTH.apply(0.0), 0.0)
+        self.assertAlmostEqual(Easing.SMOOTH.apply(1.0), 1.0)
 
 
 class SceneTimelineTests(unittest.TestCase):

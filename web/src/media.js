@@ -64,9 +64,11 @@ export class MediaObject2D extends ZObject {
     ctx.save();
     ctx.globalAlpha *= Math.max(0, Math.min(1, this.opacity));
     setWorldCanvasTransform(renderer, ctx, m);
-    // Canvas world coordinates point upward; flip the bitmap once so source
-    // scanlines retain their normal top-to-bottom orientation.
-    ctx.drawImage(element, -this.width / 2, this.height / 2, this.width, -this.height);
+    // Zanim world coordinates point upward while bitmap scanlines point down.
+    // Canvas drawImage() does not mirror pixels just because the destination
+    // height is negative, so compensate explicitly in local image space.
+    ctx.scale(1, -1);
+    ctx.drawImage(element, -this.width / 2, -this.height / 2, this.width, this.height);
     ctx.restore();
   }
 }

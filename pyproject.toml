@@ -1,11 +1,29 @@
 [project]
 name = "zanim"
-version = "0.7.0"
-description = "A Manim-style animation engine with a Python frontend and Zig core"
+version = "0.7.0rc1"
+description = "A random-access animation engine with a Python frontend, Zig renderer, and Web runtime"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Zanim contributors" }]
+keywords = ["animation", "graphics", "visualization", "manim", "typst", "wasm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics",
+]
 requires-python = ">=3.12"
 dependencies = [
     "pillow>=10.3.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/zjwqsd/zanim"
+Repository = "https://github.com/zjwqsd/zanim"
+Issues = "https://github.com/zjwqsd/zanim/issues"
 
 [project.scripts]
 zanim = "zanim.cli:main"

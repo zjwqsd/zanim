@@ -38,8 +38,8 @@ function styleIRFromObject(o){
   return {fill:colorArray(fill),stroke:stroke==null?null:{color:colorArray(stroke),width:Number(width??.035)}};
 }
 function styleWeb(value){const width=value?.stroke?.width??null;return {fill:colorCSS(value?.fill??null),stroke:value?.stroke?colorCSS(value.stroke.color):null,strokeWidth:width,width,worldStroke:true};}
-function easingName(fn){if(fn===Easing.LINEAR)return 'linear';if(fn===Easing.SMOOTHSTEP)return 'smoothstep';throw new SceneIRUnsupported('custom easing functions are not portable in Scene IR v1');}
-function easingFn(name){if(name==='linear')return Easing.LINEAR;if(name==='smoothstep')return Easing.SMOOTHSTEP;throw new SceneIRUnsupported(`unsupported IR easing: ${name}`);}
+function easingName(fn){if(fn===Easing.LINEAR)return 'linear';if(fn===Easing.SMOOTHSTEP)return 'smoothstep';if(fn===Easing.SMOOTH)return 'smooth';throw new SceneIRUnsupported('custom easing functions are not portable in Scene IR v1');}
+function easingFn(name){if(name==='linear')return Easing.LINEAR;if(name==='smoothstep')return Easing.SMOOTHSTEP;if(name==='smooth')return Easing.SMOOTH;throw new SceneIRUnsupported(`unsupported IR easing: ${name}`);}
 function se2Transform(value){const theta=Number(value.theta),[x,y]=value.translation,c=Math.cos(theta),s=Math.sin(theta);return new Transform2D(c,-s,s,c,Number(x),Number(y));}
 function interpolateSE2(a,b,t){const d=((Number(b.theta)-Number(a.theta)+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI,theta=Number(a.theta)+d*t,x=Number(a.translation[0])+(Number(b.translation[0])-Number(a.translation[0]))*t,y=Number(a.translation[1])+(Number(b.translation[1])-Number(a.translation[1]))*t,c=Math.cos(theta),s=Math.sin(theta);return new Transform2D(c,-s,s,c,x,y);}
 

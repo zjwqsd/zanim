@@ -5,9 +5,15 @@ export const TAU = Math.PI * 2;
 export const DEGREES = Math.PI / 180;
 export const LOCAL='local', PARENT='parent', WORLD='world';
 
+const logisticSmoothError = 1 / (1 + Math.exp(5));
 export const Easing = Object.freeze({
   LINEAR: t => t,
   SMOOTHSTEP: t => t * t * (3 - 2 * t),
+  SMOOTH: t => {
+    const u = Math.max(0, Math.min(1, t));
+    const value = 1 / (1 + Math.exp(-10 * (u - .5)));
+    return Math.max(0, Math.min(1, (value - logisticSmoothError) / (1 - 2 * logisticSmoothError)));
+  },
   EASE_IN_OUT: t => t < .5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2)/2,
 });
 
@@ -123,15 +129,23 @@ export const Colors = Object.freeze({
 export const {WHITE,MUTED,BLUE,GREEN,RED,ORANGE,YELLOW,CYAN,PINK,PURPLE,GRAY,BLACK}=Colors;
 export const ORIGIN=Object.freeze([0,0]), RIGHT=Object.freeze([1,0]), LEFT=Object.freeze([-1,0]), UP=Object.freeze([0,1]), DOWN=Object.freeze([0,-1]);
 
-export const DEFAULT_WASM_URL = new URL('../dist/zanim_web_core.wasm', import.meta.url);
+export const DEFAULT_WASM_URL = globalThis.__ZANIM_WASM_URL__ ?? new URL('../dist/zanim_web_core.wasm', import.meta.url);
 
+const sharedWasmLoads=globalThis.__ZANIM_WASM_CACHE__??=(new Map());
 export class ZanimWasm {
   constructor(instance) { this.instance=instance; this.exports=instance.exports; if(this.exports.zanim_web_abi_version()!==1) throw new Error('Zanim Web ABI mismatch'); }
   static async load(url) {
-    const response=await fetch(url); let result;
-    if(WebAssembly.instantiateStreaming){try{result=await WebAssembly.instantiateStreaming(response.clone(),{});}catch{result=await WebAssembly.instantiate(await response.arrayBuffer(),{});}}
-    else result=await WebAssembly.instantiate(await response.arrayBuffer(),{});
-    return new ZanimWasm(result.instance);
+    const key=String(url);
+    const cached=sharedWasmLoads.get(key);
+    if(cached)return cached;
+    const pending=(async()=>{
+      const response=await fetch(url); let result;
+      if(WebAssembly.instantiateStreaming){try{result=await WebAssembly.instantiateStreaming(response.clone(),{});}catch{result=await WebAssembly.instantiate(await response.arrayBuffer(),{});}}
+      else result=await WebAssembly.instantiate(await response.arrayBuffer(),{});
+      return new ZanimWasm(result.instance);
+    })();
+    sharedWasmLoads.set(key,pending);
+    try{return await pending;}catch(error){sharedWasmLoads.delete(key);throw error;}
   }
   determinant(m){return this.exports.zanim_web_matrix_det(m.xx,m.xy,m.yx,m.yy);}
   resolveGrid(width,height,unitSize,step,m){const count=this.exports.zanim_web_resolve_grid(width,height,unitSize,step,m.xx,m.xy,m.yx,m.yy);const ptr=this.exports.zanim_web_grid_data_ptr();return new Float64Array(this.exports.memory.buffer,ptr,count*4);}
@@ -230,6 +244,7 @@ function applyPoint(m,p){return m.apply(p[0],p[1]);}
 
 function clamp01(value){return Math.max(0,Math.min(1,value));}
 export function lerpNumber(a,b,t){return a+(b-a)*t;}
+function lerpPoint(a,b,t){return [lerpNumber(a[0],b[0],t),lerpNumber(a[1],b[1],t)];}
 function cloneTransform(m){return new Transform2D(m.xx,m.xy,m.yx,m.yy,m.tx,m.ty);}
 
 // Match src/interpolation.zig's Polyline->Polyline normalization: both paths
@@ -330,7 +345,7 @@ export class Text extends ZObject {
 
 function vectorGroupAlpha(reveal,groupCount,group){if(!groupCount)return 1;return clamp01(clamp01(reveal)*groupCount-group);}
 export class VectorObject2D extends ZObject {
-  constructor(document,{reveal=1,...rest}={}){super(rest);this.document=document;this.reveal=reveal;this._paths=null;}
+  constructor(document,{reveal=1,tint=null,...rest}={}){super(rest);this.document=document;this.reveal=reveal;this.tint=tint;this._paths=null;}
   invalidate(){this._paths=null;return this;}
   _build(){
     this._paths=this.document.paths.map(entry=>{
@@ -343,7 +358,7 @@ export class VectorObject2D extends ZObject {
   draw(r,parent=Transform2D.identity()){
     const paths=this._paths??this._build(),m=this.world(parent),ctx=r.ctx,reveal=clamp01(scalarAt(this.reveal,r.time)),groups=this.document.group_count??1;
     ctx.save();setWorldCanvasTransform(r,ctx,m);
-    for(const entry of paths){const alpha=vectorGroupAlpha(reveal,groups,entry.group??0)*clamp01(this.opacity);if(alpha<=0)continue;ctx.save();ctx.globalAlpha*=alpha;if(entry.fill){ctx.fillStyle=entry.fill;ctx.fill(entry.path);}if(entry.stroke){ctx.strokeStyle=entry.stroke.color;ctx.lineWidth=entry.stroke.width;ctx.stroke(entry.path);}ctx.restore();}
+    for(const entry of paths){const alpha=vectorGroupAlpha(reveal,groups,entry.group??0)*clamp01(this.opacity);if(alpha<=0)continue;ctx.save();ctx.globalAlpha*=alpha;if(entry.fill){ctx.fillStyle=this.tint??entry.fill;ctx.fill(entry.path);}if(entry.stroke){ctx.strokeStyle=this.tint??entry.stroke.color;ctx.lineWidth=entry.stroke.width;ctx.stroke(entry.path);}ctx.restore();}
     ctx.restore();
   }
 }
@@ -427,6 +442,53 @@ export class RectSet extends CachedBatch2D {
   }
 }
 
+function vectorGroups(document){
+  const count=Math.max(0,Number(document?.group_count??0));
+  const groups=Array.from({length:count},()=>[]);
+  for(const path of document?.paths??[]){const group=Math.max(0,Math.min(count-1,Number(path.group??0)));if(count)groups[group].push(path);}
+  return groups;
+}
+function vectorPathBounds(paths){
+  if(!paths.length)return[0,0,0,0];let left=Infinity,bottom=Infinity,right=-Infinity,top=-Infinity;
+  for(const path of paths)for(const contour of path.contours??[])for(const segment of contour.segments??[])for(const point of segment){left=Math.min(left,point[0]);bottom=Math.min(bottom,point[1]);right=Math.max(right,point[0]);top=Math.max(top,point[1]);}
+  return[left,bottom,right,top];
+}
+function vectorTopology(paths){return JSON.stringify(paths.map(path=>(path.contours??[]).map(contour=>[!!contour.closed,(contour.segments??[]).length])));}
+function vectorVisualSignature(paths){
+  const[left,bottom,right,top]=vectorPathBounds(paths),width=Math.max(right-left,1e-12),height=Math.max(top-bottom,1e-12),scale=Math.max(width,height);
+  const point=p=>[Math.round((p[0]-left)/scale*10000),Math.round((p[1]-bottom)/scale*10000)];
+  return JSON.stringify([Math.round(width/scale*10000),Math.round(height/scale*10000),paths.map(path=>(path.contours??[]).map(contour=>[!!contour.closed,(contour.segments??[]).map(segment=>segment.map(point))]))]);
+}
+function vectorLcsPairs(a,b){
+  const rows=a.length+1,cols=b.length+1,dp=Array.from({length:rows},()=>new Uint16Array(cols));
+  for(let i=a.length-1;i>=0;i--)for(let j=b.length-1;j>=0;j--)dp[i][j]=a[i]===b[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+  const pairs=[];let i=0,j=0;while(i<a.length&&j<b.length){if(a[i]===b[j]){pairs.push([i,j]);i++;j++;}else if(dp[i+1][j]>=dp[i][j+1])i++;else j++;}return pairs;
+}
+function vectorStrokeLerp(a,b,t){
+  if(!a&&!b)return null;const x=a??{color:null,width:b.width},y=b??{color:null,width:a.width};
+  return{color:lerpColorValue(a?.color??null,b?.color??null,t),width:lerpNumber(Number(x.width??0),Number(y.width??0),t)};
+}
+function vectorRelabel(paths,group){return paths.map(path=>({...path,group}));}
+function vectorLerpPaths(source,target,t,group){
+  if(vectorTopology(source)!==vectorTopology(target))throw new Error('vector groups must share topology for direct interpolation');
+  return source.map((aPath,pathIndex)=>{const bPath=target[pathIndex];return{group,fill:lerpColorValue(aPath.fill??null,bPath.fill??null,t),stroke:vectorStrokeLerp(aPath.stroke??null,bPath.stroke??null,t),contours:aPath.contours.map((aContour,contourIndex)=>{const bContour=bPath.contours[contourIndex];return{closed:!!aContour.closed&&!!bContour.closed,segments:aContour.segments.map((aSeg,segmentIndex)=>{const bSeg=bContour.segments[segmentIndex];return aSeg.map((p,pointIndex)=>lerpPoint(p,bSeg[pointIndex],t));})};})};});
+}
+function vectorColorOpacity(color,opacity){return color==null?null:lerpColorValue(null,color,clamp01(opacity));}
+function vectorScalePaths(paths,scale,opacity,group){
+  const[left,bottom,right,top]=vectorPathBounds(paths),cx=(left+right)*.5,cy=(bottom+top)*.5,point=p=>[cx+(p[0]-cx)*scale,cy+(p[1]-cy)*scale];
+  return paths.map(path=>({group,fill:vectorColorOpacity(path.fill??null,opacity),stroke:path.stroke?{color:vectorColorOpacity(path.stroke.color,opacity),width:path.stroke.width}:null,contours:path.contours.map(contour=>({closed:!!contour.closed,segments:contour.segments.map(segment=>segment.map(point))}))}));
+}
+export function prepareVectorMorph(source,target){
+  if(!source||!target)throw new TypeError('prepareVectorMorph requires source and target VectorDocuments');
+  const sourceGroups=vectorGroups(source),targetGroups=vectorGroups(target),sourceKeys=sourceGroups.map(vectorVisualSignature),targetKeys=targetGroups.map(vectorVisualSignature),matched=vectorLcsPairs(sourceKeys,targetKeys),sourceMatched=new Set(matched.map(pair=>pair[0])),targetMatched=new Set(matched.map(pair=>pair[1]));
+  const sourceOnly=sourceGroups.map((_,i)=>i).filter(i=>!sourceMatched.has(i)),targetOnly=targetGroups.map((_,i)=>i).filter(i=>!targetMatched.has(i));
+  return{source,target,matched,sourceOnly,targetOnly,sample(alpha){const t=clamp01(alpha);if(t<=0)return source;if(t>=1)return target;const paths=[];let group=0;for(const[sourceIndex,targetIndex]of matched){const a=sourceGroups[sourceIndex],b=targetGroups[targetIndex];if(vectorTopology(a)===vectorTopology(b))paths.push(...vectorLerpPaths(a,b,t,group));else{paths.push(...vectorScalePaths(a,1-.35*t,1-t,group++));paths.push(...vectorScalePaths(b,.65+.35*t,t,group));}group++;}for(const i of sourceOnly)paths.push(...vectorScalePaths(sourceGroups[i],1-.45*t,1-t,group++));for(const i of targetOnly)paths.push(...vectorScalePaths(targetGroups[i],.55+.45*t,t,group++));return{paths,width:lerpNumber(Number(source.width),Number(target.width),t),height:lerpNumber(Number(source.height),Number(target.height),t),group_count:group};}};
+}
+export class DynamicVectorObject2D extends VectorObject2D {
+  constructor(provider,options={}){if(typeof provider!=='function')throw new TypeError('DynamicVectorObject2D provider must be a function');const initial=provider(0,null);if(!initial?.paths)throw new TypeError('DynamicVectorObject2D provider must return a VectorDocument');super(initial,options);this.provider=provider;this._webRuntimeOnly='dynamic-vector';}
+  draw(renderer,parent=Transform2D.identity()){const document=this.provider(renderer.time??0,this);if(!document?.paths)throw new TypeError('DynamicVectorObject2D provider returned an invalid VectorDocument');if(document!==this.document){this.document=document;this.invalidate();}super.draw(renderer,parent);}
+}
+
 export class TextSet extends ZObject {
   constructor(items=[],{color=WHITE,fontSize=16,fontFamily='Inter, ui-sans-serif, system-ui',weight=500,align='center',...rest}={}){super(rest);this.items=items;this.color=color;this.fontSize=fontSize;this.fontFamily=fontFamily;this.weight=weight;this.align=align;}
   draw(r,parent){const m=this.world(parent),ctx=r.ctx;withObjectContext(r,this,()=>{ctx.textBaseline='middle';for(const item of this.items){const x=item[0],y=item[1],text=item[2],color=item[3]??this.color,size=item[4]??this.fontSize,weight=item[5]??this.weight,p=m.apply(x,y),d=r.toDevice(...p);ctx.fillStyle=color;ctx.font=`${weight} ${size*r.dpr}px ${this.fontFamily}`;ctx.textAlign=this.align;ctx.fillText(String(text),d[0],d[1]);}});}
@@ -454,17 +516,26 @@ export class FunctionPlot extends Polyline {
   pointsAt(time){const[a,b]=this.xRange,[ax0,ax1]=this.axesXRange,[ay0,ay1]=this.axesYRange,[cx,cy]=this.plotCenter,mx=(ax0+ax1)/2,my=(ay0+ay1)/2,sx=this.plotWidth/(ax1-ax0),sy=this.plotHeight/(ay1-ay0),out=[];for(let i=0;i<this.samples;i++){const x=a+(b-a)*i/(this.samples-1),y=this.expression.evaluate({x,time});out.push([cx+(x-mx)*sx,cy+(y-my)*sy]);}return out;}
   draw(r,parent){this._points=this.pointsAt(r.time);this._path=null;super.draw(r,parent);}
 }
+// Dynamic batch providers use array identity as an explicit cache hint: return
+// the same array when geometry is unchanged, and a new array when it changes.
+// This keeps absolute-time semantics while allowing static timeline regions to
+// reuse the retained Path2D cache.
+function sampleDynamicBatch(object,time){
+  const items=object.provider(time,object);
+  if(!Array.isArray(items))throw new TypeError('dynamic batch provider must return an item array');
+  if(items!==object._items){object._items=items;object._cache=null;}
+}
 export class DynamicLineSet extends LineSet {
   constructor(provider,opts={}){super([],opts);this.provider=provider;}
-  draw(r,parent){this._items=this.provider(r.time,this);this._cache=null;super.draw(r,parent);}
+  draw(r,parent){sampleDynamicBatch(this,r.time);super.draw(r,parent);}
 }
 export class DynamicCircleSet extends CircleSet {
   constructor(provider,opts={}){super([],opts);this.provider=provider;}
-  draw(r,parent){this._items=this.provider(r.time,this);this._cache=null;super.draw(r,parent);}
+  draw(r,parent){sampleDynamicBatch(this,r.time);super.draw(r,parent);}
 }
 export class DynamicRectSet extends RectSet {
   constructor(provider,opts={}){super([],opts);this.provider=provider;}
-  draw(r,parent){this._items=this.provider(r.time,this);this._cache=null;super.draw(r,parent);}
+  draw(r,parent){sampleDynamicBatch(this,r.time);super.draw(r,parent);}
 }
 
 function normalizeFourierTerms(terms){return terms.map(term=>{if(Array.isArray(term))return{frequency:Number(term[0]),re:Number(term[1]),im:Number(term[2])};const c=term.coefficient??[term.re??0,term.im??0];return{frequency:Number(term.frequency),re:Number(Array.isArray(c)?c[0]:c.re??0),im:Number(Array.isArray(c)?c[1]:c.im??0)};});}
@@ -541,7 +612,7 @@ function normalizeGeometry(object,count=8){
 }
 export class PrimitiveInterpolation extends ZObject {
   constructor(source,target,start,end,easing){super({zIndex:Math.max(source.zIndex,target.zIndex)});this.source={geometry:normalizeGeometry(source,8),transform:cloneTransform(source.transform),style:snapshotStyle(source),opacity:source.opacity};this.target={geometry:normalizeGeometry(target,8),transform:cloneTransform(target.transform),style:snapshotStyle(target),opacity:target.opacity};if(this.source.geometry.closed!==this.target.geometry.closed)throw new Error('interpolation topology mismatch');this.start=start;this.end=end;this.easing=easing;}
-  draw(r,parent=Transform2D.identity()){const raw=this.end<=this.start?1:(r.time-this.start)/(this.end-this.start),t=this.easing(clamp01(raw)),a=this.source.geometry.segments,b=this.target.geometry.segments,path=new Path2D();for(let i=0;i<a.length;i++){const seg={p0:lerp(a[i].p0,b[i].p0,t),p1:lerp(a[i].p1,b[i].p1,t),p2:lerp(a[i].p2,b[i].p2,t),p3:lerp(a[i].p3,b[i].p3,t)};if(i===0)path.moveTo(...seg.p0);path.bezierCurveTo(...seg.p1,...seg.p2,...seg.p3);}if(this.source.geometry.closed)path.closePath();const transform=Transform2D.lerp(this.source.transform,this.target.transform,t),style=lerpStyleState(this.source.style,this.target.style,t),opacity=lerpNumber(this.source.opacity,this.target.opacity,t),ctx=r.ctx;ctx.save();ctx.globalAlpha*=clamp01(opacity);setWorldCanvasTransform(r,ctx,parent.mul(transform));if(style?.fill){ctx.fillStyle=style.fill;ctx.fill(path);}if(style?.stroke){ctx.strokeStyle=style.stroke;ctx.lineWidth=style.worldStroke?style.width:style.width*r.dpr/r.unitSize;ctx.stroke(path);}ctx.restore();}
+  draw(r,parent=Transform2D.identity()){const raw=this.end<=this.start?1:(r.time-this.start)/(this.end-this.start),t=this.easing(clamp01(raw)),a=this.source.geometry.segments,b=this.target.geometry.segments,path=new Path2D();for(let i=0;i<a.length;i++){const seg={p0:lerpPoint(a[i].p0,b[i].p0,t),p1:lerpPoint(a[i].p1,b[i].p1,t),p2:lerpPoint(a[i].p2,b[i].p2,t),p3:lerpPoint(a[i].p3,b[i].p3,t)};if(i===0)path.moveTo(...seg.p0);path.bezierCurveTo(...seg.p1,...seg.p2,...seg.p3);}if(this.source.geometry.closed)path.closePath();const transform=Transform2D.lerp(this.source.transform,this.target.transform,t),style=lerpStyleState(this.source.style,this.target.style,t),opacity=lerpNumber(this.source.opacity,this.target.opacity,t),ctx=r.ctx;ctx.save();ctx.globalAlpha*=clamp01(opacity);setWorldCanvasTransform(r,ctx,parent.mul(transform));if(style?.fill){ctx.fillStyle=style.fill;ctx.fill(path);}if(style?.stroke){ctx.strokeStyle=style.stroke;ctx.lineWidth=style.worldStroke?style.width:style.width*r.dpr/r.unitSize;ctx.stroke(path);}ctx.restore();}
 }
 export function snapshotStyle(o){
   if(!('fill' in o)&&!('stroke' in o)&&!('width' in o))return null;

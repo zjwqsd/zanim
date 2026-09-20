@@ -22,6 +22,12 @@ function plugin(command='build'){
   return p;
 }
 
+const configPlugin=zanim({typst:fake,cacheDir:join(root,'cache-config')});
+const configResult=configPlugin.config();
+assert.deepEqual(configResult.optimizeDeps,{exclude:['@zanim/web']});
+assert.ok(configResult.server.fs.allow.includes(process.cwd()));
+assert.ok(configResult.server.fs.allow.some(path=>path.endsWith('/zanim/web')));
+
 const source=`import { Math as ZMath } from '@zanim/web';
 const WHITE='#ffffff';
 const expr='x^2 + 1';

@@ -23,15 +23,23 @@ export function renderScene(scene) {
   const savedValues = scene.values.map(value => [value, value.value]);
   try {
     for (const object of scene._trackedObjects.values()) {
-      const batch = object instanceof CachedBatch2D ? object.items.map(item => [...item]) : null;
-      savedObjects.push([object, cloneState(object), batch]);
+      let batchRestore = null;
+      savedObjects.push([object, cloneState(object), batchRestore]);
       assignState(object, scene.stateAt(object, scene.time));
+      const batchClips = object instanceof CachedBatch2D
+        ? scene._batchClipsByObject.get(object.id)
+        : null;
       if (
-        object instanceof CachedBatch2D
-        && scene._batchInitial.has(object.id)
+        batchClips?.length
         && scene.time >= object.birth
         && scene.time < object.death
       ) {
+        // Batch clips temporarily replace retained geometry for this sample.
+        // Preserve the authored references/cache directly: going through the
+        // public items setter would invalidate an otherwise reusable Path2D
+        // cache on every render, defeating CachedBatch2D entirely.
+        batchRestore = [object._items, object._cache];
+        savedObjects[savedObjects.length - 1][2] = batchRestore;
         object.items = scene.batchAt(object, scene.time);
       }
     }
@@ -43,9 +51,12 @@ export function renderScene(scene) {
     }
   } finally {
     for (let i = savedObjects.length - 1; i >= 0; i--) {
-      const [object, state, batch] = savedObjects[i];
+      const [object, state, batchRestore] = savedObjects[i];
       assignState(object, state);
-      if (batch) object.items = batch;
+      if (batchRestore) {
+        object._items = batchRestore[0];
+        object._cache = batchRestore[1];
+      }
     }
     for (const [value, raw] of savedValues) value.value = raw;
   }

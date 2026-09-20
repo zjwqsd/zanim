@@ -4,6 +4,7 @@ import inspect
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
+from math import exp
 from typing import Callable, Iterator
 
 from .batch import BatchGeometry
@@ -19,6 +20,7 @@ from .vector_morph import VectorMorphPlan, prepare_vector_morph
 class Easing(str, Enum):
     LINEAR = "linear"
     SMOOTHSTEP = "smoothstep"
+    SMOOTH = "smooth"
 
     def apply(self, alpha: float) -> float:
         t = max(0.0, min(1.0, alpha))
@@ -26,6 +28,13 @@ class Easing(str, Enum):
             return t
         if self is Easing.SMOOTHSTEP:
             return t * t * (3.0 - 2.0 * t)
+        if self is Easing.SMOOTH:
+            # Normalized logistic easing with inflection=10, matching the
+            # widely-used Manim ``smooth`` rate function while remaining a
+            # deterministic named easing in Zanim IR/Web.
+            error = 1.0 / (1.0 + exp(5.0))
+            value = 1.0 / (1.0 + exp(-10.0 * (t - 0.5)))
+            return max(0.0, min(1.0, (value - error) / (1.0 - 2.0 * error)))
         raise AssertionError(f"unhandled easing: {self}")
 
 
