@@ -2,7 +2,31 @@ name: CI
 
 on:
   push:
+    paths:
+      - "python/**"
+      - "src/**"
+      - "web/**"
+      - "tests/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "hatch_build.py"
+      - "build.zig"
+      - "build.zig.zon"
+      - ".github/workflows/ci.yml"
   pull_request:
+    paths:
+      - "python/**"
+      - "src/**"
+      - "web/**"
+      - "tests/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "hatch_build.py"
+      - "build.zig"
+      - "build.zig.zon"
+      - ".github/workflows/ci.yml"
 
 jobs:
   test-and-wheel:
