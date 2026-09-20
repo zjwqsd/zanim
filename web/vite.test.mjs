@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { zanim } from './vite.js';
 
 const root=await mkdtemp(join(tmpdir(),'zanim-vite-test-'));
@@ -26,7 +27,8 @@ const configPlugin=zanim({typst:fake,cacheDir:join(root,'cache-config')});
 const configResult=configPlugin.config();
 assert.deepEqual(configResult.optimizeDeps,{exclude:['@zanim/web']});
 assert.ok(configResult.server.fs.allow.includes(process.cwd()));
-assert.ok(configResult.server.fs.allow.some(path=>path.endsWith('/zanim/web')));
+const packageRoot=dirname(fileURLToPath(new URL('./vite.js',import.meta.url)));
+assert.ok(configResult.server.fs.allow.includes(packageRoot));
 
 const source=`import { Math as ZMath } from '@zanim/web';
 const WHITE='#ffffff';
