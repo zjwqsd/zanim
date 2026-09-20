@@ -32,7 +32,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: site/package-lock.json
+          cache-dependency-path: |
+            web/package-lock.json
+            site/package-lock.json
+
+      - name: Install Zanim Web dependencies
+        working-directory: web
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Build Zanim Web WASM
         run: ./web/build.sh
