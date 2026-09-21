@@ -119,7 +119,12 @@ class SceneObject2D:
             return self.shift(target.x - source.x, 0.0)
         return self.shift(0.0, target.y - source.y)
 
-    def next_to(self, other: "SceneObject2D", direction: Vec2 = Vec2(1, 0), buff: float = 0.25):
+    def next_to(
+        self,
+        other: "SceneObject2D | Point2",
+        direction: Vec2 = Vec2(1, 0),
+        buff: float = 0.25,
+    ):
         if buff < 0:
             raise ValueError("buff must be >= 0")
         norm = (direction.x * direction.x + direction.y * direction.y) ** 0.5
@@ -127,7 +132,11 @@ class SceneObject2D:
             raise ValueError("next_to direction must be non-zero")
         d = Vec2(direction.x / norm, direction.y / norm)
         source = self.bounds().point(Vec2(-d.x, -d.y))
-        target = other.bounds().point(d)
+        target = (
+            other.bounds().point(d)
+            if isinstance(other, SceneObject2D)
+            else as_vec2(other, name="other")
+        )
         return self.shift(target.x + d.x * buff - source.x, target.y + d.y * buff - source.y)
 
     def to_edge(self, canvas, direction: Vec2, buff: float = 0.25):

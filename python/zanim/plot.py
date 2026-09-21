@@ -7,6 +7,7 @@ from .batch import BatchObject2D, LineSet
 from .expression import ScalarExpr
 from .geometry import (
     Color,
+    DEFAULT_STROKE_WIDTH,
     Geometry,
     LineGeometry,
     Object2D,
@@ -133,7 +134,7 @@ class Axes:
         x_range: tuple[float, float] | None = None,
         samples: int = 240,
         color: Color = Color(103, 181, 255),
-        stroke_width: float = 0.035,
+        stroke_width: float = DEFAULT_STROKE_WIDTH,
     ) -> Object2D:
         if samples < 2:
             raise ValueError("plot requires at least two samples")
@@ -309,7 +310,7 @@ class FunctionPlot(DynamicGeometryObject2D):
         center: Vec2 = Vec2(),
         samples: int = 240,
         color: Color = Color(103, 181, 255),
-        stroke_width: float = 0.035,
+        stroke_width: float = DEFAULT_STROKE_WIDTH,
         transform: Transform2D = Transform2D(),
         opacity: float = 1.0,
         z_index: int = 0,

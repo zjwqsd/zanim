@@ -23,6 +23,8 @@ import {
   lerpColorValue,
   lerpNumber,
   lerpStyleState,
+  motionPathPoints,
+  pointAtArcLength,
   snapshotStyle,
 } from './core.js';
 import {
@@ -394,7 +396,7 @@ export class Scene {
     return this.animate(object, { opacity: 1, duration, easing, at });
   }
   fadeOut(object, { duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) { return this.animate(object, { opacity: 0, duration, easing, at }); }
-  style(object, { to, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) { if (!snapshotStyle(object)) throw new TypeError('style() requires a styled 2D object'); return this.animate(object, { style: to, duration, easing, at }); }
+  style(object, { to, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) { const current=this.stateAt(object,this._span(duration,at).start).style; if (!current) throw new TypeError('style() requires a styled 2D object'); const target={...current,...to}; return this.animate(object, { style: target, duration, easing, at }); }
   trim(object, { to, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) { if (!('reveal' in object)) throw new TypeError('trim() requires a path-trimmable object'); if (!(to >= 0 && to <= 1)) throw new RangeError('trim target must be in [0,1]'); return this.animate(object, { reveal: to, duration, easing, at }); }
   create(object, { duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) { const before = this.stateAt(object, this._span(duration, at).start); if (before.reveal == null) throw new TypeError('create() currently supports path objects'); if (Math.abs(before.reveal) > 1e-12) throw new Error(`create() requires trim 0, got ${before.reveal}`); return this.trim(object, { to: 1, duration, easing, at }); }
 
@@ -481,6 +483,29 @@ export class Scene {
       if (object._parent) this._recordWorldSpan(object, span.start, span.end);
     } else throw new Error(`unknown frame ${frame}`);
     return this.animate(object, { transform: target, duration, easing, at });
+  }
+
+  moveAlong(object,path,{duration=null,easing=Easing.SMOOTHSTEP,at=0,samples=256,tolerance=1e-3}={}){
+    const span=this._span(duration,at);
+    this._requireAliveForSpan(object,span);
+    this._requireAliveForSpan(path,span);
+
+    if(object._parent)this._assertWorldParentStatic(object,span.start,span.end);
+    this._assertNoDescendantWorldDependency(object,span.start,span.end);
+    const localPoints=motionPathPoints(path,{samples,tolerance});
+    const pathWorld=this.worldTransformAt(path,span.start);
+    const worldPoints=localPoints.map(p=>{const q=pathWorld.apply(p[0],p[1]);return[q[0],q[1]];});
+
+    const current=this.authoredState(object).transform;
+    const currentWorldCenter=this.authoredCenter(object);
+    const parent=this._parentWorldAt(object,span.start),inverse=parent.inverse();
+    const provider=alpha=>{
+      const point=pointAtArcLength(worldPoints,alpha);
+      const delta=Transform2D.translation(point.x-currentWorldCenter.x,point.y-currentWorldCenter.y);
+      return inverse.mul(delta).mul(parent).mul(current);
+    };
+    if(object._parent)this._recordWorldSpan(object,span.start,span.end);
+    return this.transformFunction(object,provider,{duration,easing,at});
   }
 
   rotate(object, by, { frame = PARENT, about = null, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
@@ -594,6 +619,7 @@ export class Scene {
       batch: (obj, opts = {}) => this.batch(obj, withShared(opts)),
       media: (obj, opts = {}) => this.media(obj, withShared(opts)),
       move: (obj, by, opts = {}) => this.move(obj, by, withShared(opts)),
+      moveAlong: (obj, path, opts = {}) => this.moveAlong(obj, path, withShared(opts)),
       rotate: (obj, by, opts = {}) => this.rotate(obj, by, withShared(opts)),
       scale: (obj, by, opts = {}) => this.scale(obj, by, withShared(opts)),
       affine: (obj, opts = {}) => this.affine(obj, withShared(opts)),

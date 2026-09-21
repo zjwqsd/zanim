@@ -106,22 +106,144 @@ export function unitBoxMesh(){
 export function Box3D(size=new Vec3(2,2,2),options={}){const s=Vec3.from(size);if(s.x<=0||s.y<=0||s.z<=0)throw new RangeError('box dimensions must be positive');return new MeshObject3D(unitBoxMesh(),{...options,geometryTransform:Transform3D.scaling(s.x,s.y,s.z)});}
 export function Cube3D(side=2,options={}){return Box3D(new Vec3(side,side,side),options);}
 
+export function projectPoint3D(point,cameraState,width,height){
+  const p=Vec3.from(point),state=cameraState;
+  const forward=state.target.sub(state.position).normalized();
+  const right=forward.cross(state.up).normalized();
+  const cameraUp=right.cross(forward).normalized();
+  const rel=p.sub(state.position);
+  const depth=rel.dot(forward);
+  if(depth<=state.near)return null;
+  let x,y;
+  if(state.orthographicHeight!=null){
+    const scale=height/state.orthographicHeight;
+    x=width/2+rel.dot(right)*scale;
+    y=height/2-rel.dot(cameraUp)*scale;
+  }else{
+    const focal=(height/2)/Math.tan(state.fovYDegrees*Math.PI/360);
+    x=width/2+rel.dot(right)*focal/depth;
+    y=height/2-rel.dot(cameraUp)*focal/depth;
+  }
+  return [x,y,depth];
+}
+
+function projectedScalarAt(value,renderer,time,object){return Number(typeof value==='function'?value(renderer,time,object):value);}
+
+function resolve3DPoints(value,time,object){
+  const raw=typeof value==='function'?value(time,object):value;
+  return Array.from(raw,point=>Vec3.from(point));
+}
+
+export class ProjectedPolyline3D extends ZObject {
+  constructor(points,{camera=new Camera3D(),stroke='#ffffff',strokeWidth=3,closed=false,endTip=false,tipSize=18,...rest}={}){
+    super(rest);this.points=points;this.camera=camera;this.stroke=stroke;this.strokeWidth=strokeWidth;this.closed=Boolean(closed);this.endTip=Boolean(endTip);this.tipSize=tipSize;
+  }
+  draw(renderer){
+    const time=renderer.time??0,state=this.camera.stateAt(time),points=resolve3DPoints(this.points,time,this);
+    if(points.length<2)return;
+    const projected=points.map(p=>projectPoint3D(p,state,renderer.canvas.width,renderer.canvas.height));
+    const ctx=renderer.ctx;
+    const strokeWidth=projectedScalarAt(this.strokeWidth,renderer,time,this);
+    ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha*=Math.max(0,Math.min(1,this.opacity));ctx.strokeStyle=this.stroke;ctx.lineWidth=strokeWidth;ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();
+    let started=false;
+    for(const q of projected){if(!q){started=false;continue;}if(!started){ctx.moveTo(q[0],q[1]);started=true;}else ctx.lineTo(q[0],q[1]);}
+    if(this.closed&&started)ctx.closePath();ctx.stroke();
+    if(this.endTip){
+      let b=null,a=null;
+      for(let i=projected.length-1;i>=0;i--){if(!projected[i])continue;if(!b)b=projected[i];else{a=projected[i];break;}}
+      if(a&&b){const dx=b[0]-a[0],dy=b[1]-a[1],n=Math.hypot(dx,dy);if(n>1e-6){const ux=dx/n,uy=dy/n,px=-uy,py=ux,L=projectedScalarAt(this.tipSize,renderer,time,this),W=L*.48;ctx.fillStyle=this.stroke;ctx.beginPath();ctx.moveTo(b[0],b[1]);ctx.lineTo(b[0]-ux*L+px*W,b[1]-uy*L+py*W);ctx.lineTo(b[0]-ux*L-px*W,b[1]-uy*L-py*W);ctx.closePath();ctx.fill();}}
+    }
+    ctx.restore();
+  }
+}
+
+export class ProjectedLineSet3D extends ZObject {
+  constructor(segments,{camera=new Camera3D(),stroke='#ffffff',strokeWidth=3,...rest}={}){
+    super(rest);this.segments=segments;this.camera=camera;this.stroke=stroke;this.strokeWidth=strokeWidth;
+  }
+  draw(renderer){
+    const time=renderer.time??0,state=this.camera.stateAt(time),segments=typeof this.segments==='function'?this.segments(time,this):this.segments,ctx=renderer.ctx;
+    const strokeWidth=projectedScalarAt(this.strokeWidth,renderer,time,this);
+    ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha*=Math.max(0,Math.min(1,this.opacity));ctx.strokeStyle=this.stroke;ctx.lineWidth=strokeWidth;ctx.lineCap='round';ctx.beginPath();
+    for(const segment of segments){if(!Array.isArray(segment)||segment.length!==2)continue;const a=projectPoint3D(segment[0],state,renderer.canvas.width,renderer.canvas.height),b=projectPoint3D(segment[1],state,renderer.canvas.width,renderer.canvas.height);if(!a||!b)continue;ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);}
+    ctx.stroke();ctx.restore();
+  }
+}
+
+function cameraValueAt(value,time,camera){return typeof value==='function'?value(time,camera):value;}
+function validateCameraState(state){
+  if(!(state.near>0&&state.far>state.near))throw new RangeError('Camera3D requires 0 < near < far');
+  if(!(state.fovYDegrees>=1&&state.fovYDegrees<179))throw new RangeError('Camera3D fovYDegrees must be in [1,179)');
+  if(state.orthographicHeight!=null&&!(state.orthographicHeight>0))throw new RangeError('Camera3D orthographicHeight must be positive');
+  if(state.target.sub(state.position).length<=1e-12)throw new RangeError('Camera3D position and target must differ');
+  if(state.up.length<=1e-12)throw new RangeError('Camera3D up vector must be non-zero');
+  return state;
+}
 export class Camera3D {
   constructor({position=new Vec3(4.5,3.2,5.5),target=new Vec3(),up=new Vec3(0,1,0),fovYDegrees=45,near=.05,far=100,orthographicHeight=null,layerZIndex=0}={}){
-    this.position=Vec3.from(position);this.target=Vec3.from(target);this.up=Vec3.from(up);this.fovYDegrees=Number(fovYDegrees);this.near=Number(near);this.far=Number(far);this.orthographicHeight=orthographicHeight==null?null:Number(orthographicHeight);this.layerZIndex=Number(layerZIndex);
-    if(!(this.near>0&&this.far>this.near))throw new RangeError('Camera3D requires 0 < near < far');if(!(this.fovYDegrees>=1&&this.fovYDegrees<179))throw new RangeError('Camera3D fovYDegrees must be in [1,179)');if(this.orthographicHeight!=null&&!(this.orthographicHeight>0))throw new RangeError('Camera3D orthographicHeight must be positive');if(this.target.sub(this.position).length<=1e-12)throw new RangeError('Camera3D position and target must differ');if(this.up.length<=1e-12)throw new RangeError('Camera3D up vector must be non-zero');
+    this.position=position;this.target=target;this.up=up;this.fovYDegrees=fovYDegrees;this.near=near;this.far=far;this.orthographicHeight=orthographicHeight;this.layerZIndex=layerZIndex;
+    this._viewOverride={yaw:0,pitch:0,distanceScale:1};
+    this.stateAt(0);
+  }
+  get viewOverride(){return{...this._viewOverride};}
+  setViewOverride({yaw=this._viewOverride.yaw,pitch=this._viewOverride.pitch,distanceScale=this._viewOverride.distanceScale}={}){
+    yaw=Number(yaw);pitch=Number(pitch);distanceScale=Number(distanceScale);
+    if(!Number.isFinite(yaw)||!Number.isFinite(pitch))throw new TypeError('Camera3D view override angles must be finite');
+    if(!(distanceScale>0)&&Number.isFinite(distanceScale))throw new RangeError('Camera3D view override distanceScale must be positive');
+    if(!Number.isFinite(distanceScale)||distanceScale<=0)throw new RangeError('Camera3D view override distanceScale must be finite and positive');
+    this._viewOverride={yaw,pitch:Math.max(-Math.PI*.48,Math.min(Math.PI*.48,pitch)),distanceScale:Math.max(.12,Math.min(8,distanceScale))};
+    return this;
+  }
+  orbitBy(yaw=0,pitch=0){return this.setViewOverride({yaw:this._viewOverride.yaw+Number(yaw),pitch:this._viewOverride.pitch+Number(pitch)});}
+  zoomBy(factor=1){factor=Number(factor);if(!(factor>0)||!Number.isFinite(factor))throw new RangeError('Camera3D zoom factor must be finite and positive');return this.setViewOverride({distanceScale:this._viewOverride.distanceScale*factor});}
+  resetViewOverride(){this._viewOverride={yaw:0,pitch:0,distanceScale:1};return this;}
+  stateAt(time=0){
+    let position=Vec3.from(cameraValueAt(this.position,time,this));
+    const target=Vec3.from(cameraValueAt(this.target,time,this));
+    const up=Vec3.from(cameraValueAt(this.up,time,this));
+    const override=this._viewOverride;
+    if(override&&(Math.abs(override.yaw)>1e-12||Math.abs(override.pitch)>1e-12||Math.abs(override.distanceScale-1)>1e-12)){
+      const rel=position.sub(target),baseRadius=rel.length;
+      if(baseRadius>1e-12){
+        const theta=Math.atan2(rel.y,rel.x)+override.yaw;
+        const basePhi=Math.acos(Math.max(-1,Math.min(1,rel.z/baseRadius)));
+        const phi=Math.max(.02,Math.min(Math.PI-.02,basePhi+override.pitch));
+        const radius=baseRadius*override.distanceScale,sinPhi=Math.sin(phi);
+        position=new Vec3(
+          target.x+radius*sinPhi*Math.cos(theta),
+          target.y+radius*sinPhi*Math.sin(theta),
+          target.z+radius*Math.cos(phi),
+        );
+      }
+    }
+    const fovYDegrees=Number(cameraValueAt(this.fovYDegrees,time,this));
+    const near=Number(cameraValueAt(this.near,time,this));
+    const far=Number(cameraValueAt(this.far,time,this));
+    const rawOrtho=cameraValueAt(this.orthographicHeight,time,this);
+    const orthographicHeight=rawOrtho==null?null:Number(rawOrtho);
+    const layerZIndex=Number(cameraValueAt(this.layerZIndex,time,this));
+    return validateCameraState({position,target,up,fovYDegrees,near,far,orthographicHeight,layerZIndex});
   }
 }
 
 export class Scene3DLayer extends ZObject {
-  constructor(meshes,{camera=new Camera3D(),resolution=1,maxWidth=1280,maxHeight=720,...rest}={}){
-    super({zIndex:camera.layerZIndex,...rest});this.meshes=[...meshes];if(this.meshes.some(mesh=>!(mesh instanceof MeshObject3D)))throw new TypeError('Scene3DLayer meshes must be MeshObject3D');this.camera=camera;this.resolution=Number(resolution);this.maxWidth=Math.min(1280,Math.round(maxWidth));this.maxHeight=Math.min(720,Math.round(maxHeight));this._wasm=null;this._upload=null;this._canvas=null;
+  constructor(meshes,{camera=new Camera3D(),lightPosition=null,lightDirection=null,ambientLight=.24,diffuseLight=.76,resolution=1,maxWidth=1280,maxHeight=720,...rest}={}){
+    super({zIndex:camera.layerZIndex,...rest});
+    if(lightPosition!=null&&lightDirection!=null)throw new TypeError('Scene3DLayer accepts either lightPosition or lightDirection, not both');
+    this.meshes=[...meshes];if(this.meshes.some(mesh=>!(mesh instanceof MeshObject3D)))throw new TypeError('Scene3DLayer meshes must be MeshObject3D');
+    this.camera=camera;this.lightPosition=lightPosition;this.lightDirection=lightDirection;this.ambientLight=Number(ambientLight);this.diffuseLight=Number(diffuseLight);if(!(this.ambientLight>=0)||!(this.diffuseLight>=0))throw new RangeError('Scene3DLayer lighting strengths must be non-negative');this.resolution=Number(resolution);this.maxWidth=Math.min(1280,Math.round(maxWidth));this.maxHeight=Math.min(720,Math.round(maxHeight));this._wasm=null;this._upload=null;this._canvas=null;
   }
   draw(renderer){
     if(!this.meshes.length)return;const fullW=renderer.canvas.width,fullH=renderer.canvas.height;if(fullW<=0||fullH<=0)return;
     let width=Math.max(1,Math.min(this.maxWidth,Math.round(fullW*this.resolution))),height=Math.max(1,Math.round(width*fullH/fullW));if(height>this.maxHeight){width=Math.max(1,Math.round(width*this.maxHeight/height));height=this.maxHeight;}
     if(this._wasm!==renderer.wasm||!this._upload||renderer.wasm._3dUpload!==this._upload){this._wasm=renderer.wasm;this._upload=renderer.wasm.upload3DGeometry(this.meshes.map(mesh=>mesh.mesh));}
-    const pixels=renderer.wasm.render3D(width,height,this.camera,this._upload,this.meshes.map(mesh=>mesh.stateAt(renderer.time??0)));
+    const time=renderer.time??0,camera=typeof this.camera.stateAt==='function'?this.camera.stateAt(time):this.camera;
+    const lighting=this.lightPosition!=null
+      ?{position:Vec3.from(atTime(this.lightPosition,time,this)),ambient:this.ambientLight,diffuse:this.diffuseLight}
+      :this.lightDirection!=null
+        ?{direction:Vec3.from(atTime(this.lightDirection,time,this)),ambient:this.ambientLight,diffuse:this.diffuseLight}
+        :{ambient:this.ambientLight,diffuse:this.diffuseLight};
+    const pixels=renderer.wasm.render3D(width,height,camera,this._upload,this.meshes.map(mesh=>mesh.stateAt(time)),lighting);
     if(!this._canvas)this._canvas=document.createElement('canvas');if(this._canvas.width!==width||this._canvas.height!==height){this._canvas.width=width;this._canvas.height=height;}
     this._canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(pixels),width,height),0,0);
     const ctx=renderer.ctx;ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha*=Math.max(0,Math.min(1,this.opacity));ctx.drawImage(this._canvas,0,0,fullW,fullH);ctx.restore();

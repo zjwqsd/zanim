@@ -5,6 +5,70 @@ pub const ZANIM_ABI_VERSION: u32 = 3;
 export fn zanim_abi_version() u32 {
     return ZANIM_ABI_VERSION;
 }
+
+
+export fn zanim_path_boolean(
+    a_points: ?[*]const f64,
+    a_point_count: u32,
+    a_ends: ?[*]const u32,
+    a_contour_count: u32,
+    b_points: ?[*]const f64,
+    b_point_count: u32,
+    b_ends: ?[*]const u32,
+    b_contour_count: u32,
+    operation_raw: u32,
+    epsilon: f64,
+    out_points: ?[*]f64,
+    out_point_capacity: u32,
+    out_ends: ?[*]u32,
+    out_contour_capacity: u32,
+    out_point_count: *u32,
+    out_contour_count: *u32,
+) i32 {
+    out_point_count.* = 0;
+    out_contour_count.* = 0;
+    if (a_point_count < 3 or b_point_count < 3 or a_contour_count == 0 or b_contour_count == 0) return 2;
+    if (a_points == null or b_points == null or a_ends == null or b_ends == null) return 2;
+    if (operation_raw > @intFromEnum(path_boolean.Operation.exclusion)) return 2;
+    const operation: path_boolean.Operation = @enumFromInt(operation_raw);
+
+    const allocator = std.heap.page_allocator;
+    const a_vec = allocator.alloc(math.Vec2, a_point_count) catch return 4;
+    defer allocator.free(a_vec);
+    const b_vec = allocator.alloc(math.Vec2, b_point_count) catch return 4;
+    defer allocator.free(b_vec);
+
+    for (a_vec, 0..) |*point, i| {
+        point.* = .{ .x = a_points.?[i * 2], .y = a_points.?[i * 2 + 1] };
+    }
+    for (b_vec, 0..) |*point, i| {
+        point.* = .{ .x = b_points.?[i * 2], .y = b_points.?[i * 2 + 1] };
+    }
+
+    var result = path_boolean.combine(
+        allocator,
+        .{ .points = a_vec, .contour_ends = a_ends.?[0..a_contour_count] },
+        .{ .points = b_vec, .contour_ends = b_ends.?[0..b_contour_count] },
+        operation,
+        epsilon,
+    ) catch return 3;
+    defer result.deinit(allocator);
+
+    out_point_count.* = @intCast(result.points.len);
+    out_contour_count.* = @intCast(result.contour_ends.len);
+    if (result.points.len > out_point_capacity or result.contour_ends.len > out_contour_capacity) return 5;
+    if (result.points.len > 0 and out_points == null) return 5;
+    if (result.contour_ends.len > 0 and out_ends == null) return 5;
+
+    for (result.points, 0..) |point, i| {
+        out_points.?[i * 2] = point.x;
+        out_points.?[i * 2 + 1] = point.y;
+    }
+    if (result.contour_ends.len > 0) {
+        @memcpy(out_ends.?[0..result.contour_ends.len], result.contour_ends);
+    }
+    return 0;
+}
 const z2d = @import("z2d");
 
 const batch = @import("batch.zig");
@@ -15,6 +79,9 @@ const geometry = @import("geometry.zig");
 const interpolation = @import("interpolation.zig");
 const infinite = @import("infinite.zig");
 const math = @import("math.zig");
+const path_boolean = @import("path_boolean.zig");
+
+comptime { _ = path_boolean; }
 const raster = @import("raster.zig");
 const render3d = @import("render3d.zig");
 const scene_wire = @import("scene_wire.zig");

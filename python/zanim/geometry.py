@@ -6,6 +6,8 @@ from math import pi
 from .object import SceneObject2D
 from .space import SE2, Linear2D, Transform2D, Vec2
 
+DEFAULT_STROKE_WIDTH = 4.0 / 90.0
+
 
 @dataclass(frozen=True, slots=True)
 class Color:
@@ -27,8 +29,8 @@ class Color:
 
 @dataclass(frozen=True, slots=True)
 class StrokeStyle:
-    color: Color = Color(230, 232, 238)
-    width: float = 0.035
+    color: Color = Color(255, 255, 255)
+    width: float = DEFAULT_STROKE_WIDTH
 
     def __post_init__(self) -> None:
         if self.width <= 0:
@@ -46,12 +48,12 @@ class Style:
         return Style(fill=color, stroke=None)
 
     @staticmethod
-    def outline(color: Color, width: float = 0.035) -> "Style":
+    def outline(color: Color, width: float = DEFAULT_STROKE_WIDTH) -> "Style":
         """Stroke only.  Both color and width are explicit."""
         return Style(fill=None, stroke=StrokeStyle(color, width))
 
     @staticmethod
-    def paint(fill: Color, stroke: Color, stroke_width: float = 0.035) -> "Style":
+    def paint(fill: Color, stroke: Color, stroke_width: float = DEFAULT_STROKE_WIDTH) -> "Style":
         """Explicit fill plus explicit outline."""
         return Style(fill=fill, stroke=StrokeStyle(stroke, stroke_width))
 
@@ -214,7 +216,7 @@ class Object2D(SceneObject2D):
                     raise TypeError("stroke must be Color or None")
                 if stroke_width is not None and resolved_stroke is None:
                     raise ValueError("stroke_width requires a stroke color")
-                width = 0.035 if stroke_width is None else float(stroke_width)
+                width = DEFAULT_STROKE_WIDTH if stroke_width is None else float(stroke_width)
                 resolved_style = Style(
                     fill=resolved_fill,
                     stroke=None if resolved_stroke is None else StrokeStyle(resolved_stroke, width),

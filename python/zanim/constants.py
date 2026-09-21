@@ -6,7 +6,7 @@ numeric radians remain the complete custom forms.
 
 from math import pi, tau
 
-from .geometry import Color
+from .geometry import Color, DEFAULT_STROKE_WIDTH
 from .space import Vec2
 
 # Mathematical angles.
@@ -30,7 +30,7 @@ ORANGE = Color(255, 151, 92)
 PURPLE = Color(184, 124, 255)
 PINK = Color(245, 92, 145)
 CYAN = Color(95, 218, 255)
-WHITE = Color(238, 242, 250)
+WHITE = Color(255, 255, 255)
 GRAY = Color(145, 158, 184)
 MUTED = GRAY
 BLACK = Color(0, 0, 0)
@@ -41,6 +41,7 @@ __all__ = [
     "BLUE",
     "CYAN",
     "DEGREES",
+    "DEFAULT_STROKE_WIDTH",
     "DOWN",
     "GRAY",
     "GREEN",

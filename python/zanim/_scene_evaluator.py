@@ -9,7 +9,7 @@ from .geometry import Object2D
 from .group3d import Group3D
 from .infinite import ComplexMappedGrid, InfiniteObject2D
 from .mesh3d import MeshObject3D
-from .raster import RasterObject2D
+from .raster import RasterObject2D, SceneViewport
 from .snapshot import (
     BatchSnapshot,
     Camera3DSnapshot,
@@ -269,7 +269,11 @@ class _SceneEvaluator:
     ) -> RenderRaster | None:
         initial = registered.initial
         assert isinstance(initial, RasterState)
-        source_time = self._playback_time_at(registered.object_id, obj.source.duration, time)
+        source_time = (
+            float(time)
+            if isinstance(obj, SceneViewport)
+            else self._playback_time_at(registered.object_id, obj.source.duration, time)
+        )
         if source_time is None:
             return None
         parent_transform, parent_opacity, parent_z = self._context_at(registered, time)

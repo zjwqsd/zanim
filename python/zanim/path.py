@@ -282,3 +282,58 @@ def sample_vector_contour_by_arclength(
     """Uniform arc-length samples of a cubic ``VectorContour``."""
     flattened = flatten_vector_contour(contour, tolerance=tolerance)
     return resample_polyline_by_arclength(flattened, count, closed=contour.closed)
+
+
+def point_at_arclength(
+    points: tuple[Vec2, ...] | list[Vec2],
+    proportion: float,
+) -> Vec2:
+    """Return the point at one normalized arc-length position on a polyline."""
+    source = tuple(points)
+    if len(source) < 2:
+        raise ValueError("path sampling requires at least two points")
+    alpha = max(0.0, min(1.0, float(proportion)))
+    lengths = []
+    total = 0.0
+    for a, b in zip(source, source[1:]):
+        length = ((b.x - a.x) ** 2 + (b.y - a.y) ** 2) ** 0.5
+        lengths.append(length)
+        total += length
+    if total <= 1e-12:
+        return source[0]
+    target = total * alpha
+    walked = 0.0
+    for a, b, length in zip(source, source[1:], lengths):
+        if walked + length < target - 1e-12:
+            walked += length
+            continue
+        local = 0.0 if length <= 1e-12 else (target - walked) / length
+        return _lerp(a, b, max(0.0, min(1.0, local)))
+    return source[-1]
+
+
+def motion_path_points(
+    obj,
+    *,
+    samples: int = 256,
+    tolerance: float = 1e-3,
+) -> tuple[Vec2, ...]:
+    """Return one object-local polyline suitable for arc-length motion."""
+    from .geometry import Object2D
+    from .vector import VectorObject2D
+
+    if samples < 2:
+        raise ValueError("samples must be >= 2")
+    if tolerance <= 0:
+        raise ValueError("tolerance must be positive")
+
+    if isinstance(obj, Object2D):
+        return geometry_points(obj.geometry, samples=samples)
+
+    if isinstance(obj, VectorObject2D):
+        contours = [contour for path in obj.document.paths for contour in path.contours]
+        if len(contours) != 1:
+            raise ValueError("move_along() requires a path with exactly one vector contour")
+        return flatten_vector_contour(contours[0], tolerance=tolerance)
+
+    raise TypeError("move_along() path must be Object2D or single-contour VectorObject2D")

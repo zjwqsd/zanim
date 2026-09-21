@@ -1,5 +1,8 @@
 const std = @import("std");
 const math = @import("math.zig");
+const path_boolean = @import("path_boolean.zig");
+
+comptime { _ = path_boolean; }
 const procedural = @import("procedural.zig");
 const render3d_wire = @import("render3d/wire.zig");
 const web_render3d = @import("render3d/web_rasterizer.zig");
@@ -15,6 +18,89 @@ const Bounds = struct { min: Vec2, max: Vec2 };
 
 export fn zanim_web_abi_version() u32 {
     return 1;
+}
+
+
+const boolean_max_input_points = 4096;
+const boolean_max_input_contours = 512;
+const boolean_max_output_points = 65536;
+const boolean_max_output_contours = 8192;
+
+var boolean_a_points: [boolean_max_input_points * 2]f64 = undefined;
+var boolean_b_points: [boolean_max_input_points * 2]f64 = undefined;
+var boolean_a_ends: [boolean_max_input_contours]u32 = undefined;
+var boolean_b_ends: [boolean_max_input_contours]u32 = undefined;
+var boolean_output_points: [boolean_max_output_points * 2]f64 = undefined;
+var boolean_output_ends: [boolean_max_output_contours]u32 = undefined;
+var boolean_output_point_count: u32 = 0;
+var boolean_output_contour_count: u32 = 0;
+
+export fn zanim_web_boolean_max_input_points() u32 { return boolean_max_input_points; }
+export fn zanim_web_boolean_max_input_contours() u32 { return boolean_max_input_contours; }
+export fn zanim_web_boolean_a_points_ptr() usize { return @intFromPtr(&boolean_a_points); }
+export fn zanim_web_boolean_b_points_ptr() usize { return @intFromPtr(&boolean_b_points); }
+export fn zanim_web_boolean_a_ends_ptr() usize { return @intFromPtr(&boolean_a_ends); }
+export fn zanim_web_boolean_b_ends_ptr() usize { return @intFromPtr(&boolean_b_ends); }
+export fn zanim_web_boolean_output_points_ptr() usize { return @intFromPtr(&boolean_output_points); }
+export fn zanim_web_boolean_output_ends_ptr() usize { return @intFromPtr(&boolean_output_ends); }
+export fn zanim_web_boolean_output_contour_count() u32 { return boolean_output_contour_count; }
+
+fn pathBooleanAllocator() std.mem.Allocator {
+    const builtin = @import("builtin");
+    return if (builtin.target.cpu.arch.isWasm()) std.heap.wasm_allocator else std.heap.page_allocator;
+}
+
+export fn zanim_web_path_boolean(
+    a_point_count: u32,
+    a_contour_count: u32,
+    b_point_count: u32,
+    b_contour_count: u32,
+    operation_raw: u32,
+    epsilon: f64,
+) u32 {
+    boolean_output_point_count = 0;
+    boolean_output_contour_count = 0;
+    if (a_point_count < 3 or b_point_count < 3) return 0;
+    if (a_point_count > boolean_max_input_points or b_point_count > boolean_max_input_points) return 0;
+    if (a_contour_count == 0 or b_contour_count == 0) return 0;
+    if (a_contour_count > boolean_max_input_contours or b_contour_count > boolean_max_input_contours) return 0;
+    if (operation_raw > @intFromEnum(path_boolean.Operation.exclusion)) return 0;
+    const operation: path_boolean.Operation = @enumFromInt(operation_raw);
+
+    const allocator = pathBooleanAllocator();
+    const a_vec = allocator.alloc(Vec2, a_point_count) catch return 0;
+    defer allocator.free(a_vec);
+    const b_vec = allocator.alloc(Vec2, b_point_count) catch return 0;
+    defer allocator.free(b_vec);
+
+    for (a_vec, 0..) |*point, i| {
+        point.* = .{ .x = boolean_a_points[i * 2], .y = boolean_a_points[i * 2 + 1] };
+    }
+    for (b_vec, 0..) |*point, i| {
+        point.* = .{ .x = boolean_b_points[i * 2], .y = boolean_b_points[i * 2 + 1] };
+    }
+
+    var result = path_boolean.combine(
+        allocator,
+        .{ .points = a_vec, .contour_ends = boolean_a_ends[0..a_contour_count] },
+        .{ .points = b_vec, .contour_ends = boolean_b_ends[0..b_contour_count] },
+        operation,
+        epsilon,
+    ) catch return 0;
+    defer result.deinit(allocator);
+
+    if (result.points.len > boolean_max_output_points or result.contour_ends.len > boolean_max_output_contours) return 0;
+    for (result.points, 0..) |point, i| {
+        boolean_output_points[i * 2] = point.x;
+        boolean_output_points[i * 2 + 1] = point.y;
+    }
+    if (result.contour_ends.len > 0) {
+        @memcpy(boolean_output_ends[0..result.contour_ends.len], result.contour_ends);
+    }
+    boolean_output_point_count = @intCast(result.points.len);
+    boolean_output_contour_count = @intCast(result.contour_ends.len);
+    // Return point count + 1 so an empty-but-valid result is distinguishable from failure.
+    return boolean_output_point_count + 1;
 }
 
 const web3d_max_width = 1280;
@@ -93,6 +179,12 @@ fn renderWeb3D(
     far_plane: f32,
     orthographic_height: f32,
     projection_kind: u32,
+    light_kind: u32,
+    light_x: f32,
+    light_y: f32,
+    light_z: f32,
+    light_ambient: f32,
+    light_diffuse: f32,
 ) u32 {
     if (width == 0 or height == 0 or width > web3d_max_width or height > web3d_max_height or mesh_count > web3d_max_meshes) return 0;
     var meshes: [web3d_max_meshes]render3d_wire.WireMesh3D = undefined;
@@ -143,6 +235,12 @@ fn renderWeb3D(
         height,
         camera,
         meshes[0..mesh_count],
+        .{
+            .kind = light_kind,
+            .value = .{ .x = light_x, .y = light_y, .z = light_z },
+            .ambient = light_ambient,
+            .diffuse = light_diffuse,
+        },
     ) catch return 0;
     return @intCast(pixel_count);
 }
@@ -165,8 +263,14 @@ export fn zanim_web_render_3d(
     far_plane: f32,
     orthographic_height: f32,
     projection_kind: u32,
+    light_kind: u32,
+    light_x: f32,
+    light_y: f32,
+    light_z: f32,
+    light_ambient: f32,
+    light_diffuse: f32,
 ) u32 {
-    return renderWeb3D(width, height, mesh_count, px, py, pz, tx, ty, tz, ux, uy, uz, fov_y_degrees, near_plane, far_plane, orthographic_height, projection_kind);
+    return renderWeb3D(width, height, mesh_count, px, py, pz, tx, ty, tz, ux, uy, uz, fov_y_degrees, near_plane, far_plane, orthographic_height, projection_kind, light_kind, light_x, light_y, light_z, light_ambient, light_diffuse);
 }
 
 export fn zanim_web_grid_data_ptr() usize {

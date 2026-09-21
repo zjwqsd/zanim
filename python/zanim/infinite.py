@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from .group import Group
 from .geometry import Color
 from .object import SceneObject2D
 from .space import SE2, Point2, Transform2D, Vec2, as_vec2
@@ -106,6 +107,66 @@ class InfiniteGrid(InfiniteObject2D):
             opacity=opacity,
             z_index=z_index,
         )
+
+
+class NumberPlane(Group):
+    """Manim-like infinite Cartesian plane with major/faded grid lines."""
+
+    def __init__(
+        self,
+        *,
+        step: float = 1.0,
+        faded_line_ratio: int = 4,
+        background_color: Color = Color(35, 107, 142),
+        axis_color: Color = Color(255, 255, 255),
+        background_stroke_width: float = 2.0 / 90.0,
+        faded_stroke_width: float = 1.0 / 90.0,
+        axis_stroke_width: float = 2.0 / 90.0,
+        transform: Transform2D | SE2 = Transform2D(),
+        opacity: float = 1.0,
+        z_index: int = 0,
+    ) -> None:
+        if step <= 0:
+            raise ValueError("NumberPlane step must be positive")
+        if faded_line_ratio < 0:
+            raise ValueError("faded_line_ratio must be >= 0")
+
+        children = []
+        if faded_line_ratio:
+            dense_step = float(step) / (faded_line_ratio + 1)
+            children.append(
+                InfiniteGrid(
+                    dense_step,
+                    color=background_color.with_alpha(64),
+                    stroke_width=faded_stroke_width,
+                    z_index=z_index - 2,
+                )
+            )
+        children.extend(
+            (
+                InfiniteGrid(
+                    float(step),
+                    color=background_color,
+                    stroke_width=background_stroke_width,
+                    z_index=z_index - 1,
+                ),
+                InfiniteLine(
+                    (0, 0),
+                    (1, 0),
+                    color=axis_color,
+                    stroke_width=axis_stroke_width,
+                    z_index=z_index,
+                ),
+                InfiniteLine(
+                    (0, 0),
+                    (0, 1),
+                    color=axis_color,
+                    stroke_width=axis_stroke_width,
+                    z_index=z_index,
+                ),
+            )
+        )
+        super().__init__(children, transform=transform, opacity=opacity, z_index=z_index)
 
 
 def _grid_step(step: float | tuple[float, float]) -> tuple[float, float]:

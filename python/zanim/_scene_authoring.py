@@ -11,6 +11,7 @@ from .group3d import Group3D
 from .interpolation import ObjectInterpolation
 from .mesh3d import MeshObject3D
 from .object import SceneObject2D
+from .path import motion_path_points, point_at_arclength
 from .raster import RasterObject2D
 from .space import (
     LOCAL,
@@ -369,6 +370,57 @@ class _SceneAuthoring:
             easing=easing,
             at=at,
         )
+
+    def move_along(
+        self,
+        obj: SceneObject2D,
+        path: SceneObject2D,
+        *,
+        duration: float | None = None,
+        easing: Easing = Easing.SMOOTHSTEP,
+        at: float = 0.0,
+        samples: int = 256,
+        tolerance: float = 1e-3,
+    ):
+        """Move an object's visual center along a frozen path by arc length."""
+        obj = self._unwrap(obj)
+        path = self._unwrap(path)
+        registered = self._require_alive_for_span(obj, duration, at)
+        self._require_alive_for_span(path, duration, at)
+        start, end = self._scheduled_span(duration, at)
+        if registered.parent_ids:
+            self._assert_world_parent_static(registered, start, end)
+        self._assert_no_descendant_world_dependency(registered, start, end)
+
+        local_points = motion_path_points(path, samples=samples, tolerance=tolerance)
+        path_world = self.world_transform(path, time=start)
+        world_points = tuple(path_world.apply(point) for point in local_points)
+
+        current = self._authored_get(obj, "transform")
+        current_world_center = self.world_anchor(obj)
+        parent_world = self._parent_world_transform_authored(registered)
+        parent_world_inv = parent_world.inverse()
+
+        def provider(alpha: float) -> Transform2D:
+            point = point_at_arclength(world_points, alpha)
+            delta = point - current_world_center
+            return (
+                parent_world_inv
+                @ Transform2D.translation(delta.x, delta.y)
+                @ parent_world
+                @ current
+            )
+
+        clip = self.transform_function(
+            obj,
+            provider,
+            duration=duration,
+            easing=easing,
+            at=at,
+        )
+        if registered.parent_ids:
+            self._record_world_span(registered.object_id, start, end)
+        return clip
 
     def rotate(
         self,

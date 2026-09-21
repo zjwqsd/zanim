@@ -51,6 +51,42 @@ class RasterSource:
         return None
 
 
+class ArrayImageSource(RasterSource):
+    """Small in-memory raster source from grayscale/RGB/RGBA rows."""
+
+    def __init__(self, rows) -> None:
+        rows = tuple(tuple(row) for row in rows)
+        if not rows or not rows[0]:
+            raise ValueError("ArrayImageSource requires a non-empty 2D array")
+        width = len(rows[0])
+        if any(len(row) != width for row in rows):
+            raise ValueError("ArrayImageSource rows must have equal length")
+
+        rgba = bytearray()
+        for row in rows:
+            for value in row:
+                if isinstance(value, (int, float)):
+                    v = max(0, min(255, round(float(value))))
+                    rgba.extend((v, v, v, 255))
+                else:
+                    channels = tuple(value)
+                    if len(channels) == 3:
+                        channels = (*channels, 255)
+                    if len(channels) != 4:
+                        raise ValueError("array pixels must be grayscale, RGB, or RGBA")
+                    rgba.extend(max(0, min(255, round(float(c)))) for c in channels)
+
+        self.width = width
+        self.height = len(rows)
+        self._frame = RasterFrame(self.width, self.height, rgba)
+        self.duration = None
+        self.frame_count = 1
+
+    def frame_at(self, source_time: float) -> RasterFrame:
+        _ = source_time
+        return self._frame
+
+
 class ImageSource(RasterSource):
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path).expanduser().resolve()
@@ -305,6 +341,66 @@ class SceneRasterSource(RasterSource):
         self.scene._close_media_sources()
 
 
+class SceneViewportSource(RasterSource):
+    """Random-access crop of another Scene in world coordinates."""
+
+    def __init__(
+        self,
+        scene,
+        *,
+        source_center=(0.0, 0.0),
+        source_size=(1.0, 1.0),
+        pixel_width: int = 540,
+        pixel_height: int = 90,
+        duration: float | None = None,
+    ) -> None:
+        self.scene = scene
+        self.scene_source = SceneRasterSource(scene, duration=duration)
+        self.source_center = source_center
+        self.source_size = source_size
+        self.width = max(1, int(pixel_width))
+        self.height = max(1, int(pixel_height))
+        self.duration = duration
+        self.frame_count = max(
+            1, round((duration or 0.0) * max(1, int(scene.fps)))
+        )
+
+    @staticmethod
+    def _value(value, time: float):
+        return value(time) if callable(value) else value
+
+    def frame_at(self, source_time: float) -> RasterFrame:
+        full = self.scene_source.frame_at(source_time)
+        center = self._value(self.source_center, source_time)
+        size = self._value(self.source_size, source_time)
+        cx, cy = float(center[0]), float(center[1])
+        sw, sh = float(size[0]), float(size[1])
+        if not (sw > 0 and sh > 0):
+            raise ValueError("SceneViewport source_size must stay positive")
+
+        unit = float(self.scene.canvas.unit_size)
+        px = full.width / 2.0 + cx * unit
+        py = full.height / 2.0 - cy * unit
+        left = px - sw * unit / 2.0
+        top = py - sh * unit / 2.0
+        right = px + sw * unit / 2.0
+        bottom = py + sh * unit / 2.0
+
+        image = PILImage.frombuffer(
+            "RGBA", (full.width, full.height), full.rgba, "raw", "RGBA", 0, 1
+        )
+        cropped = image.transform(
+            (self.width, self.height),
+            PILImage.Transform.EXTENT,
+            (left, top, right, bottom),
+            resample=PILImage.Resampling.BILINEAR,
+        )
+        return RasterFrame(self.width, self.height, cropped.tobytes())
+
+    def close(self) -> None:
+        self.scene_source.close()
+
+
 class AlphaMaskSource(RasterSource):
     """Apply one raster source's alpha channel to another source."""
 
@@ -396,6 +492,43 @@ class RasterObject2D(SceneObject2D):
 
     def frame_at(self, source_time: float) -> RasterFrame:
         return self.source.frame_at(source_time)
+
+
+class ArrayImage(RasterObject2D):
+    def __init__(self, rows, **kwargs) -> None:
+        super().__init__(ArrayImageSource(rows), **kwargs)
+
+
+class SceneViewport(RasterObject2D):
+    """Transformable display of a world-space crop from another Scene."""
+
+    def __init__(
+        self,
+        scene,
+        *,
+        source_center=(0.0, 0.0),
+        source_size=(1.0, 1.0),
+        width: float = 4.0,
+        height: float = 3.0,
+        pixel_width: int | None = None,
+        pixel_height: int | None = None,
+        duration: float | None = None,
+        **kwargs,
+    ) -> None:
+        if pixel_width is None:
+            pixel_width = max(1, round(width * 90))
+        if pixel_height is None:
+            pixel_height = max(1, round(height * 90))
+        source = SceneViewportSource(
+            scene,
+            source_center=source_center,
+            source_size=source_size,
+            pixel_width=pixel_width,
+            pixel_height=pixel_height,
+            duration=duration,
+        )
+        super().__init__(source, width=width, height=height, **kwargs)
+        self.child_scene = scene
 
 
 class Image(RasterObject2D):

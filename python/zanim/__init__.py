@@ -8,6 +8,7 @@ handle, wire-format, and render implementation types live in submodules.
 
 from ._version import __version__
 from .audio import Audio
+from .boolean import BooleanShape, Difference, Exclusion, Intersection, Union
 from .camera import Camera2D
 from .camera3d import Camera3D, Camera3DState
 from .constants import (
@@ -15,6 +16,7 @@ from .constants import (
     BLUE,
     CYAN,
     DEGREES,
+    DEFAULT_STROKE_WIDTH,
     DOWN,
     GRAY,
     GREEN,
@@ -50,7 +52,7 @@ from .fractal import JuliaSet, MandelbrotSet
 from .geometry import Color, StrokeStyle, Style
 from .group import Group
 from .group3d import Group3D
-from .infinite import ComplexMappedGrid, InfiniteGrid, InfiniteLine
+from .infinite import ComplexMappedGrid, InfiniteGrid, InfiniteLine, NumberPlane
 from .ir import (
     SceneIRUnsupported,
     load_scene_ir,
@@ -76,11 +78,12 @@ from .layout import (
     Row,
 )
 from .mesh3d import Box3D, Cube3D, Surface3D
-from .plot import Axes, FunctionPlot
-from .raster import GIF, Image, Video
+from .plot import Axes, DynamicGeometryObject2D, FunctionPlot
+from .raster import ArrayImage, GIF, Image, SceneViewport, Video
 from .scene import Scene
 from .shapes import (
     Arc,
+    Brace,
     Arrow,
     Circle,
     CubicBezier,
@@ -94,6 +97,7 @@ from .shapes import (
     RegularPolygon,
     Shape,
     Square,
+    SurroundingRectangle,
 )
 from .simulation import Simulation
 from .space import (
@@ -112,6 +116,7 @@ from .space3d import SE3, SO3, Transform3D, Vec3, pose3d
 from .svg import load_svg
 from .timeline import Easing
 from .typst import Math, Text
+from .value import ScalarValue
 from .vector_field import DynamicVectorField, VectorField, VectorSample
 
 __all__ = [
@@ -121,6 +126,12 @@ __all__ = [
     "MediaError",
     "NativeError",
     "Scene",
+    "SceneViewport",
+    "Exclusion",
+    "Difference",
+    "Union",
+    "Intersection",
+    "BooleanShape",
     "Simulation",
     "VectorField",
     "DynamicVectorField",
@@ -135,13 +146,16 @@ __all__ = [
     "Shape",
     "Circle",
     "Square",
+    "SurroundingRectangle",
     "Rectangle",
     "Ellipse",
     "Arc",
+    "Brace",
     "RegularPolygon",
     "Line",
     "InfiniteLine",
     "InfiniteGrid",
+    "NumberPlane",
     "ComplexMappedGrid",
     "MandelbrotSet",
     "JuliaSet",
@@ -176,6 +190,7 @@ __all__ = [
     "PI",
     "TAU",
     "DEGREES",
+    "DEFAULT_STROKE_WIDTH",
     "Vec2",
     "Transform2D",
     "TransformFrame",
@@ -212,6 +227,8 @@ __all__ = [
     "X",
     "TIME",
     "FunctionPlot",
+    "ScalarValue",
+    "DynamicGeometryObject2D",
     "load_svg",
     "DynamicNumber",
     "NumberFormat",
@@ -225,6 +242,7 @@ __all__ = [
     "Image",
     "GIF",
     "Video",
+    "ArrayImage",
     "Audio",
     "Camera3D",
     "Camera3DState",

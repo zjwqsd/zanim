@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generic, TypeVar
 
-from .geometry import Color, Style
+from .geometry import Color, DEFAULT_STROKE_WIDTH, Style
 from .space import Point2, Transform2D, TransformFrame, Vec2, affine2d, as_vec2, pose2d
 from .timeline import Easing
 
@@ -112,6 +112,26 @@ class Bound2D(BoundItem[T]):
             duration=duration,
             easing=easing,
             at=at,
+        )
+
+    def move_along(
+        self,
+        path,
+        *,
+        duration: float | None = None,
+        easing: Easing = Easing.SMOOTHSTEP,
+        at: float = 0.0,
+        samples: int = 256,
+        tolerance: float = 1e-3,
+    ):
+        return self.scene.move_along(
+            self.raw,
+            path,
+            duration=duration,
+            easing=easing,
+            at=at,
+            samples=samples,
+            tolerance=tolerance,
         )
 
     def rotate(
@@ -279,7 +299,7 @@ class BoundObject2D(Bound2D[T]):
         self,
         color: Color,
         *,
-        width: float = 0.035,
+        width: float = DEFAULT_STROKE_WIDTH,
         duration: float | None = None,
         easing: Easing = Easing.SMOOTHSTEP,
         at: float = 0.0,
@@ -299,7 +319,7 @@ class BoundObject2D(Bound2D[T]):
         *,
         fill: Color,
         stroke: Color,
-        stroke_width: float = 0.035,
+        stroke_width: float = DEFAULT_STROKE_WIDTH,
         duration: float | None = None,
         easing: Easing = Easing.SMOOTHSTEP,
         at: float = 0.0,

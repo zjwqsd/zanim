@@ -248,6 +248,25 @@ def load_library() -> ctypes.CDLL:
             f"Zanim native ABI mismatch: Python expects {ABI_VERSION}, renderer reports {actual_abi}. "
             "Reinstall Zanim so the Python package and native renderer match."
         )
+    lib.zanim_path_boolean.argtypes = [
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_double,
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.POINTER(ctypes.c_uint32),
+    ]
+    lib.zanim_path_boolean.restype = ctypes.c_int32
     lib.zanim_render_scene_frame.argtypes = [
         ctypes.c_char_p,
         ctypes.c_uint32,

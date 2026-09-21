@@ -3,6 +3,7 @@
 export const PI = Math.PI;
 export const TAU = Math.PI * 2;
 export const DEGREES = Math.PI / 180;
+export const DEFAULT_STROKE_WIDTH = 4 / 90;
 export const LOCAL='local', PARENT='parent', WORLD='world';
 
 const logisticSmoothError = 1 / (1 + Math.exp(5));
@@ -67,6 +68,8 @@ function boundsOf(object,extra=Transform2D.identity()){
   const m=extra.mul(object.transform);
   if(typeof object._boundsWithTransform==='function')return object._boundsWithTransform(m);
   if(object instanceof Group){if(!object.children.length){const p=m.apply(0,0);return new Bounds2D(p[0],p[1],p[0],p[1]);}return Bounds2D.union(...object.children.map(c=>boundsOf(c,m)));}
+  if(object instanceof Ellipse){const c=m.apply(0,0),ex=Math.hypot(object.radiusX*m.xx,object.radiusY*m.xy),ey=Math.hypot(object.radiusX*m.yx,object.radiusY*m.yy);return new Bounds2D(c[0]-ex,c[1]-ey,c[0]+ex,c[1]+ey);}
+  if(object instanceof Arc){const c=m.apply(0,0),ex=object.radius*Math.hypot(m.xx,m.xy),ey=object.radius*Math.hypot(m.yx,m.yy);return new Bounds2D(c[0]-ex,c[1]-ey,c[0]+ex,c[1]+ey);}
   if(object instanceof Circle){const c=m.apply(0,0),ex=object.radius*Math.hypot(m.xx,m.xy),ey=object.radius*Math.hypot(m.yx,m.yy);return new Bounds2D(c[0]-ex,c[1]-ey,c[0]+ex,c[1]+ey);}
   if(object instanceof Polyline){return transformBounds(object.points,m);}
   if(object instanceof Line){return transformBounds([object.start,object.end],m);}
@@ -124,7 +127,7 @@ function rgbaWithOpacity(color, opacity) {
 
 export const Colors = Object.freeze({
   BLUE:'#60a6ff', GREEN:'#52cd96', RED:'#f55c69', YELLOW:'#ffd669', ORANGE:'#ff975c',
-  PURPLE:'#b87cff', PINK:'#f55c91', CYAN:'#5fdaff', WHITE:'#eef2fa', GRAY:'#919eb8', MUTED:'#919eb8', BLACK:'#000000',
+  PURPLE:'#b87cff', PINK:'#f55c91', CYAN:'#5fdaff', WHITE:'#ffffff', GRAY:'#919eb8', MUTED:'#919eb8', BLACK:'#000000',
 });
 export const {WHITE,MUTED,BLUE,GREEN,RED,ORANGE,YELLOW,CYAN,PINK,PURPLE,GRAY,BLACK}=Colors;
 export const ORIGIN=Object.freeze([0,0]), RIGHT=Object.freeze([1,0]), LEFT=Object.freeze([-1,0]), UP=Object.freeze([0,1]), DOWN=Object.freeze([0,-1]);
@@ -132,8 +135,9 @@ export const ORIGIN=Object.freeze([0,0]), RIGHT=Object.freeze([1,0]), LEFT=Objec
 export const DEFAULT_WASM_URL = globalThis.__ZANIM_WASM_URL__ ?? new URL('../dist/zanim_web_core.wasm', import.meta.url);
 
 const sharedWasmLoads=globalThis.__ZANIM_WASM_CACHE__??=(new Map());
+let activeZanimWasm=null;
 export class ZanimWasm {
-  constructor(instance) { this.instance=instance; this.exports=instance.exports; if(this.exports.zanim_web_abi_version()!==1) throw new Error('Zanim Web ABI mismatch'); }
+  constructor(instance) { this.instance=instance; this.exports=instance.exports; if(this.exports.zanim_web_abi_version()!==1) throw new Error('Zanim Web ABI mismatch'); activeZanimWasm=this; }
   static async load(url) {
     const key=String(url);
     const cached=sharedWasmLoads.get(key);
@@ -146,6 +150,33 @@ export class ZanimWasm {
     })();
     sharedWasmLoads.set(key,pending);
     try{return await pending;}catch(error){sharedWasmLoads.delete(key);throw error;}
+  }
+  pathBoolean(aContours,bContours,operation,epsilon=1e-9){
+    const opId={intersection:0,union:1,difference:2,exclusion:3}[operation];
+    if(opId==null)throw new RangeError('invalid boolean operation');
+    const flatten=contours=>{
+      const points=[],ends=[];let count=0;
+      for(const contour of contours){for(const p of contour){points.push(Number(p[0]),Number(p[1]));count++;}ends.push(count);}
+      return{points,ends,count};
+    };
+    const a=flatten(aContours),b=flatten(bContours),e=this.exports;
+    const maxPoints=e.zanim_web_boolean_max_input_points(),maxContours=e.zanim_web_boolean_max_input_contours();
+    if(a.count>maxPoints||b.count>maxPoints)throw new RangeError('boolean input exceeds WASM point capacity');
+    if(a.ends.length>maxContours||b.ends.length>maxContours)throw new RangeError('boolean input exceeds WASM contour capacity');
+    const memory=e.memory.buffer;
+    new Float64Array(memory,e.zanim_web_boolean_a_points_ptr(),a.count*2).set(a.points);
+    new Float64Array(memory,e.zanim_web_boolean_b_points_ptr(),b.count*2).set(b.points);
+    new Uint32Array(memory,e.zanim_web_boolean_a_ends_ptr(),a.ends.length).set(a.ends);
+    new Uint32Array(memory,e.zanim_web_boolean_b_ends_ptr(),b.ends.length).set(b.ends);
+    const encoded=e.zanim_web_path_boolean(a.count,a.ends.length,b.count,b.ends.length,opId,epsilon);
+    if(!encoded)throw new Error('Zig vector boolean backend failed');
+    const pointCount=encoded-1,contourCount=e.zanim_web_boolean_output_contour_count(),buffer=e.memory.buffer;
+    const rawPoints=new Float64Array(buffer,e.zanim_web_boolean_output_points_ptr(),pointCount*2);
+    const rawEnds=new Uint32Array(buffer,e.zanim_web_boolean_output_ends_ptr(),contourCount);
+    const points=Array.from({length:pointCount},(_,i)=>[rawPoints[i*2],rawPoints[i*2+1]]);
+    const contours=[];let start=0;
+    for(let i=0;i<contourCount;i++){const end=rawEnds[i];contours.push(points.slice(start,end));start=end;}
+    return contours;
   }
   determinant(m){return this.exports.zanim_web_matrix_det(m.xx,m.xy,m.yx,m.yy);}
   resolveGrid(width,height,unitSize,step,m){const count=this.exports.zanim_web_resolve_grid(width,height,unitSize,step,m.xx,m.xy,m.yx,m.yy);const ptr=this.exports.zanim_web_grid_data_ptr();return new Float64Array(this.exports.memory.buffer,ptr,count*4);}
@@ -170,13 +201,23 @@ export class ZanimWasm {
     for(let i=0;i<meshes.length;i++){const mesh=meshes[i];if(vertexOffset+mesh.vertexCount>maxVertices)throw new RangeError(`3D vertices exceed ${maxVertices}`);if(indexOffset+mesh.indexCount>maxIndices)throw new RangeError(`3D indices exceed ${maxIndices}`);positions.set(mesh.positions,vertexOffset*3);normals.set(mesh.normals,vertexOffset*3);indices.set(mesh.indices,indexOffset);ranges.set([vertexOffset,mesh.vertexCount,indexOffset,mesh.indexCount],i*4);vertexOffset+=mesh.vertexCount;indexOffset+=mesh.indexCount;}
     const upload={meshes:[...meshes],meshCount:meshes.length,serial:(this._3dSerial??0)+1};this._3dSerial=upload.serial;this._3dUpload=upload;return upload;
   }
-  render3D(width,height,camera,upload,states){
+  render3D(width,height,camera,upload,states,lighting=null){
     const e=this.exports;if(!upload||this._3dUpload!==upload)throw new Error('3D geometry upload is no longer active');if(states.length!==upload.meshCount)throw new RangeError('3D state count must match uploaded meshes');
     const maxWidth=e.zanim_web_3d_max_width(),maxHeight=e.zanim_web_3d_max_height();if(width>maxWidth||height>maxHeight)throw new RangeError(`3D render target exceeds ${maxWidth}x${maxHeight}`);
     const memory=e.memory.buffer,models=new Float32Array(memory,e.zanim_web_3d_models_ptr(),upload.meshCount*16),colors=new Uint32Array(memory,e.zanim_web_3d_colors_ptr(),upload.meshCount),opacities=new Float32Array(memory,e.zanim_web_3d_opacities_ptr(),upload.meshCount);
     for(let i=0;i<states.length;i++){const state=states[i];models.set(state.model,i*16);colors[i]=state.colorRGBA>>>0;opacities[i]=state.opacity;}
     const p=camera.position,t=camera.target,u=camera.up,ortho=camera.orthographicHeight;
-    const count=e.zanim_web_render_3d(width,height,upload.meshCount,p.x,p.y,p.z,t.x,t.y,t.z,u.x,u.y,u.z,camera.fovYDegrees,camera.near,camera.far,ortho??0,ortho==null?0:1);
+    const lightVec=(value)=>{
+      if(Array.isArray(value))return{x:Number(value[0]),y:Number(value[1]),z:Number(value[2])};
+      if(value&&typeof value==='object')return{x:Number(value.x),y:Number(value.y),z:Number(value.z)};
+      throw new TypeError('3D light vector must be [x,y,z] or {x,y,z}');
+    };
+    let lightKind=0,light={x:.35,y:.82,z:.48};
+    if(lighting?.position!=null){lightKind=1;light=lightVec(lighting.position);}
+    else if(lighting?.direction!=null){light=lightVec(lighting.direction);}
+    const ambient=lighting?.ambient==null?.24:Number(lighting.ambient);
+    const diffuse=lighting?.diffuse==null?.76:Number(lighting.diffuse);
+    const count=e.zanim_web_render_3d(width,height,upload.meshCount,p.x,p.y,p.z,t.x,t.y,t.z,u.x,u.y,u.z,camera.fovYDegrees,camera.near,camera.far,ortho??0,ortho==null?0:1,lightKind,light.x,light.y,light.z,ambient,diffuse);
     if(!count)throw new Error('3D WASM render failed');
     return new Uint8ClampedArray(e.memory.buffer,e.zanim_web_3d_pixels_ptr(),count*4);
   }
@@ -213,6 +254,7 @@ export class ZObject {
   anchor(anchor=CENTER){const a=asAnchor(anchor),b=this.bounds();return new Vec2(b.center.x+a.x*b.width/2,b.center.y+a.y*b.height/2);}
   shift(x,y){const v=x instanceof Vec2?x:Array.isArray(x)?Vec2.from(x):new Vec2(x,y);this.transform=Transform2D.translation(v.x,v.y).mul(this.transform);return this;}
   place({anchor=CENTER,at=[0,0]}={}){const q=Vec2.from(at),p=this.anchor(anchor);return this.shift(q.x-p.x,q.y-p.y);}
+  nextTo(other,direction=RIGHT,buff=.25){if(buff<0)throw new RangeError('buff must be >= 0');const raw=Vec2.from(direction),len=raw.length;if(len<=1e-12)throw new RangeError('nextTo direction must be non-zero');const d=new Vec2(raw.x/len,raw.y/len),source=this.anchor([-d.x,-d.y]),target=other instanceof ZObject?other.anchor([d.x,d.y]):Vec2.from(other);return this.shift(target.x+d.x*buff-source.x,target.y+d.y*buff-source.y);}
   _bound(){if(!this._scene)throw new Error('object must be added before animation');return this._scene;}
   fadeIn(options={}){this._bound().fadeIn(this,options);return this;}
   fadeOut(options={}){this._bound().fadeOut(this,options);return this;}
@@ -221,6 +263,7 @@ export class ZObject {
   transformFunction(provider,options={}){this._bound().transformFunction(this,provider,options);return this;}
   affine(options={}){this._bound().affine(this,options);return this;}
   move(by,options={}){this._bound().move(this,by,options);return this;}
+  moveAlong(path,options={}){this._bound().moveAlong(this,path,options);return this;}
   rotate(by,options={}){this._bound().rotate(this,by,options);return this;}
   scale(by,options={}){this._bound().scale(this,by,options);return this;}
   create(options={}){this._bound().create(this,options);return this;}
@@ -237,6 +280,58 @@ export class Camera2D extends ZObject {
 export class CustomObject2D extends ZObject {
   constructor(drawFn, opts={}) { super(opts); this.drawFn=drawFn; }
   draw(renderer,parent=Transform2D.identity()) { withObjectContext(renderer,this,ctx=>this.drawFn({renderer,ctx,time:renderer.time??0,transform:this.world(parent),object:this})); }
+}
+
+export class SceneViewport extends ZObject {
+  constructor({sourceCenter=[0,0],sourceSize=[1,1],width=4,height=3,...rest}={}) {
+    super(rest);
+    this.sourceCenter=sourceCenter;
+    this.sourceSize=sourceSize;
+    this.width=Number(width);
+    this.height=Number(height);
+    if(!(this.width>0&&this.height>0))throw new RangeError('SceneViewport width/height must be positive');
+  }
+  _value(value,time){return typeof value==='function'?value(time,this):value;}
+  _boundsWithTransform(m){
+    return transformBounds([
+      [-this.width/2,-this.height/2],
+      [ this.width/2,-this.height/2],
+      [ this.width/2, this.height/2],
+      [-this.width/2, this.height/2],
+    ],m);
+  }
+  bounds(){return this._boundsWithTransform(this.transform);}
+  draw(r,parent=Transform2D.identity()){
+    const center=Vec2.from(this._value(this.sourceCenter,r.time??0));
+    const size=Vec2.from(this._value(this.sourceSize,r.time??0));
+    if(!(size.x>0&&size.y>0))return;
+
+    const sourceCenter=r.toDevice(center.x,center.y);
+    const sx=sourceCenter[0]-size.x*r.unitSize/2;
+    const sy=sourceCenter[1]-size.y*r.unitSize/2;
+    const sw=size.x*r.unitSize;
+    const sh=size.y*r.unitSize;
+
+    const buffer=document.createElement('canvas');
+    buffer.width=Math.max(1,Math.round(sw));
+    buffer.height=Math.max(1,Math.round(sh));
+    buffer.getContext('2d').drawImage(
+      r.canvas,sx,sy,sw,sh,0,0,buffer.width,buffer.height,
+    );
+
+    const m=this.world(parent),ctx=r.ctx;
+    ctx.save();
+    ctx.globalAlpha*=clamp01(this.opacity);
+    const p=r.toDevice(...m.apply(0,0));
+    const ex=m.vector(this.width,0),ey=m.vector(0,this.height);
+    const dw=Math.hypot(ex[0],ex[1])*r.unitSize;
+    const dh=Math.hypot(ey[0],ey[1])*r.unitSize;
+    const angle=Math.atan2(ex[1],ex[0]);
+    ctx.translate(p[0],p[1]);
+    ctx.rotate(-angle);
+    ctx.drawImage(buffer,-dw/2,-dh/2,dw,dh);
+    ctx.restore();
+  }
 }
 
 function withObjectContext(renderer,obj,fn){const ctx=renderer.ctx;ctx.save();ctx.globalAlpha*=Math.max(0,Math.min(1,obj.opacity));fn(ctx);ctx.restore();}
@@ -264,6 +359,75 @@ export function resamplePolylineByArcLength(points, segmentCount){
     out.push([lerpNumber(edgeStart[0],edgeEnd[0],clamp01(local)),lerpNumber(edgeStart[1],edgeEnd[1],clamp01(local))]);
   }
   return out;
+}
+
+
+export function pointAtArcLength(points,proportion){
+  if(!Array.isArray(points)||points.length<2)throw new RangeError('path sampling requires at least two points');
+  const alpha=clamp01(Number(proportion)),lengths=[];let total=0;
+  for(let i=0;i<points.length-1;i++){const a=points[i],b=points[i+1],d=Math.hypot(b[0]-a[0],b[1]-a[1]);lengths.push(d);total+=d;}
+  if(total<=1e-14)return Vec2.from(points[0]);
+  const target=total*alpha;let walked=0;
+  for(let i=0;i<lengths.length;i++){
+    const length=lengths[i],a=points[i],b=points[i+1];
+    if(walked+length<target-1e-14){walked+=length;continue;}
+    const local=length<=1e-14?0:(target-walked)/length;
+    return new Vec2(lerpNumber(a[0],b[0],clamp01(local)),lerpNumber(a[1],b[1],clamp01(local)));
+  }
+  return Vec2.from(points.at(-1));
+}
+
+export function motionPathPoints(object,{samples=256,tolerance=1e-3}={}){
+  if(!(samples>=2))throw new RangeError('samples must be >= 2');
+  if(!(tolerance>0))throw new RangeError('tolerance must be positive');
+
+  if(object instanceof Line)return [[object.start[0],object.start[1]],[object.end[0],object.end[1]]];
+
+  if(object instanceof Polyline){
+    const points=object.points.map(p=>[p[0],p[1]]);
+    if(object.closed&&points.length){
+      const a=points[0],b=points.at(-1);
+      if(Math.hypot(a[0]-b[0],a[1]-b[1])>1e-14)points.push([a[0],a[1]]);
+    }
+    return points;
+  }
+
+  if(object instanceof Circle){
+    return Array.from({length:samples+1},(_,i)=>{
+      const a=TAU*i/samples;return[object.radius*Math.cos(a),object.radius*Math.sin(a)];
+    });
+  }
+
+  if(object instanceof Ellipse){
+    return Array.from({length:samples+1},(_,i)=>{
+      const a=TAU*i/samples;return[object.radiusX*Math.cos(a),object.radiusY*Math.sin(a)];
+    });
+  }
+
+  if(object instanceof Arc){
+    const count=Math.max(2,Math.ceil(samples*Math.abs(object.sweepAngle)/TAU)+1);
+    return Array.from({length:count},(_,i)=>{
+      const a=object.startAngle+object.sweepAngle*i/(count-1);
+      return[object.radius*Math.cos(a),object.radius*Math.sin(a)];
+    });
+  }
+
+  if(object instanceof VectorObject2D){
+    const contours=object.document.paths.flatMap(path=>path.contours);
+    if(contours.length!==1)throw new RangeError('moveAlong() requires exactly one vector contour');
+    const contour=contours[0],points=[];
+    for(const seg of contour.segments){
+      const flat=booleanFlattenCubic(seg,tolerance);
+      if(points.length)points.push(...flat.slice(1));else points.push(...flat);
+    }
+    if(contour.closed&&points.length){
+      const a=points[0],b=points.at(-1);
+      if(Math.hypot(a[0]-b[0],a[1]-b[1])>1e-14)points.push([a[0],a[1]]);
+    }
+    return points;
+  }
+
+  throw new TypeError('moveAlong() path must be Line, Polyline/Polygon, Circle/Ellipse/Arc, or single-contour VectorObject2D');
 }
 
 export function parseWebColor(value){
@@ -305,11 +469,11 @@ export class PolylineInterpolation extends ZObject {
 }
 
 export class Line extends ZObject {
-  constructor(start=[-1,0],end=[1,0],{stroke=WHITE,width=2,strokeWidth=null,...rest}={}){super(rest);this.start=start;this.end=end;this.stroke=stroke;this.width=strokeWidth==null?width:strokeWidth;this.worldStroke=strokeWidth!=null;}
+  constructor(start=[-1,0],end=[1,0],{stroke=WHITE,width=null,strokeWidth=null,...rest}={}){super(rest);this.start=start;this.end=end;this.stroke=stroke;const useWorld=strokeWidth!=null||width==null;this.width=strokeWidth??width??DEFAULT_STROKE_WIDTH;this.worldStroke=useWorld;}
   draw(r,parent){const m=this.world(parent);withObjectContext(r,this,ctx=>{const a=r.toDevice(...applyPoint(m,this.start)),b=r.toDevice(...applyPoint(m,this.end));ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.strokeStyle=this.stroke;ctx.lineWidth=this.worldStroke?this.width*r.unitSize:this.width*r.dpr;ctx.stroke();});}
 }
 export class Polyline extends ZObject {
-  constructor(points,{stroke=WHITE,width=2,strokeWidth=null,closed=false,fill=null,reveal=undefined,trim=undefined,...rest}={}){super(rest);this._points=points;this.stroke=stroke;this.width=strokeWidth==null?width:strokeWidth;this.worldStroke=strokeWidth!=null;this.closed=closed;this.fill=fill;this.reveal=trim??reveal??1;this._path=null;this._totalLength=0;}
+  constructor(points,{stroke=WHITE,width=null,strokeWidth=null,closed=false,fill=null,lineJoin='round',lineCap='round',miterLimit=10,reveal=undefined,trim=undefined,...rest}={}){super(rest);this._points=points;this.stroke=stroke;const useWorld=strokeWidth!=null||width==null;this.width=strokeWidth??width??DEFAULT_STROKE_WIDTH;this.worldStroke=useWorld;this.closed=closed;this.fill=fill;this.lineJoin=lineJoin;this.lineCap=lineCap;this.miterLimit=miterLimit;this.reveal=trim??reveal??1;this._path=null;this._totalLength=0;}
   get trim(){return this.reveal;} set trim(value){this.reveal=value;}
   create(options={}){if(!this._scene)throw new Error('object must be added before create()');this._scene.create(this,options);return this;}
   trimTo(to,options={}){if(!this._scene)throw new Error('object must be added before trimTo()');this._scene.trim(this,{...options,to});return this;}
@@ -318,29 +482,115 @@ export class Polyline extends ZObject {
   invalidate(){this._path=null;return this;}
   _buildPath(){const path=new Path2D();let total=0;if(this.points.length){path.moveTo(this.points[0][0],this.points[0][1]);for(let i=1;i<this.points.length;i++){const a=this.points[i-1],b=this.points[i];total+=Math.hypot(b[0]-a[0],b[1]-a[1]);path.lineTo(b[0],b[1]);}if(this.closed){const a=this.points[this.points.length-1],b=this.points[0];total+=Math.hypot(b[0]-a[0],b[1]-a[1]);path.closePath();}}this._totalLength=total;return this._path=path;}
   draw(r,parent){if(!this.points.length)return;const path=this._path??this._buildPath(),m=this.world(parent),ctx=r.ctx,reveal=Math.max(0,Math.min(1,scalarAt(this.reveal,r.time)));
-    ctx.save();ctx.globalAlpha*=Math.max(0,Math.min(1,this.opacity));setWorldCanvasTransform(r,ctx,m);ctx.lineJoin='round';ctx.lineCap='round';
+    ctx.save();ctx.globalAlpha*=Math.max(0,Math.min(1,this.opacity));setWorldCanvasTransform(r,ctx,m);ctx.lineJoin=this.lineJoin;ctx.lineCap=this.lineCap;ctx.miterLimit=this.miterLimit;
     if(this.fill&&reveal>=.999999){ctx.fillStyle=this.fill;ctx.fill(path);}
     const trimStroke=this.stroke??(reveal<.999999?this.fill:null),trimWidth=this.stroke?this.width:.035,trimWorld=this.stroke?this.worldStroke:true;
     if(trimStroke&&reveal>0){ctx.strokeStyle=trimStroke;ctx.lineWidth=trimWorld?trimWidth:trimWidth*r.dpr/r.unitSize;if(reveal<.999999&&this._totalLength>0){ctx.setLineDash([this._totalLength,this._totalLength]);ctx.lineDashOffset=this._totalLength*(1-reveal);}ctx.stroke(path);}
     ctx.restore();}
 }
-export class Polygon extends Polyline { constructor(points,opts={}){super(points,{fill:'rgba(82,205,150,.72)',stroke:WHITE,closed:true,...opts});} }
+
+function sampleCubicSegment(out,p0,p1,p2,p3,count=8,includeStart=false){
+  const start=includeStart?0:1;
+  for(let i=start;i<=count;i++){
+    const t=i/count,u=1-t;
+    out.push([
+      u*u*u*p0[0]+3*u*u*t*p1[0]+3*u*t*t*p2[0]+t*t*t*p3[0],
+      u*u*u*p0[1]+3*u*u*t*p1[1]+3*u*t*t*p2[1]+t*t*t*p3[1],
+    ]);
+  }
+}
+function braceProfile(span,depth,samples=8){
+  const half=span/2;
+  const hookW=Math.min(.22,Math.max(.09,span*.065));
+  const notchW=Math.min(.20,Math.max(.10,span*.055));
+  const endY=-depth*.52;
+  const pts=[];
+  const segs=[
+    [[-half,endY],[-half,-depth*.18],[-half+hookW*.25,0],[-half+hookW,0]],
+    [[-half+hookW,0],[-half+span*.22,0],[-notchW*1.8,0],[-notchW,0]],
+    [[-notchW,0],[-notchW*.58,0],[-notchW*.34,depth*.72],[0,depth]],
+    [[0,depth],[notchW*.34,depth*.72],[notchW*.58,0],[notchW,0]],
+    [[notchW,0],[notchW*1.8,0],[half-span*.22,0],[half-hookW,0]],
+    [[half-hookW,0],[half-hookW*.25,0],[half,-depth*.18],[half,endY]],
+  ];
+  segs.forEach((seg,i)=>sampleCubicSegment(pts,...seg,samples,i===0));
+  return pts;
+}
+export class Brace extends Polyline {
+  constructor(target,{direction=[0,-1],buff=.2,depth=.12,color=WHITE,width=null,strokeWidth=null,samples=8,...rest}={}){
+    if(!target||typeof target.bounds!=='function')throw new TypeError('Brace target must provide bounds()');
+    const b=target.bounds(),d=Vec2.from(direction),len=d.length;
+    if(len<=1e-12)throw new RangeError('Brace direction must be non-zero');
+    const nx=d.x/len,ny=d.y/len,tx=-ny,ty=nx;
+    let supportPoints;
+    if(target instanceof Line) supportPoints=[target.start,target.end].map(p=>target.transform.apply(p[0],p[1]));
+    else if(target instanceof Polyline) supportPoints=target.points.map(p=>target.transform.apply(p[0],p[1]));
+    else supportPoints=[[b.left,b.bottom],[b.left,b.top],[b.right,b.bottom],[b.right,b.top]];
+    const us=supportPoints.map(([x,y])=>x*tx+y*ty),vs=supportPoints.map(([x,y])=>x*nx+y*ny);
+    const u0=Math.min(...us),u1=Math.max(...us),span=Math.max(1e-6,u1-u0),centerU=(u0+u1)/2,baseV=Math.max(...vs)+buff;
+    const world=([x,y])=>[tx*(centerU+x)+nx*(baseV+y),ty*(centerU+x)+ny*(baseV+y)];
+    super(braceProfile(span,depth,samples).map(world),{stroke:color,width,strokeWidth,fill:null,lineJoin:'round',lineCap:'round',...rest});
+    this.direction=new Vec2(nx,ny);
+    this.tangent=new Vec2(tx,ty);
+    this._braceCenterU=centerU;
+    this._braceBaseV=baseV;
+    this.depth=depth;
+  }
+  labelPoint(buff=.25){
+    const u=this._braceCenterU,v=this._braceBaseV+this.depth+buff;
+    return new Vec2(this.tangent.x*u+this.direction.x*v,this.tangent.y*u+this.direction.y*v);
+  }
+}
+
+export class Polygon extends Polyline { constructor(points,opts={}){super(points,{fill:'rgba(82,205,150,.72)',stroke:WHITE,closed:true,lineJoin:'miter',lineCap:'butt',...opts});} }
 export class Rectangle extends Polygon { constructor(width=2,height=1,opts={}){const x=width/2,y=height/2;super([[-x,-y],[x,-y],[x,y],[-x,y]],opts);this.rectWidth=width;this.rectHeight=height;} }
 export class Square extends Rectangle { constructor(side=1,opts={}){super(side,side,opts);} }
 export class RegularPolygon extends Polygon { constructor(sides=6,radius=1,{phase=Math.PI/2,...opts}={}){super(Array.from({length:sides},(_,i)=>{const a=phase+i*TAU/sides;return [radius*Math.cos(a),radius*Math.sin(a)];}),opts);} }
 export class Circle extends ZObject {
-  constructor(radius=1,{fill='rgba(96,166,255,.72)',stroke=WHITE,width=2,strokeWidth=null,reveal=undefined,trim=undefined,...rest}={}){super(rest);this.radius=radius;this.fill=fill;this.stroke=stroke;this.width=strokeWidth==null?width:strokeWidth;this.worldStroke=strokeWidth!=null;this.reveal=trim??reveal??1;}
+  constructor(radius=1,{fill='rgba(96,166,255,.72)',stroke=WHITE,width=null,strokeWidth=null,reveal=undefined,trim=undefined,...rest}={}){super(rest);this.radius=radius;this.fill=fill;this.stroke=stroke;const useWorld=strokeWidth!=null||width==null;this.width=strokeWidth??width??DEFAULT_STROKE_WIDTH;this.worldStroke=useWorld;this.reveal=trim??reveal??1;}
   get trim(){return this.reveal;} set trim(value){this.reveal=value;}
   draw(r,parent){const m=this.world(parent),reveal=clamp01(scalarAt(this.reveal,r.time));withObjectContext(r,this,ctx=>{const c=r.toDevice(...m.apply(0,0));const ex=m.vector(this.radius,0),ey=m.vector(0,this.radius);const rx=Math.hypot(...ex)*r.unitSize,ry=Math.hypot(...ey)*r.unitSize;const angle=Math.atan2(ex[1],ex[0]);ctx.beginPath();ctx.ellipse(c[0],c[1],Math.max(.01,rx),Math.max(.01,ry),-angle,0,TAU*reveal);if(this.fill&&reveal>=.999999){ctx.fillStyle=this.fill;ctx.fill();}const trimStroke=this.stroke??(reveal<.999999?this.fill:null),trimWidth=this.stroke?this.width:.035;if(trimStroke&&reveal>0){ctx.strokeStyle=trimStroke;ctx.lineWidth=(this.stroke&& !this.worldStroke)?trimWidth*r.dpr:trimWidth*r.unitSize;ctx.stroke();}});}
 }
-export class Dot extends Circle { constructor(point=[0,0],{radius=.06,color=WHITE,...opts}={}){super(radius,{fill:color,stroke:null,transform:Transform2D.translation(...point),...opts});} }
+export class SurroundingRectangle extends Rectangle {
+  constructor(target,{buff=.1,color=YELLOW,...options}={}){
+    if(!(buff>=0))throw new RangeError('SurroundingRectangle buff must be >= 0');
+    if(!target||typeof target.bounds!=='function')throw new TypeError('SurroundingRectangle target must provide bounds()');
+    const b=target.bounds();
+    super(b.width+2*buff,b.height+2*buff,{fill:null,stroke:color,transform:Transform2D.translation(b.center.x,b.center.y),...options});
+  }
+}
+export class Ellipse extends ZObject {
+  constructor(radiusX=1,radiusY=.6,{fill='rgba(96,166,255,.72)',stroke=WHITE,width=null,strokeWidth=null,reveal=undefined,trim=undefined,...rest}={}){super(rest);this.radiusX=radiusX;this.radiusY=radiusY;this.fill=fill;this.stroke=stroke;const useWorld=strokeWidth!=null||width==null;this.width=strokeWidth??width??DEFAULT_STROKE_WIDTH;this.worldStroke=useWorld;this.reveal=trim??reveal??1;}
+  get trim(){return this.reveal;} set trim(value){this.reveal=value;}
+  draw(r,parent){const m=this.world(parent),reveal=clamp01(scalarAt(this.reveal,r.time)),ctx=r.ctx;ctx.save();ctx.globalAlpha*=clamp01(this.opacity);setWorldCanvasTransform(r,ctx,m);ctx.beginPath();ctx.ellipse(0,0,Math.max(.0001,this.radiusX),Math.max(.0001,this.radiusY),0,0,TAU*reveal);if(this.fill&&reveal>=.999999){ctx.fillStyle=this.fill;ctx.fill();}const trimStroke=this.stroke??(reveal<.999999?this.fill:null),trimWidth=this.stroke?this.width:.035;if(trimStroke&&reveal>0){ctx.strokeStyle=trimStroke;ctx.lineWidth=this.worldStroke?trimWidth:trimWidth*r.dpr/r.unitSize;ctx.stroke();}ctx.restore();}
+}
+export class Arc extends ZObject {
+  constructor(radius=1,startAngle=0,sweepAngle=Math.PI/2,{stroke=WHITE,width=null,strokeWidth=null,reveal=undefined,trim=undefined,...rest}={}){super(rest);this.radius=radius;this.startAngle=startAngle;this.sweepAngle=sweepAngle;this.stroke=stroke;const useWorld=strokeWidth!=null||width==null;this.width=strokeWidth??width??DEFAULT_STROKE_WIDTH;this.worldStroke=useWorld;this.reveal=trim??reveal??1;}
+  get trim(){return this.reveal;} set trim(value){this.reveal=value;}
+  draw(r,parent){const m=this.world(parent),reveal=clamp01(scalarAt(this.reveal,r.time));if(reveal<=0)return;const ctx=r.ctx;ctx.save();ctx.globalAlpha*=clamp01(this.opacity);setWorldCanvasTransform(r,ctx,m);ctx.beginPath();ctx.arc(0,0,Math.max(.0001,this.radius),this.startAngle,this.startAngle+this.sweepAngle*reveal,this.sweepAngle<0);ctx.strokeStyle=this.stroke;ctx.lineWidth=this.worldStroke?this.width:this.width*r.dpr/r.unitSize;ctx.stroke();ctx.restore();}
+}
+export class Dot extends Circle { constructor(point=[0,0],{radius=.08,color=WHITE,...opts}={}){super(radius,{fill:color,stroke:null,transform:Transform2D.translation(...point),...opts});} }
 export class Arrow extends Line {
-  draw(r,parent){super.draw(r,parent);const m=this.world(parent),a=applyPoint(m,this.start),b=applyPoint(m,this.end);const ang=Math.atan2(b[1]-a[1],b[0]-a[0]);const len=.16;const p1=[b[0]-len*Math.cos(ang-.45),b[1]-len*Math.sin(ang-.45)],p2=[b[0]-len*Math.cos(ang+.45),b[1]-len*Math.sin(ang+.45)];withObjectContext(r,this,ctx=>{ctx.beginPath();ctx.moveTo(...r.toDevice(...p1));ctx.lineTo(...r.toDevice(...b));ctx.lineTo(...r.toDevice(...p2));ctx.strokeStyle=this.stroke;ctx.lineWidth=this.width*r.dpr;ctx.stroke();});}
+  constructor(start=[0,0],end=[1,0],{buff=.25,tipLength=.35,tipWidth=.35,...options}={}){
+    super(start,end,options);this.buff=Number(buff);this.tipLength=Number(tipLength);this.tipWidth=Number(tipWidth);
+    if(this.buff<0)throw new RangeError('Arrow buff must be >= 0');
+  }
+  draw(r,parent){
+    const m=this.world(parent),rawA=applyPoint(m,this.start),rawB=applyPoint(m,this.end),dx=rawB[0]-rawA[0],dy=rawB[1]-rawA[1],length=Math.hypot(dx,dy);
+    if(length<=1e-12)return;
+    const ux=dx/length,uy=dy/length,nx=-uy,ny=ux,buff=Math.min(this.buff,length*.49);
+    const a=[rawA[0]+ux*buff,rawA[1]+uy*buff],b=[rawB[0]-ux*buff,rawB[1]-uy*buff],renderedLength=Math.max(1e-9,length-2*buff);
+    const tl=Math.min(this.tipLength,renderedLength*.25),tw=Math.min(this.tipWidth,tl),base=[b[0]-ux*tl,b[1]-uy*tl],left=[base[0]+nx*tw*.5,base[1]+ny*tw*.5],right=[base[0]-nx*tw*.5,base[1]-ny*tw*.5];
+    withObjectContext(r,this,ctx=>{
+      ctx.beginPath();ctx.moveTo(...r.toDevice(...a));ctx.lineTo(...r.toDevice(...base));ctx.strokeStyle=this.stroke;ctx.lineWidth=this.worldStroke?this.width*r.unitSize:this.width*r.dpr;ctx.lineCap='round';ctx.stroke();
+      ctx.beginPath();ctx.moveTo(...r.toDevice(...b));ctx.lineTo(...r.toDevice(...left));ctx.lineTo(...r.toDevice(...right));ctx.closePath();ctx.fillStyle=this.stroke;ctx.fill();
+    });
+  }
 }
 
 export class Text extends ZObject {
-  constructor(text,{fontSize=28,color=WHITE,fontFamily='Inter, ui-sans-serif, system-ui',align='center',weight=500,...rest}={}){super(rest);this.text=text;this.fontSize=fontSize;this.color=color;this.fontFamily=fontFamily;this.align=align;this.weight=weight;}
-  draw(r,parent){const m=this.world(parent);withObjectContext(r,this,ctx=>{const p=r.toDevice(...m.apply(0,0));const sx=Math.hypot(m.xx,m.yx),sy=Math.hypot(m.xy,m.yy);ctx.translate(...p);ctx.transform(m.xx/sx,-m.yx/sx,-m.xy/sy,m.yy/sy,0,0);ctx.fillStyle=this.color;ctx.font=`${this.weight} ${this.fontSize*r.dpr}px ${this.fontFamily}`;ctx.textAlign=this.align;ctx.textBaseline='middle';ctx.fillText(String(typeof this.text==='function'?this.text(r.time,this):this.text),0,0);});}
+  constructor(text,{fontSize=48,color=WHITE,fontFamily='Inter, ui-sans-serif, system-ui',align='center',weight=400,...rest}={}){super(rest);this.text=text;this.fontSize=fontSize;this.color=color;this.fontFamily=fontFamily;this.align=align;this.weight=weight;}
+  draw(r,parent){const m=this.world(parent);withObjectContext(r,this,ctx=>{const p=r.toDevice(...m.apply(0,0));const sx=Math.hypot(m.xx,m.yx),sy=Math.hypot(m.xy,m.yy);ctx.translate(...p);ctx.transform(m.xx/sx,-m.yx/sx,-m.xy/sy,m.yy/sy,0,0);ctx.fillStyle=this.color;ctx.font=`${this.weight} ${this.fontSize*r.unitSize/90}px ${this.fontFamily}`;ctx.textAlign=this.align;ctx.textBaseline='middle';ctx.fillText(String(typeof this.text==='function'?this.text(r.time,this):this.text),0,0);});}
 }
 
 function vectorGroupAlpha(reveal,groupCount,group){if(!groupCount)return 1;return clamp01(clamp01(reveal)*groupCount-group);}
@@ -369,14 +619,208 @@ export class Group extends ZObject {
   draw(r,parent){const m=this.world(parent),time=r.time??0;for(const child of [...this.children].sort((a,b)=>a.zIndex-b.zIndex))if(child.visible&&time>=child.birth&&time<child.death)child.draw(r,m);}
 }
 
+
+function booleanLinearScaleBound(m){
+  const c0=Math.hypot(m.xx,m.yx),c1=Math.hypot(m.xy,m.yy);
+  return Math.max(1e-12,Math.hypot(c0,c1));
+}
+function booleanEllipseSamples(radius,tolerance){
+  if(!(radius>0)||tolerance>=radius)return 24;
+  const value=Math.max(-1,Math.min(1,1-tolerance/radius)),half=Math.acos(value);
+  if(half<=1e-12)return 512;
+  return Math.max(24,Math.min(512,Math.ceil(Math.PI/half)));
+}
+function booleanDedupeClosed(points,epsilon){
+  const out=[],eps2=epsilon*epsilon;
+  for(const p of points){
+    if(out.length){const q=out[out.length-1],dx=p[0]-q[0],dy=p[1]-q[1];if(dx*dx+dy*dy<=eps2)continue;}
+    out.push([Number(p[0]),Number(p[1])]);
+  }
+  if(out.length>=2){const a=out[0],b=out[out.length-1],dx=a[0]-b[0],dy=a[1]-b[1];if(dx*dx+dy*dy<=eps2)out.pop();}
+  if(out.length<3)throw new Error('boolean contour requires at least 3 points');
+  return out;
+}
+function booleanPointLineDistance(p,a,b){
+  const dx=b[0]-a[0],dy=b[1]-a[1],den=Math.hypot(dx,dy);
+  if(den<=1e-15)return Math.hypot(p[0]-a[0],p[1]-a[1]);
+  return Math.abs(dy*p[0]-dx*p[1]+b[0]*a[1]-b[1]*a[0])/den;
+}
+function booleanSplitCubic(seg){
+  const p0=seg[0],p1=seg[1],p2=seg[2],p3=seg[3],mid=(a,b)=>[(a[0]+b[0])*.5,(a[1]+b[1])*.5];
+  const p01=mid(p0,p1),p12=mid(p1,p2),p23=mid(p2,p3),p012=mid(p01,p12),p123=mid(p12,p23),m=mid(p012,p123);
+  return[[p0,p01,p012,m],[m,p123,p23,p3]];
+}
+function booleanFlattenCubic(seg,tolerance,maxDepth=12){
+  const out=[[seg[0][0],seg[0][1]]];
+  const visit=(curve,depth)=>{
+    const flat=Math.max(booleanPointLineDistance(curve[1],curve[0],curve[3]),booleanPointLineDistance(curve[2],curve[0],curve[3]));
+    if(flat<=tolerance||depth>=maxDepth){out.push([curve[3][0],curve[3][1]]);return;}
+    const split=booleanSplitCubic(curve);visit(split[0],depth+1);visit(split[1],depth+1);
+  };
+  visit(seg,0);return out;
+}
+function booleanCollectContours(object,parent=Transform2D.identity(),tolerance=1/512){
+  const transform=parent.mul(object.transform);
+  if(object instanceof Group){
+    const out=[];for(const child of object.children)out.push(...booleanCollectContours(child,transform,tolerance));
+    if(!out.length)throw new Error('boolean Group operand has no closed geometry');
+    return out;
+  }
+  const localTolerance=tolerance/booleanLinearScaleBound(transform);
+  let localContours=[];
+  if(object instanceof Circle){
+    const n=booleanEllipseSamples(object.radius,localTolerance);
+    localContours=[Array.from({length:n},(_,i)=>{const a=TAU*i/n;return[object.radius*Math.cos(a),object.radius*Math.sin(a)];})];
+  }else if(object instanceof Ellipse){
+    const n=booleanEllipseSamples(Math.max(object.radiusX,object.radiusY),localTolerance);
+    localContours=[Array.from({length:n},(_,i)=>{const a=TAU*i/n;return[object.radiusX*Math.cos(a),object.radiusY*Math.sin(a)];})];
+  }else if(object instanceof Polygon){
+    localContours=[object.points.map(p=>[p[0],p[1]])];
+  }else if(object instanceof VectorObject2D){
+    for(const path of object.document.paths)for(const contour of path.contours){
+      if(!contour.closed)continue;
+      const points=[];
+      for(const seg of contour.segments){const flat=booleanFlattenCubic(seg,localTolerance);if(points.length)points.push(...flat.slice(1));else points.push(...flat);}
+      localContours.push(booleanDedupeClosed(points,localTolerance*1e-3));
+    }
+    if(!localContours.length)throw new Error('boolean VectorObject2D operand has no closed contours');
+  }else if(object instanceof Polyline){
+    if(!object.closed)throw new TypeError('open Polyline cannot be used as a boolean area');
+    localContours=[object.points.map(p=>[p[0],p[1]])];
+  }else{
+    throw new TypeError('unsupported boolean operand '+object.constructor.name);
+  }
+  return localContours.map(contour=>booleanDedupeClosed(contour.map(p=>transform.apply(p[0],p[1])),tolerance*1e-3));
+}
+function booleanCross(a,b){return a[0]*b[1]-a[1]*b[0];}
+function booleanSub(a,b){return[a[0]-b[0],a[1]-b[1]];}
+function booleanDot(a,b){return a[0]*b[0]+a[1]*b[1];}
+function booleanDist2(a,b){const x=a[0]-b[0],y=a[1]-b[1];return x*x+y*y;}
+function booleanInside(contours,p,epsilon){
+  let winding=0;
+  for(const contour of contours){
+    for(let i=0;i<contour.length;i++){
+      const a=contour[i],b=contour[(i+1)%contour.length],side=booleanCross(booleanSub(b,a),booleanSub(p,a));
+      if(a[1]<=p[1]){if(b[1]>p[1]&&side>epsilon)winding++;}
+      else if(b[1]<=p[1]&&side<-epsilon)winding--;
+    }
+  }
+  return winding!==0;
+}
+function booleanResultInside(operation,a,b){
+  if(operation==='intersection')return a&&b;
+  if(operation==='union')return a||b;
+  if(operation==='difference')return a&&!b;
+  return a!==b;
+}
+function booleanAddSplit(list,value,epsilon){
+  const v=Math.max(0,Math.min(1,value));if(list.some(x=>Math.abs(x-v)<=epsilon))return;list.push(v);
+}
+function booleanSegments(contours,epsilon){
+  const out=[],eps2=epsilon*epsilon;
+  for(const c of contours)for(let i=0;i<c.length;i++){const a=c[i],b=c[(i+1)%c.length];if(booleanDist2(a,b)>eps2)out.push([a,b]);}
+  return out;
+}
+function booleanIntersectSplits(a,b,as,bs,epsilon){
+  const r=booleanSub(a[1],a[0]),q=booleanSub(b[0],a[0]),v=booleanSub(b[1],b[0]),rxs=booleanCross(r,v),qxr=booleanCross(q,r);
+  if(Math.abs(rxs)>epsilon){
+    const t=booleanCross(q,v)/rxs,u=qxr/rxs;
+    if(t>=-epsilon&&t<=1+epsilon&&u>=-epsilon&&u<=1+epsilon){booleanAddSplit(as,t,epsilon);booleanAddSplit(bs,u,epsilon);}
+    return;
+  }
+  if(Math.abs(qxr)>epsilon)return;
+  const rr=booleanDot(r,r),vv=booleanDot(v,v);if(rr<=epsilon*epsilon||vv<=epsilon*epsilon)return;
+  for(const p of b){const t=booleanDot(booleanSub(p,a[0]),r)/rr;if(t>=-epsilon&&t<=1+epsilon)booleanAddSplit(as,t,epsilon);}
+  for(const p of a){const u=booleanDot(booleanSub(p,b[0]),v)/vv;if(u>=-epsilon&&u<=1+epsilon)booleanAddSplit(bs,u,epsilon);}
+}
+function booleanClassifyEdge(edge,aContours,bContours,operation,epsilon){
+  const d=booleanSub(edge[1],edge[0]),len=Math.hypot(d[0],d[1]);if(len<=epsilon)return null;
+  const m=[(edge[0][0]+edge[1][0])*.5,(edge[0][1]+edge[1][1])*.5],nx=-d[1]/len,ny=d[0]/len,probe=Math.max(epsilon*8,Math.min(len*1e-4,1e-5));
+  const l=[m[0]+nx*probe,m[1]+ny*probe],r=[m[0]-nx*probe,m[1]-ny*probe];
+  const li=booleanResultInside(operation,booleanInside(aContours,l,epsilon),booleanInside(bContours,l,epsilon)),ri=booleanResultInside(operation,booleanInside(aContours,r,epsilon),booleanInside(bContours,r,epsilon));
+  if(li===ri)return null;return li?edge:[edge[1],edge[0]];
+}
+function booleanFallback(aContours,bContours,operation,epsilon){
+  const a=booleanSegments(aContours,epsilon),b=booleanSegments(bContours,epsilon),as=a.map(()=>[0,1]),bs=b.map(()=>[0,1]);
+  for(let i=0;i<a.length;i++)for(let j=0;j<b.length;j++)booleanIntersectSplits(a[i],b[j],as[i],bs[j],epsilon);
+  const edges=[];
+  const emit=(segments,splits)=>{
+    for(let i=0;i<segments.length;i++){
+      const values=splits[i].sort((x,y)=>x-y),seg=segments[i],mix=t=>[seg[0][0]+(seg[1][0]-seg[0][0])*t,seg[0][1]+(seg[1][1]-seg[0][1])*t];
+      for(let j=0;j+1<values.length;j++){
+        if(values[j+1]-values[j]<=epsilon)continue;
+        const edge=booleanClassifyEdge([mix(values[j]),mix(values[j+1])],aContours,bContours,operation,epsilon);
+        if(!edge)continue;
+        if(!edges.some(e=>booleanDist2(e[0],edge[0])<epsilon*epsilon*64&&booleanDist2(e[1],edge[1])<epsilon*epsilon*64))edges.push(edge);
+      }
+    }
+  };
+  emit(a,as);emit(b,bs);
+  const used=new Array(edges.length).fill(false),contours=[],near=(x,y)=>booleanDist2(x,y)<=epsilon*epsilon*144;
+  for(let seed=0;seed<edges.length;seed++){
+    if(used[seed])continue;
+    const contour=[edges[seed][0],edges[seed][1]],start=edges[seed][0];used[seed]=true;let current=edges[seed][1],guard=0;
+    while(!near(current,start)){
+      if(++guard>edges.length+2)throw new Error('vector boolean fallback produced open contour');
+      const previous=contour[contour.length-2],incoming=booleanSub(current,previous),rev=[-incoming[0],-incoming[1]];let found=-1,best=Infinity;
+      for(let k=0;k<edges.length;k++){
+        if(used[k]||!near(edges[k][0],current))continue;
+        const out=booleanSub(edges[k][1],edges[k][0]),signed=Math.atan2(booleanCross(rev,out),booleanDot(rev,out));let cw=-signed;
+        while(cw<0)cw+=TAU;while(cw>=TAU)cw-=TAU;
+        if(cw<best){best=cw;found=k;}
+      }
+      if(found<0)throw new Error('vector boolean fallback produced open contour');
+      used[found]=true;current=edges[found][1];if(!near(current,start))contour.push(current);
+    }
+    if(contour.length>=3)contours.push(contour);
+  }
+  return contours;
+}
+function booleanLineSegment(a,b){
+  return[a,[a[0]+(b[0]-a[0])/3,a[1]+(b[1]-a[1])/3],[a[0]+2*(b[0]-a[0])/3,a[1]+2*(b[1]-a[1])/3],b];
+}
+function booleanDocument(contours,color,fillOpacity,strokeWidth){
+  if(!contours.length)return{width:1e-9,height:1e-9,group_count:0,paths:[]};
+  const points=contours.flat(),xs=points.map(p=>p[0]),ys=points.map(p=>p[1]),fill=lerpColorValue(null,color,fillOpacity),stroke=strokeWidth>0?{color,width:strokeWidth}:null;
+  return{width:Math.max(1e-9,Math.max(...xs)-Math.min(...xs)),height:Math.max(1e-9,Math.max(...ys)-Math.min(...ys)),group_count:1,paths:[{group:0,fill,stroke,contours:contours.map(points=>({closed:true,segments:points.map((p,i)=>booleanLineSegment(p,points[(i+1)%points.length]))}))}]};
+}
+export class BooleanShape extends VectorObject2D {
+  constructor(first,second,operation,{color=WHITE,fillOpacity=.5,strokeWidth=DEFAULT_STROKE_WIDTH,tolerance=1/512,...rest}={}){
+    if(!['intersection','union','difference','exclusion'].includes(operation))throw new RangeError('invalid boolean operation');
+    if(!(fillOpacity>=0&&fillOpacity<=1))throw new RangeError('fillOpacity must be in [0,1]');
+    if(strokeWidth<0)throw new RangeError('strokeWidth must be >= 0');
+    if(!(tolerance>0))throw new RangeError('tolerance must be positive');
+    const a=booleanCollectContours(first,Transform2D.identity(),tolerance),b=booleanCollectContours(second,Transform2D.identity(),tolerance),epsilon=Math.max(1e-10,tolerance*1e-5);
+    const contours=activeZanimWasm?activeZanimWasm.pathBoolean(a,b,operation,epsilon):booleanFallback(a,b,operation,epsilon);
+    super(booleanDocument(contours,color,fillOpacity,strokeWidth),rest);
+    Object.assign(this,{first,second,operation,color,fillOpacity,strokeWidth,tolerance,backend:'vector'});
+  }
+}
+export class Intersection extends BooleanShape { constructor(first,second,options={}){super(first,second,'intersection',options);} }
+export class Union extends BooleanShape { constructor(first,second,options={}){super(first,second,'union',options);} }
+export class Difference extends BooleanShape { constructor(first,second,options={}){super(first,second,'difference',options);} }
+export class Exclusion extends BooleanShape { constructor(first,second,options={}){super(first,second,'exclusion',options);} }
+
 function clipInfiniteLine(width,height,unitSize,p,d){const hx=width/(2*unitSize),hy=height/(2*unitSize);let t0=-Infinity,t1=Infinity;for(const [pv,dv,lo,hi] of [[p[0],d[0],-hx,hx],[p[1],d[1],-hy,hy]]){if(Math.abs(dv)<1e-12){if(pv<lo||pv>hi)return null;continue;}let a=(lo-pv)/dv,b=(hi-pv)/dv;if(a>b)[a,b]=[b,a];t0=Math.max(t0,a);t1=Math.min(t1,b);if(t0>t1)return null;}return [[p[0]+d[0]*t0,p[1]+d[1]*t0],[p[0]+d[0]*t1,p[1]+d[1]*t1]];}
 export class InfiniteLine extends ZObject {
-  constructor(point=[0,0],direction=[1,0],{stroke=WHITE,width=2.5,strokeWidth=null,...rest}={}){super(rest);this.point=point;this.direction=direction;this.stroke=stroke;this.width=strokeWidth==null?width:strokeWidth;this.worldStroke=strokeWidth!=null;}
+  constructor(point=[0,0],direction=[1,0],{stroke=WHITE,width=null,strokeWidth=null,...rest}={}){super(rest);this.point=point;this.direction=direction;this.stroke=stroke;const useWorld=strokeWidth!=null||width==null;this.width=strokeWidth??width??DEFAULT_STROKE_WIDTH;this.worldStroke=useWorld;}
   draw(r,parent){const m=this.world(parent),p=m.apply(...this.point),d=m.vector(...this.direction),seg=clipInfiniteLine(r.canvas.width,r.canvas.height,r.unitSize,p,d);if(!seg)return;withObjectContext(r,this,ctx=>{ctx.beginPath();ctx.moveTo(...r.toDevice(...seg[0]));ctx.lineTo(...r.toDevice(...seg[1]));ctx.strokeStyle=this.stroke;ctx.lineWidth=this.worldStroke?this.width*r.unitSize:this.width*r.dpr;ctx.stroke();});}
 }
 export class InfiniteGrid extends ZObject {
-  constructor({step=.5,stroke='rgba(115,135,175,.42)',width=1,strokeWidth=null,...rest}={}){super(rest);this.step=step;this.stroke=stroke;this.width=strokeWidth==null?width:strokeWidth;this.worldStroke=strokeWidth!=null;}
+  constructor({step=.5,stroke='rgba(115,135,175,.42)',width=null,strokeWidth=null,...rest}={}){super(rest);this.step=step;this.stroke=stroke;const useWorld=strokeWidth!=null||width==null;this.width=strokeWidth??width??(2/90);this.worldStroke=useWorld;}
   draw(r,parent){const t=this.world(parent),segments=r.wasm.resolveGrid(r.canvas.width,r.canvas.height,r.unitSize,this.step,t.linear);withObjectContext(r,this,ctx=>{ctx.beginPath();for(let i=0;i<segments.length;i+=4){const a=r.toDevice(segments[i]+t.tx,segments[i+1]+t.ty),b=r.toDevice(segments[i+2]+t.tx,segments[i+3]+t.ty);ctx.moveTo(...a);ctx.lineTo(...b);}ctx.strokeStyle=this.stroke;ctx.lineWidth=this.worldStroke?this.width*r.unitSize:this.width*r.dpr;ctx.stroke();});}
+}
+export class NumberPlane extends ZObject {
+  constructor({step=1,fadedLineRatio=4,backgroundColor='#236B8E',axisColor=WHITE,backgroundStrokeWidth=2/90,fadedStrokeWidth=1/90,axisStrokeWidth=2/90,...rest}={}){
+    super(rest);Object.assign(this,{step,fadedLineRatio,backgroundColor,axisColor,backgroundStrokeWidth,fadedStrokeWidth,axisStrokeWidth});
+  }
+  draw(r,parent){
+    const t=this.world(parent);
+    if(this.fadedLineRatio>0)new InfiniteGrid({step:this.step/(this.fadedLineRatio+1),stroke:this.backgroundColor+'40',strokeWidth:this.fadedStrokeWidth,transform:t}).draw(r);
+    new InfiniteGrid({step:this.step,stroke:this.backgroundColor,strokeWidth:this.backgroundStrokeWidth,transform:t}).draw(r);
+    new InfiniteLine([0,0],[1,0],{stroke:this.axisColor,strokeWidth:this.axisStrokeWidth,transform:t}).draw(r);
+    new InfiniteLine([0,0],[0,1],{stroke:this.axisColor,strokeWidth:this.axisStrokeWidth,transform:t}).draw(r);
+  }
 }
 export class Axes extends ZObject {
   constructor({xColor=RED,yColor=GREEN,width=2.5,...rest}={}){super(rest);this.xColor=xColor;this.yColor=yColor;this.width=width;}
@@ -491,7 +935,7 @@ export class DynamicVectorObject2D extends VectorObject2D {
 
 export class TextSet extends ZObject {
   constructor(items=[],{color=WHITE,fontSize=16,fontFamily='Inter, ui-sans-serif, system-ui',weight=500,align='center',...rest}={}){super(rest);this.items=items;this.color=color;this.fontSize=fontSize;this.fontFamily=fontFamily;this.weight=weight;this.align=align;}
-  draw(r,parent){const m=this.world(parent),ctx=r.ctx;withObjectContext(r,this,()=>{ctx.textBaseline='middle';for(const item of this.items){const x=item[0],y=item[1],text=item[2],color=item[3]??this.color,size=item[4]??this.fontSize,weight=item[5]??this.weight,p=m.apply(x,y),d=r.toDevice(...p);ctx.fillStyle=color;ctx.font=`${weight} ${size*r.dpr}px ${this.fontFamily}`;ctx.textAlign=this.align;ctx.fillText(String(text),d[0],d[1]);}});}
+  draw(r,parent){const m=this.world(parent),ctx=r.ctx;withObjectContext(r,this,()=>{ctx.textBaseline='middle';for(const item of this.items){const x=item[0],y=item[1],text=item[2],color=item[3]??this.color,size=item[4]??this.fontSize,weight=item[5]??this.weight,p=m.apply(x,y),d=r.toDevice(...p);ctx.fillStyle=color;ctx.font=`${weight} ${size*r.unitSize/90}px ${this.fontFamily}`;ctx.textAlign=this.align;ctx.fillText(String(text),d[0],d[1]);}});}
 }
 export class DynamicTextSet extends TextSet {
   constructor(provider,opts={}){super([],opts);this.provider=provider;}
@@ -511,7 +955,7 @@ export class DynamicPolyline extends Polyline {
 export class FunctionPlot extends Polyline {
   constructor(expression,{xRange=[-5,5],axesXRange=xRange,axesYRange=[-3,3],width=10,height=6,center=[0,0],samples=240,...opts}={}){
     const expr=asScalarExpr(expression),n=Math.round(samples);if(n<2)throw new RangeError('FunctionPlot requires at least two samples');if(!(xRange[0]<xRange[1])||!(axesXRange[0]<axesXRange[1])||!(axesYRange[0]<axesYRange[1]))throw new RangeError('FunctionPlot ranges must be increasing');
-    super([],{strokeWidth:.035,...opts});this.expression=expr;this.xRange=xRange.map(Number);this.axesXRange=axesXRange.map(Number);this.axesYRange=axesYRange.map(Number);this.plotWidth=Number(width);this.plotHeight=Number(height);this.plotCenter=center.map(Number);this.samples=n;this._points=this.pointsAt(0);
+    super([],{strokeWidth:DEFAULT_STROKE_WIDTH,...opts});this.expression=expr;this.xRange=xRange.map(Number);this.axesXRange=axesXRange.map(Number);this.axesYRange=axesYRange.map(Number);this.plotWidth=Number(width);this.plotHeight=Number(height);this.plotCenter=center.map(Number);this.samples=n;this._points=this.pointsAt(0);
   }
   pointsAt(time){const[a,b]=this.xRange,[ax0,ax1]=this.axesXRange,[ay0,ay1]=this.axesYRange,[cx,cy]=this.plotCenter,mx=(ax0+ax1)/2,my=(ay0+ay1)/2,sx=this.plotWidth/(ax1-ax0),sy=this.plotHeight/(ay1-ay0),out=[];for(let i=0;i<this.samples;i++){const x=a+(b-a)*i/(this.samples-1),y=this.expression.evaluate({x,time});out.push([cx+(x-mx)*sx,cy+(y-my)*sy]);}return out;}
   draw(r,parent){this._points=this.pointsAt(r.time);this._path=null;super.draw(r,parent);}
@@ -526,7 +970,7 @@ function sampleDynamicBatch(object,time){
   if(items!==object._items){object._items=items;object._cache=null;}
 }
 export class DynamicLineSet extends LineSet {
-  constructor(provider,opts={}){super([],opts);this.provider=provider;}
+  constructor(provider,opts={}){super([],{width:DEFAULT_STROKE_WIDTH,worldStroke:true,...opts});this.provider=provider;}
   draw(r,parent){sampleDynamicBatch(this,r.time);super.draw(r,parent);}
 }
 export class DynamicCircleSet extends CircleSet {

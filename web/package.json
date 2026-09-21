@@ -31,7 +31,7 @@
   ],
   "scripts": {
     "build": "./build.sh",
-    "test": "node ./test.mjs && node ./rotation.test.mjs && node ./primitive-draw.test.mjs && node ./vite.test.mjs"
+    "test": "node ./test.mjs && node ./rotation.test.mjs && node ./primitive-draw.test.mjs && node ./vite.test.mjs && node ./boolean.test.mjs && node ./move-along.test.mjs && node ./stroke-defaults.test.mjs && node ./scene-viewport.test.mjs && node ./projected-3d-vector.test.mjs && node ./point-light.test.mjs && node ./camera-view-override.test.mjs"
   },
   "dependencies": {
     "@babel/parser": "^7.29.9",

@@ -1,5 +1,12 @@
 export {
   Anchor,
+  Brace,
+  Exclusion,
+  Difference,
+  Union,
+  Intersection,
+  BooleanShape,
+  Arc,
   Arrow,
   Axes,
   BLACK,
@@ -17,6 +24,7 @@ export {
   ComplexMappedGrid,
   CustomObject2D,
   DEFAULT_WASM_URL,
+  DEFAULT_STROKE_WIDTH,
   DEGREES,
   DOWN,
   Dot,
@@ -27,6 +35,7 @@ export {
   DynamicRectSet,
   DynamicTextSet,
   DynamicVectorObject2D,
+  Ellipse,
   Easing,
   FourierEpicycles,
   FractalField,
@@ -47,6 +56,7 @@ export {
   MandelbrotSet,
   Mat2,
   MUTED,
+  NumberPlane,
   ORANGE,
   ORIGIN,
   PARENT,
@@ -64,7 +74,9 @@ export {
   Row,
   ScalarExpr,
   ScalarValue,
+  SceneViewport,
   Square,
+  SurroundingRectangle,
   TAU,
   TIME,
   TOP,
@@ -94,4 +106,4 @@ export { Audio, GIF, Image, MediaObject2D, Video } from './media.js';
 export { SceneRasterObject2D } from './compositing.js';
 export { Math, Typst, configureTypstCompiler } from './typst.js';
 
-export { Box3D, Camera3D, Cube3D, MeshObject3D, Scene3DLayer, Transform3D, TriangleMesh, Vec3, unitBoxMesh } from './three.js';
+export { Box3D, Camera3D, Cube3D, MeshObject3D, ProjectedLineSet3D, ProjectedPolyline3D, Scene3DLayer, Transform3D, TriangleMesh, Vec3, projectPoint3D, unitBoxMesh } from './three.js';

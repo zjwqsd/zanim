@@ -7,6 +7,7 @@ export interface ObjectOptions { transform?:Transform2D; opacity?:number; zIndex
 export interface StyleState { fill?:string|null; stroke?:string|null; width?:number|null; worldStroke?:boolean }
 
 export const PI:number; export const TAU:number; export const DEGREES:number;
+export const DEFAULT_STROKE_WIDTH:number;
 export const LOCAL:'local'; export const PARENT:'parent'; export const WORLD:'world';
 export const ORIGIN:Point2; export const RIGHT:Point2; export const LEFT:Point2; export const UP:Point2; export const DOWN:Point2;
 export const WHITE:string; export const MUTED:string; export const BLUE:string; export const GREEN:string;
@@ -68,8 +69,15 @@ export class MeshObject3D {
   constructor(mesh:TriangleMesh,options?:{transform?:Transform3D|((time:number,object:MeshObject3D)=>Transform3D);geometryTransform?:Transform3D|((time:number,object:MeshObject3D)=>Transform3D);color?:string|((time:number,object:MeshObject3D)=>string);opacity?:ScalarLike});
 }
 export function unitBoxMesh():TriangleMesh; export function Box3D(size?:Vec3|Point3,options?:ConstructorParameters<typeof MeshObject3D>[1]):MeshObject3D; export function Cube3D(side?:number,options?:ConstructorParameters<typeof MeshObject3D>[1]):MeshObject3D;
-export class Camera3D { position:Vec3; target:Vec3; up:Vec3; fovYDegrees:number; near:number; far:number; orthographicHeight:number|null; layerZIndex:number; constructor(options?:{position?:Vec3|Point3;target?:Vec3|Point3;up?:Vec3|Point3;fovYDegrees?:number;near?:number;far?:number;orthographicHeight?:number|null;layerZIndex?:number}); }
-export class Scene3DLayer extends ZObject { readonly meshes:MeshObject3D[]; camera:Camera3D; resolution:number; maxWidth:number; maxHeight:number; constructor(meshes:readonly MeshObject3D[],options?:ObjectOptions&{camera?:Camera3D;resolution?:number;maxWidth?:number;maxHeight?:number}); }
+export class Camera3D { position:Vec3|Point3|((time:number,camera:Camera3D)=>Vec3|Point3); target:Vec3|Point3|((time:number,camera:Camera3D)=>Vec3|Point3); up:Vec3|Point3|((time:number,camera:Camera3D)=>Vec3|Point3); fovYDegrees:number|((time:number,camera:Camera3D)=>number); near:number|((time:number,camera:Camera3D)=>number); far:number|((time:number,camera:Camera3D)=>number); orthographicHeight:number|null|((time:number,camera:Camera3D)=>number|null); layerZIndex:number|((time:number,camera:Camera3D)=>number); constructor(options?:{position?:Camera3D['position'];target?:Camera3D['target'];up?:Camera3D['up'];fovYDegrees?:Camera3D['fovYDegrees'];near?:Camera3D['near'];far?:Camera3D['far'];orthographicHeight?:Camera3D['orthographicHeight'];layerZIndex?:Camera3D['layerZIndex']}); readonly viewOverride:{yaw:number;pitch:number;distanceScale:number}; setViewOverride(options?:{yaw?:number;pitch?:number;distanceScale?:number}):this; orbitBy(yaw?:number,pitch?:number):this; zoomBy(factor?:number):this; resetViewOverride():this; stateAt(time?:number):{position:Vec3;target:Vec3;up:Vec3;fovYDegrees:number;near:number;far:number;orthographicHeight:number|null;layerZIndex:number}; }
+export function projectPoint3D(point:Vec3|Point3,cameraState:ReturnType<Camera3D['stateAt']>,width:number,height:number):[number,number,number]|null;
+export class ProjectedPolyline3D extends ZObject {
+  constructor(points:readonly (Vec3|Point3)[]|((time:number,object:ProjectedPolyline3D)=>readonly (Vec3|Point3)[]),options?:ObjectOptions&{camera?:Camera3D;stroke?:string;strokeWidth?:number|((renderer:CanvasRenderer,time:number,object:ProjectedPolyline3D)=>number);closed?:boolean;endTip?:boolean;tipSize?:number|((renderer:CanvasRenderer,time:number,object:ProjectedPolyline3D)=>number)});
+}
+export class ProjectedLineSet3D extends ZObject {
+  constructor(segments:readonly [Vec3|Point3,Vec3|Point3][]|((time:number,object:ProjectedLineSet3D)=>readonly [Vec3|Point3,Vec3|Point3][]),options?:ObjectOptions&{camera?:Camera3D;stroke?:string;strokeWidth?:number|((renderer:CanvasRenderer,time:number,object:ProjectedLineSet3D)=>number)});
+}
+export class Scene3DLayer extends ZObject { readonly meshes:MeshObject3D[]; camera:Camera3D; lightPosition:Vec3|Point3|((time:number,layer:Scene3DLayer)=>Vec3|Point3)|null; lightDirection:Vec3|Point3|((time:number,layer:Scene3DLayer)=>Vec3|Point3)|null; ambientLight:number; diffuseLight:number; resolution:number; maxWidth:number; maxHeight:number; constructor(meshes:readonly MeshObject3D[],options?:ObjectOptions&{camera?:Camera3D;lightPosition?:Scene3DLayer['lightPosition'];lightDirection?:Scene3DLayer['lightDirection'];ambientLight?:number;diffuseLight?:number;resolution?:number;maxWidth?:number;maxHeight?:number}); }
 
 export class ScalarValue { readonly id:number; value:number; initial:number; constructor(value?:number); }
 export function sampleValue(value:ScalarLike,time?:number):number;
@@ -81,34 +89,58 @@ export class ZanimWasm {
   renderFractal(kind:1|2,width:number,height:number,centerRe:number,centerIm:number,worldPerPixel:number,maxIter?:number,juliaRe?:number,juliaIm?:number,colorShift?:number,colorScale?:number,inside?:readonly number[],palette?:readonly number[]):Uint8ClampedArray;
   renderComplexGrid(kind:1|2|3|4,width:number,height:number,centerRe:number,centerIm:number,worldPerPixel:number,stepX:number,stepY:number,progress:number,strokePx?:number,params?:readonly number[]):Uint8ClampedArray;
   upload3DGeometry(meshes:readonly TriangleMesh[]):unknown;
-  render3D(width:number,height:number,camera:Camera3D,upload:unknown,states:readonly {model:readonly number[];colorRGBA:number;opacity:number}[]):Uint8ClampedArray;
+  render3D(width:number,height:number,camera:Camera3D,upload:unknown,states:readonly {model:readonly number[];colorRGBA:number;opacity:number}[],lighting?:{position?:Vec3|Point3;direction?:Vec3|Point3;ambient?:number;diffuse?:number}|null):Uint8ClampedArray;
 }
 
 export class ZObject {
   readonly id:number; transform:Transform2D; opacity:number; zIndex:number; visible:boolean; birth:number; death:number;
   constructor(options?:ObjectOptions); draw(renderer:CanvasRenderer,parent?:Transform2D):void; world(parent?:Transform2D):Transform2D;
-  bounds():Bounds2D; readonly center:Vec2; anchor(anchor?:Anchor|Point2|Vec2):Vec2; shift(x:number|Point2|Vec2,y?:number):this; place(options?:{anchor?:Anchor|Point2|Vec2;at?:Point2|Vec2}):this;
+  bounds():Bounds2D; readonly center:Vec2; anchor(anchor?:Anchor|Point2|Vec2):Vec2; shift(x:number|Point2|Vec2,y?:number):this; place(options?:{anchor?:Anchor|Point2|Vec2;at?:Point2|Vec2}):this; nextTo(other:ZObject|Point2|Vec2,direction?:Point2|Vec2,buff?:number):this;
   fadeIn(options?:TimeOptions):this; fadeOut(options?:TimeOptions):this; opacityTo(to:number,options?:TimeOptions):this; styleTo(style:StyleState,options?:TimeOptions):this;
   transformFunction(provider:(alpha:number)=>Transform2D,options?:TimeOptions):this; affine(options?:TimeOptions&{position?:Point2;rotation?:number;scale?:number|Point2;shear?:Point2}):this;
-  move(by:Point2|Vec2,options?:TimeOptions&{frame?:TransformFrame}):this; rotate(by:number,options?:TimeOptions&{frame?:TransformFrame;about?:Point2|Vec2|null}):this; scale(by:number,options?:TimeOptions&{frame?:TransformFrame;about?:Point2|Vec2|null}):this;
+  move(by:Point2|Vec2,options?:TimeOptions&{frame?:TransformFrame}):this; moveAlong(path:ZObject,options?:TimeOptions&{samples?:number;tolerance?:number}):this; rotate(by:number,options?:TimeOptions&{frame?:TransformFrame;about?:Point2|Vec2|null}):this; scale(by:number,options?:TimeOptions&{frame?:TransformFrame;about?:Point2|Vec2|null}):this;
   create(options?:TimeOptions):this; trimTo(to:number,options?:TimeOptions):this; remove():this;
 }
 export class Camera2D extends ZObject { affine(options?:TimeOptions&{position?:Point2;rotation?:number;scale?:number|Point2;shear?:Point2}):this; pan(by:Point2|Vec2,options?:TimeOptions):this; }
 export class CustomObject2D extends ZObject { constructor(draw:(context:{renderer:CanvasRenderer;ctx:CanvasRenderingContext2D;time:number;transform:Transform2D;object:CustomObject2D})=>void,options?:ObjectOptions); }
+export class SceneViewport extends ZObject {
+  constructor(options?:ObjectOptions&{
+    sourceCenter?:Point2|((time:number,object:SceneViewport)=>Point2);
+    sourceSize?:Point2|((time:number,object:SceneViewport)=>Point2);
+    width?:number;
+    height?:number;
+  });
+  sourceCenter:Point2|((time:number,object:SceneViewport)=>Point2);
+  sourceSize:Point2|((time:number,object:SceneViewport)=>Point2);
+  width:number;
+  height:number;
+}
 
 export class Line extends ZObject { constructor(start?:Point2,end?:Point2,options?:ObjectOptions&{stroke?:string;width?:number;strokeWidth?:number}); }
 export class Polyline extends ZObject {
   points:readonly Point2[]; reveal:ScalarLike; trim:ScalarLike; worldStroke:boolean;
-  constructor(points:readonly Point2[],options?:ObjectOptions&{stroke?:string|null;width?:number;strokeWidth?:number;closed?:boolean;fill?:string|null;reveal?:ScalarLike;trim?:ScalarLike}); invalidate():this;
+  constructor(points:readonly Point2[],options?:ObjectOptions&{stroke?:string|null;width?:number;strokeWidth?:number;closed?:boolean;fill?:string|null;lineJoin?:CanvasLineJoin;lineCap?:CanvasLineCap;miterLimit?:number;reveal?:ScalarLike;trim?:ScalarLike}); invalidate():this;
 }
 export function resamplePolylineByArcLength(points:readonly Point2[],segmentCount:number):Point2[];
+export function pointAtArcLength(points:readonly Point2[],proportion:number):Vec2;
+export function motionPathPoints(object:ZObject,options?:{samples?:number;tolerance?:number}):Point2[];
+export class Brace extends Polyline {
+  readonly direction:Vec2; readonly tangent:Vec2; readonly depth:number;
+  constructor(target:ZObject,options?:ObjectOptions&{direction?:Point2|Vec2;buff?:number;depth?:number;color?:string;width?:number;strokeWidth?:number;samples?:number});
+  labelPoint(buff?:number):Vec2;
+}
 export class Polygon extends Polyline { constructor(points:readonly Point2[],options?:ConstructorParameters<typeof Polyline>[1]); }
 export class Rectangle extends Polygon { readonly rectWidth:number; readonly rectHeight:number; constructor(width?:number,height?:number,options?:ConstructorParameters<typeof Polygon>[1]); }
 export class Square extends Rectangle { constructor(side?:number,options?:ConstructorParameters<typeof Polygon>[1]); }
 export class RegularPolygon extends Polygon { constructor(sides?:number,radius?:number,options?:ConstructorParameters<typeof Polygon>[1]&{phase?:number}); }
 export class Circle extends ZObject { radius:number; reveal:ScalarLike; trim:ScalarLike; constructor(radius?:number,options?:ObjectOptions&{fill?:string|null;stroke?:string|null;width?:number;strokeWidth?:number;reveal?:ScalarLike;trim?:ScalarLike}); }
+export class SurroundingRectangle extends Rectangle {
+  constructor(target:ZObject,options?:ObjectOptions&{buff?:number;color?:string});
+}
+export class Ellipse extends ZObject { radiusX:number; radiusY:number; reveal:ScalarLike; trim:ScalarLike; constructor(radiusX?:number,radiusY?:number,options?:ObjectOptions&{fill?:string|null;stroke?:string|null;width?:number;strokeWidth?:number;reveal?:ScalarLike;trim?:ScalarLike}); }
+export class Arc extends ZObject { radius:number; startAngle:number; sweepAngle:number; reveal:ScalarLike; trim:ScalarLike; constructor(radius?:number,startAngle?:number,sweepAngle?:number,options?:ObjectOptions&{stroke?:string;width?:number;strokeWidth?:number;reveal?:ScalarLike;trim?:ScalarLike}); }
 export class Dot extends Circle { constructor(point?:Point2,options?:ObjectOptions&{radius?:number;color?:string}); }
-export class Arrow extends Line {}
+export class Arrow extends Line { constructor(start?:Point2,end?:Point2,options?:ObjectOptions&{stroke?:string;width?:number;strokeWidth?:number;buff?:number;tipLength?:number;tipWidth?:number}); buff:number; tipLength:number; tipWidth:number; }
 export class Text extends ZObject { text:string|((time:number,object:Text)=>string); fontSize:number; color:string; fontFamily:string; constructor(text:string|((time:number,object:Text)=>string),options?:ObjectOptions&{fontSize?:number;color?:string;fontFamily?:string;align?:CanvasTextAlign;weight?:number}); }
 export interface VectorDocumentData { width:number; height:number; group_count:number; paths:Array<{group:number;fill:string|null;stroke:{color:string;width:number}|null;contours:Array<{closed:boolean;segments:Array<[Point2,Point2,Point2,Point2]>}>}> }
 export class VectorObject2D extends ZObject { document:VectorDocumentData; reveal:ScalarLike; tint:string|null; constructor(document:VectorDocumentData,options?:ObjectOptions&{reveal?:ScalarLike;tint?:string|null}); invalidate():this; }
@@ -119,6 +151,17 @@ export class Group extends ZObject { readonly children:ZObject[]; constructor(ch
 
 export class InfiniteLine extends ZObject { constructor(point?:Point2,direction?:Point2,options?:ObjectOptions&{stroke?:string;width?:number;strokeWidth?:number}); }
 export class InfiniteGrid extends ZObject { constructor(options?:ObjectOptions&{step?:number;stroke?:string;width?:number;strokeWidth?:number}); }
+export class BooleanShape extends VectorObject2D {
+  readonly first:ZObject; readonly second:ZObject; readonly operation:'intersection'|'union'|'difference'|'exclusion'; readonly color:string; readonly fillOpacity:number; readonly strokeWidth:number; readonly tolerance:number; readonly backend:'vector';
+  constructor(first:ZObject,second:ZObject,operation:'intersection'|'union'|'difference'|'exclusion',options?:ObjectOptions&{color?:string;fillOpacity?:number;strokeWidth?:number;tolerance?:number});
+}
+export class Intersection extends BooleanShape { constructor(first:ZObject,second:ZObject,options?:any); }
+export class Union extends BooleanShape { constructor(first:ZObject,second:ZObject,options?:any); }
+export class Difference extends BooleanShape { constructor(first:ZObject,second:ZObject,options?:any); }
+export class Exclusion extends BooleanShape { constructor(first:ZObject,second:ZObject,options?:any); }
+export class NumberPlane extends ZObject {
+  constructor(options?:ObjectOptions&{step?:number;fadedLineRatio?:number;backgroundColor?:string;axisColor?:string;backgroundStrokeWidth?:number;fadedStrokeWidth?:number;axisStrokeWidth?:number});
+}
 export class Axes extends ZObject { constructor(options?:ObjectOptions&{xColor?:string;yColor?:string;width?:number}); }
 
 export type CircleItem = readonly [number,number,number,string?,string?,number?];
@@ -198,7 +241,7 @@ export interface ParallelAPI {
   animate(object:ZObject,options?:AnimationOptions):ZObject; animateValue(value:ScalarValue,options:{to:number}&TimeOptions):ScalarValue; transformFunction(object:ZObject,provider:(alpha:number)=>Transform2D,options?:TimeOptions):ZObject;
   fadeIn(object:ZObject,options?:TimeOptions):ZObject; fadeOut(object:ZObject,options?:TimeOptions):ZObject; create(object:ZObject,options?:TimeOptions):ZObject; style(object:ZObject,options:{to:StyleState}&TimeOptions):ZObject;
   batch(object:CircleSet|LineSet|RectSet,options:{to:readonly unknown[]|CircleSet|LineSet|RectSet}&TimeOptions):ZObject; media(object:MediaObject2D,options?:MediaPlaybackOptions):MediaObject2D;
-  move(object:ZObject,by:Point2|Vec2,options?:TimeOptions&{frame?:TransformFrame}):ZObject; rotate(object:ZObject,by:number,options?:TimeOptions&{frame?:TransformFrame;about?:Point2|Vec2|null}):ZObject; scale(object:ZObject,by:number,options?:TimeOptions&{frame?:TransformFrame;about?:Point2|Vec2|null}):ZObject;
+  move(object:ZObject,by:Point2|Vec2,options?:TimeOptions&{frame?:TransformFrame}):ZObject; moveAlong(object:ZObject,path:ZObject,options?:TimeOptions&{samples?:number;tolerance?:number}):ZObject; rotate(object:ZObject,by:number,options?:TimeOptions&{frame?:TransformFrame;about?:Point2|Vec2|null}):ZObject; scale(object:ZObject,by:number,options?:TimeOptions&{frame?:TransformFrame;about?:Point2|Vec2|null}):ZObject;
   affine(object:ZObject,options?:TimeOptions&{position?:Point2;rotation?:number;scale?:number|Point2;shear?:Point2}):ZObject; interpolate(source:ZObject,target:ZObject,options?:TimeOptions):ZObject;
 }
 export class Scene {

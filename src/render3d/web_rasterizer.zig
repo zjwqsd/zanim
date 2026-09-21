@@ -5,8 +5,8 @@ const math = @import("math3d.zig");
 const Vec3 = math.Vec3;
 
 const Vec4 = struct { x: f32, y: f32, z: f32, w: f32 };
-const ClipVertex = struct { clip: Vec4, normal: Vec3 };
-const ScreenVertex = struct { x: f32, y: f32, depth: f32, inv_w: f32, normal: Vec3 };
+const ClipVertex = struct { clip: Vec4, normal: Vec3, world: Vec3 };
+const ScreenVertex = struct { x: f32, y: f32, depth: f32, inv_w: f32, normal: Vec3, world: Vec3 };
 
 const NormalMatrix = struct {
     m00: f32,
@@ -31,12 +31,31 @@ const NormalMatrix = struct {
 pub const max_vertices_per_mesh = 16_384;
 var vertex_scratch: [max_vertices_per_mesh]ClipVertex = undefined;
 
-const light_len = @sqrt(0.35 * 0.35 + 0.82 * 0.82 + 0.48 * 0.48);
-const light_dir = Vec3{
-    .x = 0.35 / light_len,
-    .y = 0.82 / light_len,
-    .z = 0.48 / light_len,
+const Lighting = struct {
+    kind: u32, // 0 = directional, 1 = point
+    value: Vec3,
+    ambient: f32,
+    diffuse: f32,
 };
+
+fn normalized(v: Vec3) ?Vec3 {
+    const len2 = Vec3.dot(v, v);
+    if (!(len2 > 1e-20) or !std.math.isFinite(len2)) return null;
+    const inv_len = 1.0 / @sqrt(len2);
+    return .{ .x = v.x * inv_len, .y = v.y * inv_len, .z = v.z * inv_len };
+}
+
+fn lightDirection(lighting: Lighting, world: Vec3) Vec3 {
+    const raw = if (lighting.kind == 1)
+        Vec3{
+            .x = lighting.value.x - world.x,
+            .y = lighting.value.y - world.y,
+            .z = lighting.value.z - world.z,
+        }
+    else
+        lighting.value;
+    return normalized(raw) orelse Vec3{ .x = 0, .y = 0, .z = 1 };
+}
 
 pub fn render(
     pixels: []u8,
@@ -45,6 +64,7 @@ pub fn render(
     height: u32,
     camera: wire.WireCamera3D,
     meshes: []const wire.WireMesh3D,
+    lighting: Lighting,
 ) !void {
     if (width == 0 or height == 0) return error.InvalidDimensions;
     const pixel_count = @as(usize, width) * @as(usize, height);
@@ -67,7 +87,7 @@ pub fn render(
         const alpha = effectiveAlpha(mesh);
         if (!(alpha >= 0 and alpha <= 1) or !std.math.isFinite(alpha)) return error.InvalidOpacity;
         if (alpha < 0.999) continue;
-        try drawMesh(width, height, view_proj, mesh, depth, pixels, true);
+        try drawMesh(width, height, view_proj, mesh, lighting, depth, pixels, true);
     }
 
     var transparent: [64]usize = undefined;
@@ -86,7 +106,7 @@ pub fn render(
         }
     }
     for (transparent[0..transparent_count]) |index| {
-        try drawMesh(width, height, view_proj, meshes[index], depth, pixels, false);
+        try drawMesh(width, height, view_proj, meshes[index], lighting, depth, pixels, false);
     }
 }
 
@@ -102,6 +122,7 @@ fn drawMesh(
     height: u32,
     view_proj: math.Mat4,
     mesh: wire.WireMesh3D,
+    lighting: Lighting,
     depth: []f32,
     pixels: []u8,
     is_opaque: bool,
@@ -113,12 +134,11 @@ fn drawMesh(
     if (mesh.vertex_count > max_vertices_per_mesh) return error.MeshTooLarge;
 
     const model = math.fromRowMajor(mesh.model);
-    const mvp = math.mul(view_proj, model);
     const normal_matrix = try normalMatrix(model);
     const rgba = unpackColor(mesh.color_rgba, mesh.opacity);
     const vertices = vertex_scratch[0..mesh.vertex_count];
     for (vertices, 0..) |*vertex, index| {
-        vertex.* = makeVertex(mvp, normal_matrix, positions, normals, index);
+        vertex.* = makeVertex(view_proj, model, normal_matrix, positions, normals, index);
     }
 
     var triangle: usize = 0;
@@ -147,12 +167,12 @@ fn drawMesh(
         const polygon = if (use_a) polygon_a[0..count] else polygon_b[0..count];
         var fan: usize = 1;
         while (fan + 1 < polygon.len) : (fan += 1) {
-            rasterTriangle(width, height, polygon[0], polygon[fan], polygon[fan + 1], rgba, depth, pixels, is_opaque);
+            rasterTriangle(width, height, polygon[0], polygon[fan], polygon[fan + 1], rgba, lighting, depth, pixels, is_opaque);
         }
     }
 }
 
-fn makeVertex(mvp: math.Mat4, normal_matrix: NormalMatrix, positions: [*]const f32, normals: [*]const f32, index: usize) ClipVertex {
+fn makeVertex(view_proj: math.Mat4, model: math.Mat4, normal_matrix: NormalMatrix, positions: [*]const f32, normals: [*]const f32, index: usize) ClipVertex {
     const p = Vec4{
         .x = positions[index * 3],
         .y = positions[index * 3 + 1],
@@ -164,7 +184,9 @@ fn makeVertex(mvp: math.Mat4, normal_matrix: NormalMatrix, positions: [*]const f
         .y = normals[index * 3 + 1],
         .z = normals[index * 3 + 2],
     };
-    return .{ .clip = mulVec4(mvp, p), .normal = normal_matrix.apply(n) };
+    const world4 = mulVec4(model, p);
+    const world = Vec3{ .x = world4.x, .y = world4.y, .z = world4.z };
+    return .{ .clip = mulVec4(view_proj, world4), .normal = normal_matrix.apply(n), .world = world };
 }
 
 fn mulVec4(m: math.Mat4, v: Vec4) Vec4 {
@@ -228,6 +250,11 @@ fn lerpVertex(a: ClipVertex, b: ClipVertex, t: f32) ClipVertex {
             .y = a.normal.y * s + b.normal.y * t,
             .z = a.normal.z * s + b.normal.z * t,
         },
+        .world = .{
+            .x = a.world.x * s + b.world.x * t,
+            .y = a.world.y * s + b.world.y * t,
+            .z = a.world.z * s + b.world.z * t,
+        },
     };
 }
 
@@ -238,6 +265,7 @@ fn rasterTriangle(
     b: ClipVertex,
     c: ClipVertex,
     rgba: [4]f32,
+    lighting: Lighting,
     depth: []f32,
     pixels: []u8,
     is_opaque: bool,
@@ -295,8 +323,19 @@ fn rasterTriangle(
                 n.y *= inv_len;
                 n.z *= inv_len;
             }
+            const denom = p0 + p1 + p2;
+            var world = Vec3{ .x = 0, .y = 0, .z = 0 };
+            if (@abs(denom) > 1e-20) {
+                const inv_denom = 1.0 / denom;
+                world = .{
+                    .x = (p0 * va.world.x + p1 * vb.world.x + p2 * vc.world.x) * inv_denom,
+                    .y = (p0 * va.world.y + p1 * vb.world.y + p2 * vc.world.y) * inv_denom,
+                    .z = (p0 * va.world.z + p1 * vb.world.z + p2 * vc.world.z) * inv_denom,
+                };
+            }
+            const light_dir = lightDirection(lighting, world);
             const diffuse = @max(0.0, Vec3.dot(n, light_dir));
-            const illumination = 0.24 + 0.76 * diffuse;
+            const illumination = lighting.ambient + lighting.diffuse * diffuse;
             const src = [4]f32{
                 @max(0, @min(1, rgba[0] * illumination)),
                 @max(0, @min(1, rgba[1] * illumination)),
@@ -324,6 +363,7 @@ fn toScreen(width: u32, height: u32, v: ClipVertex) ScreenVertex {
         .depth = nz * 0.5 + 0.5,
         .inv_w = inv_w,
         .normal = v.normal,
+        .world = v.world,
     };
 }
 
