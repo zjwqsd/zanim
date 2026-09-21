@@ -3,6 +3,9 @@ import DemoCard from './components/DemoCard.vue'
 import HeroScene from './components/HeroScene.vue'
 import { lessons } from './lessons.js'
 
+const featuredLessonIds = new Set(['scene', 'frames', 'three-d'])
+const featuredLessons = lessons.filter((lesson) => featuredLessonIds.has(lesson.id))
+
 const features = [
   ['Random-access timeline', 'Evaluate exact scene state at any time. Preview seeking does not replay previous frames.'],
   ['Python + Web', 'Author with Python for rendering or JavaScript for interactive browser scenes.'],
@@ -13,7 +16,7 @@ const features = [
 const learnMore = [
   ['Architecture', 'How Scene state, native rendering and Web rendering fit together.', 'https://github.com/zjwqsd/zanim/blob/main/docs/ARCHITECTURE.md'],
   ['Scene IR v1', 'The portable boundary shared by Python, Web and native rendering.', 'https://github.com/zjwqsd/zanim/blob/main/docs/scene-ir-v1.md'],
-  ['Showcase', 'More complete scenes: math, fractals, 3D, kinematics and algorithms.', 'https://github.com/zjwqsd/zanim-showcase'],
+  ['Showcase', 'More complete scenes: math, fractals, 3D, kinematics and algorithms.', 'https://zjwqsd.github.io/zanim-showcase/#/gallery'],
   ['Zanim Slides', 'A Markdown-first presentation language built on the Zanim scene model.', 'https://github.com/zjwqsd/zanim-slide-lang'],
 ]
 </script>
@@ -23,18 +26,18 @@ const learnMore = [
     <header class="site-header">
       <div class="container header-inner">
         <a class="site-brand" href="#top" aria-label="Zanim home">
-          <span class="brand-mark">Z</span>
           <span>Zanim</span>
+          <small class="brand-version">v0.7.0rc1</small>
         </a>
 
         <nav class="site-nav">
-          <a href="#install">Install</a>
-          <a href="#examples">Examples</a>
-          <a href="#about">About</a>
+          <a href="https://zjwqsd.github.io/zanim-showcase/#/" target="_blank" rel="noreferrer">Docs</a>
+          <a href="https://zjwqsd.github.io/zanim-showcase/#/gallery" target="_blank" rel="noreferrer">Gallery</a>
+          <a href="#examples">Live demos</a>
           <a href="https://github.com/zjwqsd/zanim" target="_blank" rel="noreferrer">GitHub</a>
         </nav>
 
-        <a class="header-button" href="#examples">Getting Started</a>
+        <a class="header-button" href="https://zjwqsd.github.io/zanim-showcase/#/tutorial/quickstart" target="_blank" rel="noreferrer">Get started</a>
       </div>
     </header>
 
@@ -51,8 +54,8 @@ const learnMore = [
             </p>
 
             <div class="hero-buttons">
-              <a class="button button-primary" href="https://github.com/zjwqsd/zanim" target="_blank" rel="noreferrer">Star on GitHub</a>
-              <a class="button button-outline" href="#install">Getting Started</a>
+              <a class="button button-primary" href="https://zjwqsd.github.io/zanim-showcase/#/tutorial/quickstart" target="_blank" rel="noreferrer">Get started</a>
+              <a class="button button-outline" href="https://github.com/zjwqsd/zanim" target="_blank" rel="noreferrer">GitHub</a>
             </div>
 
             <div class="hero-meta">
@@ -120,15 +123,20 @@ const learnMore = [
 
       <section id="examples" class="section examples-section">
         <div class="container">
-          <div class="section-title">
-            <h2>Examples</h2>
-            <p>
-              Every example below is live Zanim running in your browser — not a video.
-              Switch between Python and JavaScript, then scrub the timeline directly.
-            </p>
+          <div class="section-title-row">
+            <div class="section-title">
+              <h2>Live examples</h2>
+              <p>
+                Real Zanim scenes running in the browser. Read the Python or JavaScript,
+                play the animation, or seek to any point on the timeline.
+              </p>
+            </div>
+            <a class="section-link" href="https://zjwqsd.github.io/zanim-showcase/#/gallery" target="_blank" rel="noreferrer">
+              Full Example Gallery ↗
+            </a>
           </div>
 
-          <DemoCard v-for="lesson in lessons" :key="lesson.id" :lesson="lesson" />
+          <DemoCard v-for="(lesson, index) in featuredLessons" :key="lesson.id" :lesson="{ ...lesson, index: String(index + 1).padStart(2, '0') }" />
         </div>
       </section>
 
@@ -169,7 +177,7 @@ const learnMore = [
     <footer class="site-footer">
       <div class="container footer-grid">
         <div>
-          <a class="site-brand footer-brand" href="#top"><span class="brand-mark">Z</span><span>Zanim</span></a>
+          <a class="site-brand footer-brand" href="#top"><span>Zanim</span></a>
           <p>Cross-platform animation with Python, Zig and Web.</p>
         </div>
 
@@ -190,7 +198,7 @@ const learnMore = [
         <div>
           <strong>Community</strong>
           <a href="https://github.com/zjwqsd/zanim/issues" target="_blank" rel="noreferrer">Issues</a>
-          <a href="https://github.com/zjwqsd/zanim-showcase" target="_blank" rel="noreferrer">Showcase</a>
+          <a href="https://zjwqsd.github.io/zanim-showcase/#/gallery" target="_blank" rel="noreferrer">Showcase</a>
           <a href="https://github.com/zjwqsd/zanim-slide-lang" target="_blank" rel="noreferrer">Zanim Slides</a>
         </div>
       </div>
