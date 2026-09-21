@@ -27,7 +27,7 @@ const learnMore = [
       <div class="container header-inner">
         <a class="site-brand" href="#top" aria-label="Zanim home">
           <span>Zanim</span>
-          <small class="brand-version">v0.7.0rc1</small>
+          <small class="brand-version">v0.7.0rc2</small>
         </a>
 
         <nav class="site-nav">
@@ -45,7 +45,7 @@ const learnMore = [
       <section class="hero-section">
         <div class="container hero-inner">
           <div class="hero-copy">
-            <p class="version">Zanim 0.7.0rc1 · pre-1.0</p>
+            <p class="version">Zanim 0.7.0rc2 · pre-1.0</p>
             <h1>Zanim</h1>
             <p class="hero-tagline">A cross-platform animation engine for precise, seekable scenes.</p>
             <p class="hero-description">
@@ -82,7 +82,7 @@ const learnMore = [
                 <strong>Python</strong>
                 <span>PyPI</span>
               </div>
-              <pre><code>pip install --pre zanim==0.7.0rc1</code></pre>
+              <pre><code>pip install --pre zanim==0.7.0rc2</code></pre>
               <p>Native rendering, preview, video export, 3D and Scene IR.</p>
               <a href="https://pypi.org/project/zanim/" target="_blank" rel="noreferrer">View on PyPI →</a>
             </article>

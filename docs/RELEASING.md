@@ -4,7 +4,7 @@ Zanim is intentionally pre-1.0. Python and Web use independent version streams.
 
 Current release candidates:
 
-- Python: `zanim 0.7.0rc1`
+- Python: `zanim 0.7.0rc2`
 - Web: `@zanim/web 0.1.0-beta.1`
 
 ## One-time registry setup
@@ -40,8 +40,8 @@ The GitHub CI repeats this on Python 3.12/3.13 across Linux, Windows, and macOS.
 Publish by pushing a tag that exactly matches `pyproject.toml`, for example:
 
 ```bash
-git tag v0.7.0rc1
-git push origin v0.7.0rc1
+git tag v0.7.0rc2
+git push origin v0.7.0rc2
 ```
 
 ## Web preflight

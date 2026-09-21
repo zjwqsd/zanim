@@ -11,12 +11,12 @@ Cross-platform animation engine with Python and TypeScript authoring.
 
 Examples and tutorials are maintained in a separate repository. The core repository intentionally contains no tutorial/example tree.
 
-> **Release status:** Zanim is pre-1.0. `0.7.0rc1` is the first public release candidate; core semantics are usable, while APIs may still evolve between 0.x releases.
+> **Release status:** Zanim is pre-1.0. `0.7.0rc2` is the current public release candidate; core semantics are usable, while APIs may still evolve between 0.x releases.
 
 ## Install
 
 ```bash
-pip install --pre zanim==0.7.0rc1
+pip install --pre zanim==0.7.0rc2
 ```
 
 Published wheels bundle the native Zig renderer and browser/WASM preview runtime, so Zig is not required for normal installation. FFmpeg is required for encoded video workflows, and Typst is required only when authoring `Text` / `Math`. Run `zanim info` after installation to inspect the local toolchain.

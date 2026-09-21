@@ -1,6 +1,6 @@
 [project]
 name = "zanim"
-version = "0.7.0rc1"
+version = "0.7.0rc2"
 description = "A random-access animation engine with a Python frontend, Zig renderer, and Web runtime"
 readme = "README.md"
 license = "MIT"

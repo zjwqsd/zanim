@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0rc2 - 2026-09-21
+
+Second public release candidate.
+
+- Expanded vector, viewport, and 3D rendering capabilities.
+- Refined the project website and documentation presentation.
+- Preserved the pre-1.0 API status while incorporating the latest runtime and showcase-facing improvements.
+
 ## 0.7.0rc1 - 2026-09-20
 
 First public release candidate.
