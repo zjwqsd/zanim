@@ -69,4 +69,4 @@ The core repository contains runtime code, tests and technical documentation. Tu
 
 ## Class-based authoring
 
-Python Scene subclasses may define `setup()` and `construct()`. The CLI runs them in that order. `setup()` prepares raw declarations/resources and one-time initial layout; `construct()` crosses `Scene.add()` and authors the Timeline. Temporally-created objects may still be declared inside `construct()` at the point their lifetime begins. These hooks are a thin frontend only: `Scene.add()` remains the state-ownership boundary and Timeline/evaluation semantics are unchanged.
+Python Scene subclasses may define `setup()` and `construct()`. The CLI runs them in that order, but `setup()` is optional: small scenes normally declare, lay out, add, and animate objects directly in `construct()`. Larger scenes can use `setup()` to separate resource preparation or reusable raw declarations. The hook boundary has no state semantics of its own; `Scene.add()` is the actual ownership boundary between raw initial authoring and Scene-owned timeline state. Temporally-created objects may still be declared inside `construct()` at the point their lifetime begins.

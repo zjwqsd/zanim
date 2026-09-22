@@ -1,7 +1,7 @@
 import math
 
 import pytest
-from zanim import LOCAL, PARENT, SE3, SO3, Cube3D, Group3D, Scene, Vec3
+from zanim import LOCAL, PARENT, SE3, SO3, Cube3D, Group3D, Scene, Transform3D, Vec3
 
 
 def test_group3d_composes_transform_and_opacity_into_mesh():
@@ -52,7 +52,7 @@ def test_nested_group3d_world_transform_random_access():
     )
 
     expected = scene.evaluate(0.5).meshes3d[0].snapshot.transform
-    assert scene.world_transform3d(mesh, time=0.5) == expected
+    assert scene._world_transform3d(mesh, time=0.5) == expected
 
 
 def test_group3d_hierarchy_is_immutable_after_add():
@@ -73,7 +73,21 @@ def test_relative_se3_rotation_follows_arc_not_endpoint_chord():
         duration=1.0,
         easing=__import__("zanim").Easing.LINEAR,
     )
-    center = scene.world_transform3d(cube, time=0.5).apply(Vec3())
+    center = scene._world_transform3d(cube, time=0.5).apply(Vec3())
     root2 = math.sqrt(0.5)
     assert center.x == pytest.approx(root2, abs=1e-7)
     assert center.y == pytest.approx(root2, abs=1e-7)
+
+
+def test_group3d_constructor_sugar_matches_mesh_objects():
+    rotation = SO3.rotation_y(math.pi / 3)
+    group = Group3D(
+        [Cube3D(0.5)],
+        position=(1, 2, 3),
+        rotation=rotation,
+        scale=1.5,
+    )
+    expected = (
+        Transform3D.translation(1, 2, 3) @ rotation.to_transform3d() @ Transform3D.scaling(1.5)
+    )
+    assert group.transform == expected

@@ -1,6 +1,6 @@
 import unittest
 
-from zanim import Canvas, Color, Scene, Style
+from zanim import Canvas, Color, Scene
 from zanim.plot import Axes, DynamicGeometryObject2D
 
 
@@ -38,7 +38,8 @@ class AxesTests(unittest.TestCase):
         axes = Axes((-3, 3), (-1, 3), width=6, height=4)
         obj = DynamicGeometryObject2D(
             lambda t: axes.area_polygon(lambda x: 1 + x * x * 0.1, -2 + t, 1 + t * 0.1),
-            style=Style(fill=Color(100, 150, 255, 120), stroke=None),
+            fill=Color(100, 150, 255, 120),
+            stroke=None,
         )
         scene = Scene(canvas=Canvas(width=640, height=360, unit_size=70))
         scene.add(obj)

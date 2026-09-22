@@ -280,7 +280,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         self._simulation_bindings[registered.object_id] = binding
         if all(existing is not simulation for existing in self._simulations):
             self._simulations.append(simulation)
-        return self.on(obj)
+        return self._handle(obj)
 
     def _has_simulation_transform_binding(self, object_id: int) -> bool:
         return int(object_id) in self._simulation_bindings
@@ -371,44 +371,44 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             ):
                 raise TypeError(f"unsupported scene item: {type(obj).__name__}")
             self._register(obj, (), set(), added_at)
-            handles.append(self.on(obj))
+            handles.append(self._handle(obj))
         return handles[0] if len(handles) == 1 else tuple(handles)
 
     @overload
-    def on(self, obj: _TObject2D) -> "BoundObject2D[_TObject2D]": ...
+    def _handle(self, obj: _TObject2D) -> "BoundObject2D[_TObject2D]": ...
 
     @overload
-    def on(self, obj: _TBatch2D) -> "BoundBatch2D[_TBatch2D]": ...
+    def _handle(self, obj: _TBatch2D) -> "BoundBatch2D[_TBatch2D]": ...
 
     @overload
-    def on(self, obj: _TVector2D) -> "BoundVector2D[_TVector2D]": ...
+    def _handle(self, obj: _TVector2D) -> "BoundVector2D[_TVector2D]": ...
 
     @overload
-    def on(self, obj: _TRaster2D) -> "BoundRaster2D[_TRaster2D]": ...
+    def _handle(self, obj: _TRaster2D) -> "BoundRaster2D[_TRaster2D]": ...
 
     @overload
-    def on(self, obj: _TInfinite2D) -> "Bound2D[_TInfinite2D]": ...
+    def _handle(self, obj: _TInfinite2D) -> "Bound2D[_TInfinite2D]": ...
 
     @overload
-    def on(self, obj: _TGroup2D) -> "BoundGroup[_TGroup2D]": ...
+    def _handle(self, obj: _TGroup2D) -> "BoundGroup[_TGroup2D]": ...
 
     @overload
-    def on(self, obj: _TMesh3D) -> "BoundMesh3D[_TMesh3D]": ...
+    def _handle(self, obj: _TMesh3D) -> "BoundMesh3D[_TMesh3D]": ...
 
     @overload
-    def on(self, obj: _TGroup3D) -> "BoundGroup3D[_TGroup3D]": ...
+    def _handle(self, obj: _TGroup3D) -> "BoundGroup3D[_TGroup3D]": ...
 
     @overload
-    def on(self, obj: _TValue) -> "BoundValue[_TValue]": ...
+    def _handle(self, obj: _TValue) -> "BoundValue[_TValue]": ...
 
     @overload
-    def on(self, obj: _TAudio) -> "BoundAudio[_TAudio]": ...
+    def _handle(self, obj: _TAudio) -> "BoundAudio[_TAudio]": ...
 
     @overload
-    def on(self, obj: _TScene2D) -> "Bound2D[_TScene2D]": ...
+    def _handle(self, obj: _TScene2D) -> "Bound2D[_TScene2D]": ...
 
-    def on(self, obj: Any) -> Any:
-        """Return the stable Scene-bound handle for one registered item."""
+    def _handle(self, obj: Any) -> Any:
+        """Return the stable bound handle for one registered item."""
         from .bound import (
             Bound2D,
             BoundAudio,
@@ -761,7 +761,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             result = result @ self._transform3d_at(parent_id, parent.initial.transform, time)
         return result
 
-    def world_transform3d(
+    def _world_transform3d(
         self, obj: MeshObject3D | Group3D, *, time: float | None = None
     ) -> Transform3D:
         """Return local-to-world transform for one registered 3D node or mesh."""
@@ -787,7 +787,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             registered.object_id, transform, time
         )
 
-    def world_transform(self, obj: SceneObject2D, *, time: float | None = None) -> Transform2D:
+    def _world_transform(self, obj: SceneObject2D, *, time: float | None = None) -> Transform2D:
         """Return ``local -> world`` for a registered 2D object or group.
 
         With ``time=None`` this uses the latest authored target state. Passing a
@@ -820,14 +820,14 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             registered.object_id, initial.transform, time
         )
 
-    def world_point(
+    def _world_point(
         self, obj: SceneObject2D, point: Point2 = Vec2(), *, time: float | None = None
     ) -> Vec2:
         """Map an object-local point into world coordinates."""
         point = as_vec2(point, name="point")
-        return self.world_transform(obj, time=time).apply(point)
+        return self._world_transform(obj, time=time).apply(point)
 
-    def world_anchor(self, obj: SceneObject2D, anchor=None) -> Vec2:
+    def _world_anchor(self, obj: SceneObject2D, anchor=None) -> Vec2:
         """Return one authored visual-bounds anchor in Scene world coordinates."""
         from .layout import CENTER
 
@@ -890,7 +890,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             return scene_from_ir(read_scene_ir(value))
         return scene_from_ir(value)
 
-    def render_frame(self, path, time: float = 0.0):
+    def _render_frame(self, path, time: float = 0.0):
         """Render one absolute scene time without evaluating earlier frames."""
         from .render import render_snapshot
 
@@ -902,7 +902,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         finally:
             self._close_media_sources()
 
-    def render_video(self, path, **kwargs):
+    def _render_video(self, path, **kwargs):
         """Render all or part of the timeline; ``start``/``end`` are absolute seconds."""
         from .render import render_video
 
@@ -961,7 +961,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             if video_kwargs:
                 names = ", ".join(sorted(video_kwargs))
                 raise TypeError(f"video options are invalid for frame rendering: {names}")
-            return self.render_frame(path, float(time))
+            return self._render_frame(path, float(time))
 
         if self.duration <= 0:
             if start is not None or end is not None:
@@ -969,10 +969,10 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
             if video_kwargs:
                 names = ", ".join(sorted(video_kwargs))
                 raise TypeError(f"video options are invalid for a static scene: {names}")
-            return self.render_frame(path, 0.0)
+            return self._render_frame(path, 0.0)
 
         resolved_start = 0.0 if start is None else float(start)
-        return self.render_video(path, start=resolved_start, end=end, **video_kwargs)
+        return self._render_video(path, start=resolved_start, end=end, **video_kwargs)
 
     def _close_media_sources(self) -> None:
         """Release transient decoder processes held by raster sources."""

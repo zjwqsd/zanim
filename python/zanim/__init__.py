@@ -1,22 +1,25 @@
 """Zanim's public authoring API.
 
-Define class-based scenes with ``Scene.setup()`` for raw declarations and initial
-layout, then ``Scene.construct()`` for Scene ownership and timeline authoring. The
-root package exposes the objects and values used for authoring; scheduler, bound
-handle, wire-format, and render implementation types live in submodules.
+Define class-based scenes directly in ``Scene.construct()`` for the common case;
+``Scene.setup()`` is an optional organization hook for heavier declaration or resource
+preparation. ``Scene.add()`` is the ownership boundary between raw initial authoring
+and Scene-owned timeline state. The root package exposes the objects and values used
+for authoring; scheduler, bound handle, wire-format, and render implementation types
+live in submodules.
 """
 
 from ._version import __version__
 from .audio import Audio
-from .boolean import BooleanShape, Difference, Exclusion, Intersection, Union
+from .batch import BatchObject2D, CircleSet, DynamicBatchObject2D, LineSet, RectSet
+from .boolean import Difference, Exclusion, Intersection, Union
 from .camera import Camera2D
-from .camera3d import Camera3D, Camera3DState
+from .camera3d import Camera3D
 from .constants import (
     BLACK,
     BLUE,
     CYAN,
-    DEGREES,
     DEFAULT_STROKE_WIDTH,
+    DEGREES,
     DOWN,
     GRAY,
     GREEN,
@@ -36,10 +39,8 @@ from .constants import (
     YELLOW,
 )
 from .dynamic import DynamicNumber, NumberFormat
-from .errors import MediaError, NativeError, PreviewError, ZanimError
 from .expression import TIME, ScalarExpr, X
 from .formula import (
-    FormulaInstance,
     FormulaLiteral,
     FormulaTemplate,
     MatrixSlot,
@@ -49,18 +50,10 @@ from .formula import (
 )
 from .fourier import FourierEpicycles, FourierTerm
 from .fractal import JuliaSet, MandelbrotSet
-from .geometry import Color, StrokeStyle, Style
+from .geometry import Color
 from .group import Group
 from .group3d import Group3D
 from .infinite import ComplexMappedGrid, InfiniteGrid, InfiniteLine, NumberPlane
-from .ir import (
-    SceneIRUnsupported,
-    load_scene_ir,
-    read_scene_ir,
-    scene_from_ir,
-    scene_to_ir,
-    write_scene_ir,
-)
 from .layout import (
     BOTTOM,
     BOTTOM_LEFT,
@@ -71,7 +64,6 @@ from .layout import (
     TOP,
     TOP_LEFT,
     TOP_RIGHT,
-    Anchor,
     Column,
     Frame,
     Grid,
@@ -79,12 +71,12 @@ from .layout import (
 )
 from .mesh3d import Box3D, Cube3D, Surface3D
 from .plot import Axes, DynamicGeometryObject2D, FunctionPlot
-from .raster import ArrayImage, GIF, Image, SceneViewport, Video
+from .raster import GIF, ArrayImage, Image, SceneViewport, Video
 from .scene import Scene
 from .shapes import (
     Arc,
-    Brace,
     Arrow,
+    Brace,
     Circle,
     CubicBezier,
     Dot,
@@ -95,7 +87,6 @@ from .shapes import (
     Polyline,
     Rectangle,
     RegularPolygon,
-    Shape,
     Square,
     SurroundingRectangle,
 )
@@ -107,43 +98,34 @@ from .space import (
     WORLD,
     Canvas,
     Transform2D,
-    TransformFrame,
     Vec2,
     affine2d,
-    pose2d,
 )
-from .space3d import SE3, SO3, Transform3D, Vec3, pose3d
+from .space3d import SE3, SO3, Transform3D, Vec3
 from .svg import load_svg
 from .timeline import Easing
 from .typst import Math, Text
 from .value import ScalarValue
-from .vector_field import DynamicVectorField, VectorField, VectorSample
+from .vector import DynamicVectorObject2D, VectorObject2D
+from .vector_field import DynamicVectorField, VectorField
 
 __all__ = [
     "__version__",
-    "ZanimError",
-    "PreviewError",
-    "MediaError",
-    "NativeError",
     "Scene",
     "SceneViewport",
     "Exclusion",
     "Difference",
     "Union",
     "Intersection",
-    "BooleanShape",
     "Simulation",
+    "BatchObject2D",
+    "DynamicBatchObject2D",
+    "LineSet",
+    "CircleSet",
+    "RectSet",
     "VectorField",
     "DynamicVectorField",
-    "VectorSample",
-    "SceneIRUnsupported",
-    "scene_to_ir",
-    "scene_from_ir",
-    "write_scene_ir",
-    "read_scene_ir",
-    "load_scene_ir",
     "Canvas",
-    "Shape",
     "Circle",
     "Square",
     "SurroundingRectangle",
@@ -171,9 +153,9 @@ __all__ = [
     "Group3D",
     "Text",
     "Math",
+    "VectorObject2D",
+    "DynamicVectorObject2D",
     "Color",
-    "Style",
-    "StrokeStyle",
     "BLUE",
     "GREEN",
     "RED",
@@ -193,11 +175,9 @@ __all__ = [
     "DEFAULT_STROKE_WIDTH",
     "Vec2",
     "Transform2D",
-    "TransformFrame",
     "SE2",
     "SE3",
     "affine2d",
-    "pose2d",
     "LOCAL",
     "PARENT",
     "WORLD",
@@ -206,7 +186,6 @@ __all__ = [
     "LEFT",
     "UP",
     "DOWN",
-    "Anchor",
     "Frame",
     "Row",
     "Column",
@@ -232,7 +211,6 @@ __all__ = [
     "load_svg",
     "DynamicNumber",
     "NumberFormat",
-    "FormulaInstance",
     "FormulaLiteral",
     "FormulaTemplate",
     "MatrixSlot",
@@ -245,10 +223,8 @@ __all__ = [
     "ArrayImage",
     "Audio",
     "Camera3D",
-    "Camera3DState",
     "Vec3",
     "Transform3D",
-    "pose3d",
     "SO3",
     "Box3D",
     "Cube3D",

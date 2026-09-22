@@ -4,9 +4,10 @@ from dataclasses import dataclass
 from math import pi
 
 from .object import SceneObject2D
-from .space import SE2, Linear2D, Transform2D, Vec2
+from .space import SE2, Transform2D, Vec2
 
 DEFAULT_STROKE_WIDTH = 4.0 / 90.0
+_UNSET = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,21 +42,6 @@ class StrokeStyle:
 class Style:
     fill: Color | None = None
     stroke: StrokeStyle | None = StrokeStyle()
-
-    @staticmethod
-    def solid(color: Color) -> "Style":
-        """Fill only.  No implicit outline is added."""
-        return Style(fill=color, stroke=None)
-
-    @staticmethod
-    def outline(color: Color, width: float = DEFAULT_STROKE_WIDTH) -> "Style":
-        """Stroke only.  Both color and width are explicit."""
-        return Style(fill=None, stroke=StrokeStyle(color, width))
-
-    @staticmethod
-    def paint(fill: Color, stroke: Color, stroke_width: float = DEFAULT_STROKE_WIDTH) -> "Style":
-        """Explicit fill plus explicit outline."""
-        return Style(fill=fill, stroke=StrokeStyle(stroke, stroke_width))
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,13 +154,11 @@ Geometry = (
 
 @dataclass(slots=True, init=False)
 class Object2D(SceneObject2D):
-    """Geometry plus explicit initial visual/affine state.
+    """Geometry plus one explicit initial visual/affine state.
 
-    ``style=`` and ``transform=`` remain the complete low-level values. For
-    ordinary authoring the constructor also accepts direct style sugar
-    (``fill/stroke/stroke_width``) and affine sugar
-    (``position/rotation/scale/shear``). Complete values and their sugar forms
-    are mutually exclusive, so no supplied state is silently overwritten.
+    Ordinary authoring uses fill/stroke/stroke_width and
+    position/rotation/scale/shear. transform= remains the complete low-level
+    affine escape hatch for code that already has a composed transform.
     """
 
     geometry: Geometry
@@ -188,13 +172,12 @@ class Object2D(SceneObject2D):
         self,
         geometry: Geometry,
         transform: Transform2D | SE2 | None = None,
-        style: Style | None = None,
         opacity: float = 1.0,
         z_index: int = 0,
         trim: float = 1.0,
         *,
-        fill: Color | None = None,
-        stroke: Color | None = None,
+        fill=_UNSET,
+        stroke=_UNSET,
         stroke_width: float | None = None,
         position: Vec2 | tuple[float, float] | None = None,
         rotation: float | None = None,
@@ -203,30 +186,23 @@ class Object2D(SceneObject2D):
     ) -> None:
         from .space import affine2d
 
-        style_sugar = fill is not None or stroke is not None or stroke_width is not None
-        if style is not None and style_sugar:
-            raise ValueError("Object2D accepts either style= or fill/stroke style sugar, not both")
-        if style is None:
-            if style_sugar:
-                resolved_fill = fill
-                resolved_stroke = stroke
-                if resolved_fill is not None and not isinstance(resolved_fill, Color):
-                    raise TypeError("fill must be Color or None")
-                if resolved_stroke is not None and not isinstance(resolved_stroke, Color):
-                    raise TypeError("stroke must be Color or None")
-                if stroke_width is not None and resolved_stroke is None:
-                    raise ValueError("stroke_width requires a stroke color")
-                width = DEFAULT_STROKE_WIDTH if stroke_width is None else float(stroke_width)
-                resolved_style = Style(
-                    fill=resolved_fill,
-                    stroke=None if resolved_stroke is None else StrokeStyle(resolved_stroke, width),
-                )
-            else:
-                resolved_style = Style()
-        elif isinstance(style, Style):
-            resolved_style = style
+        style_sugar = fill is not _UNSET or stroke is not _UNSET or stroke_width is not None
+        if not style_sugar:
+            resolved_style = Style()
         else:
-            raise TypeError("style must be Style")
+            resolved_fill = None if fill is _UNSET else fill
+            resolved_stroke = None if stroke is _UNSET else stroke
+            if resolved_fill is not None and not isinstance(resolved_fill, Color):
+                raise TypeError("fill must be Color or None")
+            if resolved_stroke is not None and not isinstance(resolved_stroke, Color):
+                raise TypeError("stroke must be Color or None")
+            if resolved_stroke is None and stroke_width is not None:
+                raise ValueError("stroke_width requires an explicit stroke color")
+            width = DEFAULT_STROKE_WIDTH if stroke_width is None else float(stroke_width)
+            resolved_style = Style(
+                fill=resolved_fill,
+                stroke=None if resolved_stroke is None else StrokeStyle(resolved_stroke, width),
+            )
 
         transform_sugar = any(value is not None for value in (position, rotation, scale, shear))
         if transform is not None and transform_sugar:
@@ -260,25 +236,6 @@ class Object2D(SceneObject2D):
         self._validate_scene_state()
         if not 0.0 <= self.trim <= 1.0:
             raise ValueError("trim must be in [0, 1]")
-
-    def apply_linear_local(self, linear: Linear2D) -> "Object2D":
-        self.transform = self.transform @ linear.as_affine()
-        return self
-
-    def apply_linear_world(self, linear: Linear2D) -> "Object2D":
-        self.transform = linear.as_affine() @ self.transform
-        return self
-
-    def apply_se2_local(self, rigid: SE2) -> "Object2D":
-        self.transform = self.transform @ rigid.as_affine()
-        return self
-
-    def apply_se2_world(self, rigid: SE2) -> "Object2D":
-        self.transform = rigid.as_affine() @ self.transform
-        return self
-
-    def local_to_world(self, point: Vec2) -> Vec2:
-        return self.transform.apply(point)
 
     def _geometry_at(self, time: float, initial: Geometry) -> Geometry:
         """Return geometry for rendering at absolute time.

@@ -1,16 +1,14 @@
 import unittest
 
-from zanim import Canvas, Circle, Color, Rectangle, Scene, Style, Transform2D
+from zanim import Canvas, Circle, Color, Rectangle, Scene, Transform2D
 from zanim.render.frame import pick_snapshot_object
 
 
 class RenderPickingTests(unittest.TestCase):
     def test_topmost_real_raster_wins(self):
         scene = Scene(canvas=Canvas(200, 120, 12), fps=10)
-        scene.add(Rectangle(6, 4, style=Style(fill=Color(50, 100, 200))))
-        scene.add(
-            Circle(1, style=Style(fill=Color(240, 80, 80)), transform=Transform2D.translation(1, 0))
-        )
+        scene.add(Rectangle(6, 4, fill=Color(50, 100, 200)))
+        scene.add(Circle(1, fill=Color(240, 80, 80), transform=Transform2D.translation(1, 0)))
         snapshot = scene.evaluate(0)
         self.assertEqual(pick_snapshot_object(snapshot, scene.canvas, 100, 60), 2)
 

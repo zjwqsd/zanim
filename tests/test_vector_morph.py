@@ -13,7 +13,7 @@ class VectorMorphTests(unittest.TestCase):
         target_document = target.document
         scene = Scene(fps=30)
         scene.add(source)
-        scene.morph(source, to=target, duration=1.0)
+        scene._handle(source).morph(to=target, duration=1.0)
 
         start = scene.evaluate(0.0).vectors[0].snapshot.document
         middle = scene.evaluate(0.5).vectors[0].snapshot.document
@@ -32,7 +32,7 @@ class VectorMorphTests(unittest.TestCase):
         target = Text("styles", font_size=42, color=GREEN)
         scene = Scene()
         scene.add(source)
-        clip = scene.morph(source, to=target, duration=1.0)
+        clip = scene._handle(source).morph(to=target, duration=1.0)
         self.assertIsInstance(clip, VectorMorphClip)
         self.assertEqual(len(clip.plan.matched), source.document.group_count)
         self.assertFalse(clip.plan.source_only)
@@ -48,7 +48,7 @@ class VectorMorphTests(unittest.TestCase):
         target = Math("x^2 + y^2 = r^2", font_size=42)
         scene = Scene()
         scene.add(source)
-        clip = scene.morph(source, to=target, duration=1.0)
+        clip = scene._handle(source).morph(to=target, duration=1.0)
         self.assertGreaterEqual(len(clip.plan.matched), 5)
         self.assertGreater(len(clip.plan.target_only), 0)
         self.assertEqual(scene.evaluate(1.0).vectors[0].snapshot.document, target.document)
@@ -59,8 +59,8 @@ class VectorMorphTests(unittest.TestCase):
         target = Text("axyc", font_size=32)
         scene = Scene()
         scene.add(source)
-        scene.morph(source, to=middle, duration=1.0)
-        second = scene.morph(source, to=target, duration=1.0)
+        scene._handle(source).morph(to=middle, duration=1.0)
+        second = scene._handle(source).morph(to=target, duration=1.0)
         self.assertEqual(source.content, "abc")
         self.assertEqual(scene._authored_get(source, "content"), target.content)
         self.assertGreaterEqual(len(second.plan.matched), 3)
@@ -71,7 +71,7 @@ class VectorMorphTests(unittest.TestCase):
         target = Text("a+b+c", font_size=32)
         scene = Scene(fps=24)
         scene.add(source)
-        scene.morph(source, to=target, duration=1.0)
+        scene._handle(source).morph(to=target, duration=1.0)
         with self.assertRaises(SceneIRUnsupported):
             scene.to_ir()
 

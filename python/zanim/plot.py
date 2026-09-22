@@ -6,17 +6,15 @@ from typing import Callable
 from .batch import BatchObject2D, LineSet
 from .expression import ScalarExpr
 from .geometry import (
-    Color,
     DEFAULT_STROKE_WIDTH,
+    Color,
     Geometry,
     LineGeometry,
     Object2D,
     PolygonGeometry,
     PolylineGeometry,
-    StrokeStyle,
-    Style,
 )
-from .space import Transform2D, Vec2
+from .space import SE2, Transform2D, Vec2
 
 ScalarFunction = Callable[[float], float] | ScalarExpr
 
@@ -153,7 +151,8 @@ class Axes:
         points = tuple(self.c2p(x, float(function(x))) for x in _linspace(a, b, samples))
         return Object2D(
             PolylineGeometry(points),
-            style=Style(fill=None, stroke=StrokeStyle(color, stroke_width)),
+            stroke=color,
+            stroke_width=stroke_width,
         )
 
     def axis_labels(
@@ -175,12 +174,12 @@ class Axes:
         if y0 <= 0 <= y1:
             x_obj = Math(x_label, font_size=font_size, color=color)
             target = self.c2p(x1, 0)
-            x_obj.move_to(Vec2(target.x + x_obj.bounds().width / 2 + buff, target.y))
+            x_obj.move(to=Vec2(target.x + x_obj.bounds().width / 2 + buff, target.y))
             labels.append(x_obj)
         if x0 <= 0 <= x1:
             y_obj = Math(y_label, font_size=font_size, color=color)
             target = self.c2p(0, y1)
-            y_obj.move_to(Vec2(target.x, target.y + y_obj.bounds().height / 2 + buff))
+            y_obj.move(to=Vec2(target.x, target.y + y_obj.bounds().height / 2 + buff))
             labels.append(y_obj)
         return Group(labels)
 
@@ -264,10 +263,16 @@ class DynamicGeometryObject2D(Object2D):
         self,
         provider: Callable[[float], object],
         *,
-        style: Style = Style(),
-        transform: Transform2D = Transform2D(),
+        transform: Transform2D | SE2 | None = None,
         opacity: float = 1.0,
         z_index: int = 0,
+        fill: Color | None = None,
+        stroke: Color | None = None,
+        stroke_width: float | None = None,
+        position: Vec2 | tuple[float, float] | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Vec2 | tuple[float, float] | None = None,
     ) -> None:
         if not callable(provider):
             raise TypeError("dynamic geometry provider must be callable")
@@ -276,7 +281,17 @@ class DynamicGeometryObject2D(Object2D):
         if not isinstance(initial, Geometry):
             raise TypeError("dynamic geometry provider must return a Zanim Geometry")
         super().__init__(
-            initial, transform=transform, style=style, opacity=opacity, z_index=z_index
+            initial,
+            transform=transform,
+            opacity=opacity,
+            z_index=z_index,
+            fill=fill,
+            stroke=stroke,
+            stroke_width=stroke_width,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
         )
 
     def geometry_at(self, time: float):
@@ -311,9 +326,13 @@ class FunctionPlot(DynamicGeometryObject2D):
         samples: int = 240,
         color: Color = Color(103, 181, 255),
         stroke_width: float = DEFAULT_STROKE_WIDTH,
-        transform: Transform2D = Transform2D(),
+        transform: Transform2D | SE2 | None = None,
         opacity: float = 1.0,
         z_index: int = 0,
+        position: Vec2 | tuple[float, float] | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Vec2 | tuple[float, float] | None = None,
     ) -> None:
         if not isinstance(expression, ScalarExpr):
             raise TypeError("FunctionPlot expression must be ScalarExpr")
@@ -334,10 +353,15 @@ class FunctionPlot(DynamicGeometryObject2D):
 
         super().__init__(
             geometry_at,
-            style=Style(fill=None, stroke=StrokeStyle(color, stroke_width)),
             transform=transform,
             opacity=opacity,
             z_index=z_index,
+            stroke=color,
+            stroke_width=stroke_width,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
         )
 
     def points_at(self, time: float) -> tuple[Vec2, ...]:

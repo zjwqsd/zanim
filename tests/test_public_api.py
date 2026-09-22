@@ -14,10 +14,22 @@ class PublicApiTests(unittest.TestCase):
         bound = scene.add(circle)
         self.assertIs(bound.raw, circle)
 
-    def test_representation_types_are_not_root_exports(self):
+    def test_common_authoring_types_are_root_exports(self):
+        for name in (
+            "BatchObject2D",
+            "DynamicBatchObject2D",
+            "CircleSet",
+            "LineSet",
+            "RectSet",
+            "VectorObject2D",
+            "DynamicVectorObject2D",
+        ):
+            with self.subTest(name=name):
+                self.assertTrue(hasattr(zanim, name))
+
+    def test_internal_representation_types_are_not_root_exports(self):
         for name in (
             "Object2D",
-            "BatchObject2D",
             "VectorDocument",
             "RasterObject2D",
             "TriangleMesh",
@@ -25,6 +37,37 @@ class PublicApiTests(unittest.TestCase):
         ):
             with self.subTest(name=name):
                 self.assertFalse(hasattr(zanim, name))
+
+    def test_constructor_transform_sugar_is_consistent(self):
+        text = zanim.Text("x", position=(1, 2), rotation=0.2, scale=1.1)
+        self.assertAlmostEqual(text.transform.tx, 1)
+        self.assertAlmostEqual(text.transform.ty, 2)
+
+        number = zanim.DynamicNumber(
+            lambda t: t,
+            number_format=zanim.NumberFormat(width=4, decimals=1),
+            position=(-1, 0.5),
+        )
+        self.assertAlmostEqual(number.transform.tx, -1)
+        self.assertAlmostEqual(number.transform.ty, 0.5)
+
+        batch = zanim.BatchObject2D(
+            zanim.CircleSet((Vec2(),), (0.1,), (zanim.BLUE,)),
+            position=(2, -1),
+        )
+        self.assertAlmostEqual(batch.transform.tx, 2)
+        self.assertAlmostEqual(batch.transform.ty, -1)
+
+        image = zanim.ArrayImage([[0, 255], [255, 0]], position=(0.5, -0.25))
+        self.assertAlmostEqual(image.transform.tx, 0.5)
+        self.assertAlmostEqual(image.transform.ty, -0.25)
+
+        grid = zanim.InfiniteGrid(0.5, position=(3, 1))
+        self.assertAlmostEqual(grid.transform.tx, 3)
+        self.assertAlmostEqual(grid.transform.ty, 1)
+
+        with self.assertRaisesRegex(ValueError, "either transform="):
+            zanim.Text("x", transform=zanim.Transform2D(), position=(1, 2))
 
     def test_group_children_are_read_only_and_hierarchy_freezes_after_add(self):
         child = Square(1)

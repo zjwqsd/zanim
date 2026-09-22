@@ -10,8 +10,8 @@ class ParallelTimelineTests(unittest.TestCase):
         scene = Scene()
         scene.add(a, b)
         with scene.parallel():
-            ca = scene.transform(a, to=Transform2D.translation(1, 0), duration=1.0)
-            cb = scene.transform(b, to=Transform2D.translation(0, 1), duration=0.8, at=0.2)
+            ca = scene._handle(a).transform(to=Transform2D.translation(1, 0), duration=1.0)
+            cb = scene._handle(b).transform(to=Transform2D.translation(0, 1), duration=0.8, at=0.2)
         self.assertEqual(ca.span.start, 0.0)
         self.assertEqual(cb.span.start, 0.2)
         self.assertEqual(scene._timeline.cursor, 1.0)
@@ -22,8 +22,8 @@ class ParallelTimelineTests(unittest.TestCase):
         scene = Scene()
         scene.add(a, b)
         with scene.parallel():
-            scene.transform(a, to=Transform2D.translation(2, 0), duration=2.0)
-            scene.transform(b, to=Transform2D.translation(0, 3), duration=2.0)
+            scene._handle(a).transform(to=Transform2D.translation(2, 0), duration=2.0)
+            scene._handle(b).transform(to=Transform2D.translation(0, 3), duration=2.0)
         mid = scene.evaluate(1.0)
         self.assertAlmostEqual(mid.objects[0].snapshot.transform.tx, 1.0)
         self.assertAlmostEqual(mid.objects[1].snapshot.transform.ty, 1.5)

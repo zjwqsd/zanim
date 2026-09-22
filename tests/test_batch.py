@@ -2,7 +2,6 @@ import unittest
 
 from zanim import Color, Transform2D, Vec2
 from zanim.batch import BatchObject2D, CircleSet, LineSet, RectSet
-from zanim.space import Linear2D
 
 
 class BatchGeometryTests(unittest.TestCase):
@@ -25,7 +24,7 @@ class BatchGeometryTests(unittest.TestCase):
             CircleSet((Vec2(),), (0.2,), (Color(255, 255, 255),)),
             transform=Transform2D.translation(2, 3),
         )
-        batch.apply_linear_local(Linear2D.scaling(2, 1))
+        batch.transform = batch.transform @ Transform2D.scaling(2, 1)
         self.assertEqual(batch.transform.tx, 2)
         self.assertEqual(batch.transform.ty, 3)
         self.assertEqual(batch.transform.xx, 2)

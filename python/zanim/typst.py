@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .errors import ZanimError
 from .geometry import Color
-from .space import SE2, Transform2D
+from .space import SE2, Point2, Transform2D
 from .svg import load_svg
 from .vector import VectorObject2D
 
@@ -120,10 +120,14 @@ class Text(VectorObject2D):
         font_size: float = 48.0,
         font: str | tuple[str, ...] | None = None,
         color: Color = Color(255, 255, 255),
-        transform: Transform2D | SE2 = Transform2D(),
+        transform: Transform2D | SE2 | None = None,
         reveal: float = 1.0,
         opacity: float = 1.0,
         z_index: int = 0,
+        position: Point2 | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Point2 | None = None,
     ) -> None:
         self.content = content
         self.font_size = font_size
@@ -135,7 +139,15 @@ class Text(VectorObject2D):
         )
         document = load_svg(compile_typst_svg(source))
         super().__init__(
-            document=document, transform=transform, reveal=reveal, opacity=opacity, z_index=z_index
+            document=document,
+            transform=transform,
+            reveal=reveal,
+            opacity=opacity,
+            z_index=z_index,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
         )
 
 
@@ -150,10 +162,14 @@ class Math(VectorObject2D):
         *,
         font_size: float = 48.0,
         color: Color = Color(255, 255, 255),
-        transform: Transform2D | SE2 = Transform2D(),
+        transform: Transform2D | SE2 | None = None,
         reveal: float = 1.0,
         opacity: float = 1.0,
         z_index: int = 0,
+        position: Point2 | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Point2 | None = None,
     ) -> None:
         self.source = source
         self.font_size = font_size
@@ -161,5 +177,13 @@ class Math(VectorObject2D):
         typst_source = _page_preamble(font_size, color, None) + f"$ {source} $\n"
         document = load_svg(compile_typst_svg(typst_source))
         super().__init__(
-            document=document, transform=transform, reveal=reveal, opacity=opacity, z_index=z_index
+            document=document,
+            transform=transform,
+            reveal=reveal,
+            opacity=opacity,
+            z_index=z_index,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
         )

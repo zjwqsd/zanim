@@ -13,8 +13,8 @@ class RenderSelectionTests(unittest.TestCase):
         scene.add(Circle(1))
         target = Path("static.png")
         with (
-            patch.object(Scene, "render_frame", return_value=target) as frame,
-            patch.object(Scene, "render_video") as video,
+            patch.object(Scene, "_render_frame", return_value=target) as frame,
+            patch.object(Scene, "_render_video") as video,
         ):
             self.assertEqual(scene.render(target), target)
             frame.assert_called_once_with(target, 0.0)
@@ -24,7 +24,7 @@ class RenderSelectionTests(unittest.TestCase):
         scene = Scene()
         scene.wait(5)
         target = Path("frame.png")
-        with patch.object(Scene, "render_frame", return_value=target) as frame:
+        with patch.object(Scene, "_render_frame", return_value=target) as frame:
             self.assertEqual(scene.render(target, time=3.25), target)
             frame.assert_called_once_with(target, 3.25)
 
@@ -32,7 +32,7 @@ class RenderSelectionTests(unittest.TestCase):
         scene = Scene()
         scene.wait(5)
         target = Path("slice.mp4")
-        with patch.object(Scene, "render_video", return_value=target) as video:
+        with patch.object(Scene, "_render_video", return_value=target) as video:
             self.assertEqual(scene.render(target, start=2, end=4, workers=3), target)
             video.assert_called_once_with(target, start=2.0, end=4, workers=3)
 
@@ -46,7 +46,7 @@ class RenderSelectionTests(unittest.TestCase):
         scene = Scene(canvas=Canvas(64, 64, 10), fps=10)
         circle = Circle(1)
         scene.add(circle)
-        scene.transform(circle, to=Transform2D.translation(2, 0), duration=2)
+        scene._handle(circle).transform(to=Transform2D.translation(2, 0), duration=2)
 
         evaluated: list[float] = []
         original = Scene.evaluate
@@ -57,7 +57,7 @@ class RenderSelectionTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td, patch.object(Scene, "evaluate", record):
             output = Path(td) / "slice.mp4"
-            scene.render_video(output, start=0.7, end=1.2, workers=2)
+            scene.render(output, start=0.7, end=1.2, workers=2)
             self.assertTrue(output.is_file())
             proc = subprocess.run(
                 [

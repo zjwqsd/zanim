@@ -6,7 +6,7 @@ from numbers import Real
 from typing import Callable, Literal, TypeAlias
 
 from .geometry import Color, CubicBezierGeometry
-from .space import Transform2D
+from .space import SE2, Point2, Transform2D
 from .typst import Math
 from .value import ScalarValue
 from .vector import (
@@ -206,9 +206,13 @@ class DynamicNumber(VectorObject2D):
         font_size: float = 38.0,
         color: Color = Color(240, 242, 248),
         align: Literal["left", "center", "right"] = "right",
-        transform: Transform2D = Transform2D(),
+        transform: Transform2D | SE2 | None = None,
         opacity: float = 1.0,
         z_index: int = 0,
+        position: Point2 | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Point2 | None = None,
     ) -> None:
         if isinstance(provider, ScalarValue):
             provider = provider.value_at
@@ -224,7 +228,15 @@ class DynamicNumber(VectorObject2D):
         self._atlas = _atlas(font_size, color)
         initial = self._document_for_value(provider(0.0))
         super().__init__(
-            document=initial, transform=transform, reveal=1.0, opacity=opacity, z_index=z_index
+            document=initial,
+            transform=transform,
+            reveal=1.0,
+            opacity=opacity,
+            z_index=z_index,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
         )
 
     @property

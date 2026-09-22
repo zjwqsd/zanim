@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from zanim import Group, Scene, Vec2, VectorField, scene_from_ir, scene_to_ir
+from zanim import Group, Scene, Vec2, VectorField
 from zanim.batch import CircleSet, LineSet
+from zanim.ir import scene_from_ir, scene_to_ir
 
 
 class VectorFieldTests(unittest.TestCase):

@@ -64,6 +64,16 @@ class Mesh3DTests(unittest.TestCase):
         self.assertAlmostEqual(max(ys) - min(ys), 2.0)
         self.assertAlmostEqual(max(zs) - min(zs), 3.0)
 
+    def test_3d_constructor_sugar_composes_position_rotation_scale(self):
+        rotation = SO3.rotation_z(math.pi / 2)
+        cube = Cube3D(1.0, position=(2, 1, -1), rotation=rotation, scale=(2, 1, 0.5))
+        expected = (
+            Transform3D.translation(2, 1, -1)
+            @ rotation.to_transform3d()
+            @ Transform3D.scaling(2, 1, 0.5)
+        )
+        self.assertEqual(cube.transform, expected)
+
     def test_cube_is_indexed_flat_shaded_mesh(self):
         cube = Cube3D(2.0)
         self.assertEqual(len(cube.mesh.vertices), 24)
@@ -85,8 +95,7 @@ class Mesh3DTests(unittest.TestCase):
         scene = Scene(canvas=Canvas(320, 180, 25), fps=30)
         cube = Cube3D(color=Color(80, 160, 255))
         scene.add(cube)
-        scene.transform_function(
-            cube,
+        scene._handle(cube).transform_function(
             lambda a: Transform3D.rotation_y(math.pi * a),
             duration=2.0,
             easing=Easing.LINEAR,
@@ -121,7 +130,7 @@ class Mesh3DTests(unittest.TestCase):
         scene = Scene()
         cube = Cube3D()
         scene.add(cube)
-        scene.transform(cube, to=Transform3D.translation(1, 0, 0), duration=1.0)
+        scene._handle(cube).transform(to=Transform3D.translation(1, 0, 0), duration=1.0)
         got = scene.evaluate(0.5).meshes3d[0].snapshot.transform.apply(Vec3())
         self.assertGreater(got.x, 0.0)
         self.assertLess(got.x, 1.0)

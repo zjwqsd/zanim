@@ -6,7 +6,7 @@ from functools import lru_cache
 from math import cos, pi, sin, sqrt
 from typing import Iterable
 
-from .geometry import Color, PolygonGeometry, PolylineGeometry, Style
+from .geometry import Color, PolygonGeometry, PolylineGeometry, StrokeStyle, Style
 from .group import Group
 from .plot import DynamicGeometryObject2D
 from .space import Transform2D, Vec2
@@ -122,10 +122,10 @@ class FourierEpicycles(Group):
         circle_samples: int = 28,
         trace_samples: int = 1000,
         visual_indices: Iterable[int] | None = None,
-        circle_style: Style = Style.outline(Color(132, 157, 198, 82), 0.012),
-        arrow_style: Style = Style.solid(Color(205, 220, 245, 190)),
-        trace_style: Style = Style.outline(Color(255, 108, 139), 0.045),
-        tip_style: Style = Style.solid(Color(255, 204, 214)),
+        circle_style: Style = Style(fill=None, stroke=StrokeStyle(Color(132, 157, 198, 82), 0.012)),
+        arrow_style: Style = Style(fill=Color(205, 220, 245, 190), stroke=None),
+        trace_style: Style = Style(fill=None, stroke=StrokeStyle(Color(255, 108, 139), 0.045)),
+        tip_style: Style = Style(fill=Color(255, 204, 214), stroke=None),
         tip_radius: float = 0.055,
         tip_sides: int = 14,
         transform: Transform2D = Transform2D(),
@@ -163,6 +163,14 @@ class FourierEpicycles(Group):
         def chain_at(time: float) -> tuple[complex, ...]:
             return epicycle_chain(self.terms, phase_at(time))
 
+        def style_kwargs(style: Style) -> dict:
+            stroke = style.stroke
+            return {
+                "fill": style.fill,
+                "stroke": None if stroke is None else stroke.color,
+                "stroke_width": None if stroke is None else stroke.width,
+            }
+
         children = []
         for index in self.visual_indices:
             radius = self.terms[index].radius
@@ -171,7 +179,7 @@ class FourierEpicycles(Group):
                     lambda t, index=index, radius=radius: _circle_polyline(
                         chain_at(float(t))[index], radius, self.circle_samples
                     ),
-                    style=self.circle_style,
+                    **style_kwargs(self.circle_style),
                     z_index=0,
                 )
             )
@@ -180,7 +188,7 @@ class FourierEpicycles(Group):
                     lambda t, index=index: _arrow_polygon(
                         chain_at(float(t))[index], chain_at(float(t))[index + 1]
                     ),
-                    style=self.arrow_style,
+                    **style_kwargs(self.arrow_style),
                     z_index=1,
                 )
             )
@@ -198,11 +206,13 @@ class FourierEpicycles(Group):
                 points = (points[0], points[0])
             return PolylineGeometry(points)
 
-        children.append(DynamicGeometryObject2D(trace_geometry, style=self.trace_style, z_index=4))
+        children.append(
+            DynamicGeometryObject2D(trace_geometry, **style_kwargs(self.trace_style), z_index=4)
+        )
         children.append(
             DynamicGeometryObject2D(
                 lambda t: _tip_polygon(chain_at(float(t))[-1], self.tip_radius, self.tip_sides),
-                style=self.tip_style,
+                **style_kwargs(self.tip_style),
                 z_index=5,
             )
         )

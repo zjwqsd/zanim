@@ -9,8 +9,7 @@ class TransformFunctionTests(unittest.TestCase):
         obj = Circle(1)
         scene = Scene()
         scene.add(obj)
-        scene.transform_function(
-            obj,
+        scene._handle(obj).transform_function(
             lambda a: Transform2D.translation(4 * a, 2 * a).rotate(pi * a),
             duration=2,
         )
@@ -25,7 +24,7 @@ class TransformFunctionTests(unittest.TestCase):
         obj = Circle(1)
         scene = Scene()
         scene.add(obj)
-        scene.transform_function(obj, lambda a: Transform2D.translation(a, 0), duration=2)
+        scene._handle(obj).transform_function(lambda a: Transform2D.translation(a, 0), duration=2)
         with self.assertRaises(ValueError):
             scene._timeline.add_transform(
                 1, Transform2D(), Transform2D.translation(1, 0), duration=1, at=-1.5

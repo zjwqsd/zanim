@@ -3,10 +3,10 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from .group import Group
 from .geometry import Color
+from .group import Group
 from .object import SceneObject2D
-from .space import SE2, Point2, Transform2D, Vec2, as_vec2
+from .space import SE2, Point2, Transform2D, Vec2, _resolve_transform2d, as_vec2
 from .value import ScalarValue
 
 
@@ -23,16 +23,24 @@ class InfiniteObject2D(SceneObject2D):
     def _init_common(
         self,
         *,
-        transform: Transform2D | SE2 = Transform2D(),
+        transform: Transform2D | SE2 | None = None,
         color: Color = Color(180, 188, 208),
         stroke_width: float = 0.025,
         opacity: float = 1.0,
         z_index: int = 0,
+        position: Point2 | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Point2 | None = None,
     ) -> None:
-        if isinstance(transform, SE2):
-            transform = transform.as_affine()
-        if not isinstance(transform, Transform2D):
-            raise TypeError("transform must be Transform2D or SE2")
+        transform = _resolve_transform2d(
+            transform,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
+            owner=type(self).__name__,
+        )
         if not isinstance(color, Color):
             raise TypeError("color must be Color")
         if float(stroke_width) <= 0.0:
@@ -60,11 +68,15 @@ class InfiniteLine(InfiniteObject2D):
         point: Point2 = (0.0, 0.0),
         direction: Point2 = (1.0, 0.0),
         *,
-        transform: Transform2D | SE2 = Transform2D(),
+        transform: Transform2D | SE2 | None = None,
         color: Color = Color(230, 232, 238),
         stroke_width: float = 0.035,
         opacity: float = 1.0,
         z_index: int = 0,
+        position: Point2 | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Point2 | None = None,
     ) -> None:
         self.point = as_vec2(point, name="point")
         self.direction = as_vec2(direction, name="direction")
@@ -76,6 +88,10 @@ class InfiniteLine(InfiniteObject2D):
             stroke_width=stroke_width,
             opacity=opacity,
             z_index=z_index,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
         )
 
 
@@ -91,11 +107,15 @@ class InfiniteGrid(InfiniteObject2D):
         step: float | tuple[float, float] = 1.0,
         *,
         origin: Point2 = (0.0, 0.0),
-        transform: Transform2D | SE2 = Transform2D(),
+        transform: Transform2D | SE2 | None = None,
         color: Color = Color(92, 105, 132, 180),
         stroke_width: float = 0.018,
         opacity: float = 1.0,
         z_index: int = 0,
+        position: Point2 | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Point2 | None = None,
     ) -> None:
         sx, sy = _grid_step(step)
         self.origin = as_vec2(origin, name="origin")
@@ -106,6 +126,10 @@ class InfiniteGrid(InfiniteObject2D):
             stroke_width=stroke_width,
             opacity=opacity,
             z_index=z_index,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
         )
 
 
@@ -122,9 +146,13 @@ class NumberPlane(Group):
         background_stroke_width: float = 2.0 / 90.0,
         faded_stroke_width: float = 1.0 / 90.0,
         axis_stroke_width: float = 2.0 / 90.0,
-        transform: Transform2D | SE2 = Transform2D(),
+        transform: Transform2D | SE2 | None = None,
         opacity: float = 1.0,
         z_index: int = 0,
+        position: Point2 | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Point2 | None = None,
     ) -> None:
         if step <= 0:
             raise ValueError("NumberPlane step must be positive")
@@ -166,7 +194,16 @@ class NumberPlane(Group):
                 ),
             )
         )
-        super().__init__(children, transform=transform, opacity=opacity, z_index=z_index)
+        super().__init__(
+            children,
+            transform=transform,
+            opacity=opacity,
+            z_index=z_index,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
+        )
 
 
 def _grid_step(step: float | tuple[float, float]) -> tuple[float, float]:
@@ -219,9 +256,13 @@ class ComplexMappedGrid(InfiniteObject2D):
         x_color: Color = Color(255, 166, 92, 210),
         y_color: Color = Color(92, 180, 255, 210),
         stroke_width: float = 0.022,
-        transform: Transform2D | SE2 = Transform2D(),
+        transform: Transform2D | SE2 | None = None,
         opacity: float = 1.0,
         z_index: int = 0,
+        position: Point2 | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Point2 | None = None,
     ) -> None:
         if mapping not in _MAP_KINDS:
             raise ValueError(f"unsupported complex mapping: {mapping!r}")
@@ -273,6 +314,10 @@ class ComplexMappedGrid(InfiniteObject2D):
             stroke_width=stroke_width,
             opacity=opacity,
             z_index=z_index,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
         )
 
     def progress_at(self, time: float) -> float:

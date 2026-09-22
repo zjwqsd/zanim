@@ -38,26 +38,25 @@ zanim render scene.py --time 1.25 -o frame.png
 zanim info
 ```
 
-A Manim-like class frontend is also available. It is intentionally only an authoring wrapper over the same Scene state model:
+A class frontend is also available. Small scenes normally need only `construct()`; `setup()` is optional when declarations or resource preparation deserve a separate hook:
 
 ```python
 from zanim import BLUE, WORLD, Circle, Row, Scene, Square
 
 
 class Demo(Scene):
-    def setup(self):
-        self.square = Square(1)
-        self.circle = Circle(0.6, fill=BLUE)
-        Row(gap=0.5).place(self.square, self.circle)
-
     def construct(self):
-        square, circle = self.add(self.square, self.circle)
+        square = Square(1)
+        circle = Circle(0.6, fill=BLUE)
+        Row(gap=0.5).place(square, circle)
+        square, circle = self.add(square, circle)
+
         with self.parallel(duration=1):
             square.move(by=(-1, 0), frame=WORLD)
             circle.move(by=(1, 0), frame=WORLD)
 ```
 
-`zanim preview demo.py` and `zanim render demo.py` automatically select the single Scene subclass and run `setup()` followed by `construct()`. `setup()` is for raw declarations, resource/data preparation, and one-time initial layout; `construct()` crosses `Scene.add()` and authors temporal behavior. Objects created later as explicit timeline events may still be created in `construct()`. If a file defines multiple Scene subclasses, select one with `--scene Demo`. Nothing in `setup()` is auto-registered: `Scene.add()` remains the explicit ownership boundary.
+`zanim preview demo.py` and `zanim render demo.py` automatically select the single Scene subclass and run the optional `setup()` hook followed by `construct()`. Raw 2D objects expose `move()`, `rotate()` and `scale()` for initial authoring; after `Scene.add()` the returned bound handles keep the same verbs and add timeline arguments such as `duration`, `easing` and `at`. `Scene.add()` remains the explicit ownership boundary. If a file defines multiple Scene subclasses, select one with `--scene Demo`.
 
 Jupyter uses the same API:
 

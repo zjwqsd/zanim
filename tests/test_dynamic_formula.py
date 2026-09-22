@@ -11,7 +11,6 @@ from zanim import (
     NumberFormat,
     ObjectSlot,
     Scene,
-    Style,
     Transform2D,
 )
 
@@ -64,7 +63,7 @@ class FormulaTemplateTests(unittest.TestCase):
             FormulaLiteral("x", font_size=28), slot, FormulaLiteral("=", font_size=28)
         )
         width = template.width
-        circle = Circle(1.0, style=Style(fill=Color(100, 180, 255), stroke=None))
+        circle = Circle(1.0, fill=Color(100, 180, 255), stroke=None)
         scene = Scene(canvas=Canvas(width=640, height=360, unit_size=80))
         instance = template.mount(scene, {"shape": circle})
         self.assertEqual(template.width, width)

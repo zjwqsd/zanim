@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from math import ceil
 
 from .object import SceneObject2D
 from .space import SE2, Transform2D, Vec2
@@ -91,63 +90,3 @@ class Group(SceneObject2D):
 
     def __getitem__(self, index):
         return self._children[index]
-
-    def arrange(
-        self, direction: Vec2 = Vec2(1, 0), *, buff: float = 0.25, center: bool = True
-    ) -> "Group":
-        if not self._children:
-            return self
-        original_center = self.bounds().center
-        for previous, child in zip(self._children, self._children[1:]):
-            child.next_to(previous, direction, buff)
-            # Keep rows/columns visually aligned on the orthogonal center axis.
-            if abs(direction.x) >= abs(direction.y):
-                child.shift(0.0, previous.bounds().center.y - child.bounds().center.y)
-            else:
-                child.shift(previous.bounds().center.x - child.bounds().center.x, 0.0)
-        if center:
-            new_center = self.bounds().center
-            delta = Vec2(original_center.x - new_center.x, original_center.y - new_center.y)
-            for child in self._children:
-                child.shift(delta)
-        return self
-
-    def arrange_in_grid(
-        self,
-        *,
-        rows: int | None = None,
-        cols: int | None = None,
-        buff_x: float = 0.25,
-        buff_y: float = 0.25,
-    ) -> "Group":
-        count = len(self._children)
-        if count == 0:
-            return self
-        if rows is None and cols is None:
-            cols = int(ceil(count**0.5))
-        if cols is None:
-            if rows is None or rows <= 0:
-                raise ValueError("rows must be positive")
-            cols = int(ceil(count / rows))
-        if rows is None:
-            if cols <= 0:
-                raise ValueError("cols must be positive")
-            rows = int(ceil(count / cols))
-        if rows <= 0 or cols <= 0 or rows * cols < count:
-            raise ValueError("grid dimensions cannot contain all children")
-        if buff_x < 0 or buff_y < 0:
-            raise ValueError("grid buffers must be >= 0")
-
-        center = self.bounds().center
-        cell_w = max(child.bounds().width for child in self._children)
-        cell_h = max(child.bounds().height for child in self._children)
-        total_w = cols * cell_w + (cols - 1) * buff_x
-        total_h = rows * cell_h + (rows - 1) * buff_y
-        for index, child in enumerate(self._children):
-            row, col = divmod(index, cols)
-            target = Vec2(
-                center.x - total_w * 0.5 + cell_w * 0.5 + col * (cell_w + buff_x),
-                center.y + total_h * 0.5 - cell_h * 0.5 - row * (cell_h + buff_y),
-            )
-            child.move_to(target)
-        return self

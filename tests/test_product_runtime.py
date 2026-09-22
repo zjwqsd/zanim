@@ -10,8 +10,9 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from zanim import Canvas, Circle, MediaError, Scene, ZanimError
+from zanim import Canvas, Circle, Scene
 from zanim.cli import _load_scene, main as cli_main
+from zanim.errors import MediaError, ZanimError
 from zanim.preview import PreviewServer
 from zanim.render.abi import ABI_VERSION, load_library
 from zanim.runtime import ffmpeg_path, require_ffmpeg
@@ -80,7 +81,7 @@ class ProductRuntimeTests(unittest.TestCase):
                 "        self.order = ['setup']\n"
                 "        self.canvas = Canvas(80, 48, 12)\n"
                 "        self.marker = Circle(1)\n"
-                "        self.marker.move_to((0.5, 0))\n"
+                "        self.marker.move(to=(0.5, 0))\n"
                 "    def construct(self):\n"
                 "        self.order.append('construct')\n"
                 "        marker = self.add(self.marker)\n"

@@ -61,6 +61,10 @@ class AudioObject:
         self.source = source
         self.gain = float(gain)
 
+    @property
+    def duration(self) -> float:
+        return self.source.duration
+
 
 class Audio(AudioObject):
     def __init__(self, path: str | Path, *, gain: float = 1.0) -> None:

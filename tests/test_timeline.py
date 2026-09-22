@@ -35,7 +35,7 @@ class SceneTimelineTests(unittest.TestCase):
         scene.add(obj)
         target = Transform2D.translation(5, 2)
 
-        bound = scene.on(obj)
+        bound = scene._handle(obj)
         bound.transform(to=target, duration=2, easing=Easing.LINEAR)
 
         self.assertEqual(obj.transform, Transform2D.translation(1, 0))
@@ -51,7 +51,7 @@ class SceneTimelineTests(unittest.TestCase):
         scene.add(obj)
         t1 = Transform2D.translation(2, 0)
         t2 = Transform2D.translation(2, 3)
-        bound = scene.on(obj)
+        bound = scene._handle(obj)
         bound.transform(to=t1, duration=1, easing=Easing.LINEAR)
         bound.transform(to=t2, duration=2, easing=Easing.LINEAR)
 
@@ -88,7 +88,7 @@ class SceneTimelineTests(unittest.TestCase):
         scene = Scene()
         obj = Square(1)
         with self.assertRaises(ValueError):
-            scene.transform(obj, to=Transform2D.translation(1, 0))
+            scene._handle(obj).transform(to=Transform2D.translation(1, 0))
 
 
 if __name__ == "__main__":
@@ -100,8 +100,12 @@ class TimelineRandomAccessTests(unittest.TestCase):
         obj = Square(1)
         scene = Scene()
         scene.add(obj)
-        scene.transform(obj, to=Transform2D.translation(2, 0), duration=1, easing=Easing.LINEAR)
-        scene.transform(obj, to=Transform2D.translation(2, 4), duration=2, easing=Easing.LINEAR)
+        scene._handle(obj).transform(
+            to=Transform2D.translation(2, 0), duration=1, easing=Easing.LINEAR
+        )
+        scene._handle(obj).transform(
+            to=Transform2D.translation(2, 4), duration=2, easing=Easing.LINEAR
+        )
         times = [0.2, 1.4, 2.8, 0.7, 1.4]
         values = [scene.evaluate(t).objects[0].snapshot.transform for t in times]
         self.assertEqual(values[1], values[4])

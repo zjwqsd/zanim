@@ -5,7 +5,7 @@ from typing import Callable
 
 from .geometry import Color
 from .object import SceneObject2D
-from .space import SE2, Linear2D, Transform2D, Vec2
+from .space import SE2, Point2, Transform2D, Vec2, _resolve_transform2d
 
 
 def _same_length(name: str, n: int, values: tuple[object, ...]) -> None:
@@ -101,7 +101,7 @@ class RectSet:
 BatchGeometry = LineSet | CircleSet | RectSet
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, init=False)
 class BatchObject2D(SceneObject2D):
     """A transformable collection rendered as one batch.
 
@@ -114,24 +114,33 @@ class BatchObject2D(SceneObject2D):
     opacity: float = 1.0
     z_index: int = 0
 
+    def __init__(
+        self,
+        batch: BatchGeometry,
+        transform: Transform2D | SE2 | None = None,
+        opacity: float = 1.0,
+        z_index: int = 0,
+        *,
+        position: Point2 | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Point2 | None = None,
+    ) -> None:
+        self.batch = batch
+        self.transform = _resolve_transform2d(
+            transform,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
+            owner=type(self).__name__,
+        )
+        self.opacity = float(opacity)
+        self.z_index = int(z_index)
+        self.__post_init__()
+
     def __post_init__(self) -> None:
         self._validate_scene_state()
-
-    def apply_linear_local(self, linear: Linear2D) -> "BatchObject2D":
-        self.transform = self.transform @ linear.as_affine()
-        return self
-
-    def apply_linear_world(self, linear: Linear2D) -> "BatchObject2D":
-        self.transform = linear.as_affine() @ self.transform
-        return self
-
-    def apply_se2_local(self, rigid: SE2) -> "BatchObject2D":
-        self.transform = self.transform @ rigid.as_affine()
-        return self
-
-    def apply_se2_world(self, rigid: SE2) -> "BatchObject2D":
-        self.transform = rigid.as_affine() @ self.transform
-        return self
 
 
 class DynamicBatchObject2D(BatchObject2D):
@@ -149,9 +158,13 @@ class DynamicBatchObject2D(BatchObject2D):
         self,
         provider: Callable[[float], BatchGeometry],
         *,
-        transform: Transform2D | SE2 = Transform2D(),
+        transform: Transform2D | SE2 | None = None,
         opacity: float = 1.0,
         z_index: int = 0,
+        position: Point2 | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Point2 | None = None,
     ) -> None:
         if not callable(provider):
             raise TypeError("dynamic batch provider must be callable")
@@ -159,7 +172,16 @@ class DynamicBatchObject2D(BatchObject2D):
         initial = provider(0.0)
         if not isinstance(initial, (LineSet, CircleSet, RectSet)):
             raise TypeError("dynamic batch provider must return LineSet, CircleSet, or RectSet")
-        super().__init__(initial, transform=transform, opacity=opacity, z_index=z_index)
+        super().__init__(
+            initial,
+            transform=transform,
+            opacity=opacity,
+            z_index=z_index,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
+        )
 
     @property
     def is_dynamic(self) -> bool:

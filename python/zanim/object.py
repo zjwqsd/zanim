@@ -2,19 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .space import SE2, Point2, Transform2D, Vec2, as_vec2
+from .space import LOCAL, PARENT, SE2, WORLD, Point2, Transform2D, TransformFrame, Vec2, as_vec2
 
 if TYPE_CHECKING:
     from .bounds import Bounds2D
 
 
 class SceneObject2D:
-    """Small common authoring surface shared by every 2D scene object.
-
-    Render representation remains specialized (geometry, batch, vector).  This
-    class only unifies state and spatial authoring operations; it is not a
-    renderer-side scene graph node.
-    """
+    """Common initial-authoring surface shared by every 2D scene object."""
 
     transform: Transform2D
     opacity: float
@@ -23,13 +18,11 @@ class SceneObject2D:
     def __setattr__(self, name: str, value) -> None:
         if not name.startswith("_") and getattr(self, "_zanim_scene_registered", False):
             raise RuntimeError(
-                f"cannot assign {name!r} after Scene.add(); use a Scene timeline operation"
+                f"cannot assign {name!r} after Scene.add(); animate the bound handle instead"
             )
         object.__setattr__(self, name, value)
 
     def _validate_scene_state(self) -> None:
-        # Constructors may use SE2 as an exact rigid-pose shorthand. Runtime
-        # storage remains Transform2D so every renderer sees one representation.
         if isinstance(self.transform, SE2):
             self.transform = self.transform.as_affine()
         elif not isinstance(self.transform, Transform2D):
@@ -44,9 +37,14 @@ class SceneObject2D:
     def _require_layout_mutable(self) -> None:
         if getattr(self, "_zanim_scene_registered", False):
             raise RuntimeError(
-                "object is already registered in a Scene; "
-                "use Scene timeline operations for state changes"
+                "object is already registered in a Scene; animate the bound handle instead"
             )
+
+    def _translate_parent(self, delta: Point2):
+        self._require_layout_mutable()
+        delta = as_vec2(delta, name="delta")
+        self.transform = Transform2D.translation(delta.x, delta.y) @ self.transform
+        return self
 
     def bounds(self) -> "Bounds2D":
         from .bounds import bounds_of
@@ -55,21 +53,13 @@ class SceneObject2D:
 
     @property
     def center(self) -> Vec2:
-        """Center of the object's current authored 2D bounds.
-
-        This is authoring state, not a hidden timeline sample.  Before adding an
-        object to a Scene it is useful for layout; after timeline operations it
-        reflects the explicit target state stored on the object.
-        """
         return self.bounds().center
 
     @property
     def origin(self) -> Vec2:
-        """Current authored world position of the object's local origin."""
         return self.transform.apply(Vec2())
 
     def anchor(self, anchor) -> Vec2:
-        """Return a visual-bounds anchor in the object's authored parent space."""
         from .layout import _anchor
 
         a = _anchor(anchor)
@@ -80,44 +70,105 @@ class SceneObject2D:
         )
 
     def place(self, *, anchor, at: Point2):
-        """Place one bounds anchor at an explicit point in its parent layout space.
-
-        Before ``Scene.add()`` hierarchy has no Scene world context, so layout
-        is intentionally parent-relative. Top-level objects therefore use world
-        coordinates. The operation changes no geometry, opacity, or timeline.
-        """
-        self._require_layout_mutable()
+        """Place one visual anchor at a point in the current parent layout space."""
         at = as_vec2(at, name="at")
-        return self.shift(at - self.anchor(anchor))
+        return self._translate_parent(at - self.anchor(anchor))
 
-    def shift(self, x: float | Vec2, y: float | None = None):
+    def move(
+        self,
+        *,
+        by: Point2 | None = None,
+        to: Point2 | None = None,
+        frame: TransformFrame | None = None,
+        anchor=None,
+    ):
+        """Set initial translation with the same vocabulary as bound animation."""
         self._require_layout_mutable()
-        if isinstance(x, Vec2):
-            if y is not None:
-                raise TypeError("y must be omitted when shifting by Vec2")
-            delta = x
-        else:
-            if y is None:
-                raise TypeError("shift(x, y) requires both coordinates")
-            delta = Vec2(float(x), float(y))
-        self.transform = Transform2D.translation(delta.x, delta.y) @ self.transform
+        if (by is None) == (to is None):
+            raise ValueError("move() requires exactly one of by= or to=")
+        if by is not None:
+            if anchor is not None:
+                raise ValueError("move(by=...) does not accept anchor=")
+            if frame is None:
+                raise ValueError("move(by=...) requires LOCAL or PARENT")
+            if frame is WORLD:
+                raise ValueError("WORLD motion requires Scene ownership; call Scene.add() first")
+            if frame not in (LOCAL, PARENT):
+                raise TypeError("frame must be LOCAL, PARENT, or WORLD")
+            delta = as_vec2(by, name="by")
+            op = Transform2D.translation(delta.x, delta.y)
+            self.transform = self.transform @ op if frame is LOCAL else op @ self.transform
+            return self
+
+        if frame is not None:
+            raise ValueError("move(to=...) does not accept frame=")
+        from .layout import CENTER
+
+        return self.place(anchor=CENTER if anchor is None else anchor, at=as_vec2(to, name="to"))
+
+    def rotate(
+        self,
+        *,
+        by: float,
+        frame: TransformFrame | None = None,
+        about: Point2 | None = None,
+    ):
+        """Set initial rotation in LOCAL/PARENT, or around one explicit pivot."""
+        self._require_layout_mutable()
+        angle = float(by)
+        if about is not None:
+            if frame is not None:
+                raise ValueError("rotate() accepts either frame= or about=, not both")
+            pivot = as_vec2(about, name="about")
+            self.transform = (
+                Transform2D.translation(pivot.x, pivot.y)
+                @ Transform2D.rotation(angle)
+                @ Transform2D.translation(-pivot.x, -pivot.y)
+                @ self.transform
+            )
+            return self
+        if frame is None:
+            raise ValueError("rotate() requires LOCAL/PARENT or about=")
+        if frame is WORLD:
+            raise ValueError("WORLD rotation requires Scene ownership; call Scene.add() first")
+        if frame not in (LOCAL, PARENT):
+            raise TypeError("frame must be LOCAL, PARENT, or WORLD")
+        op = Transform2D.rotation(angle)
+        self.transform = self.transform @ op if frame is LOCAL else op @ self.transform
         return self
 
-    def move_to(self, target: Point2 | "SceneObject2D"):
-        point = (
-            target.bounds().center
-            if isinstance(target, SceneObject2D)
-            else as_vec2(target, name="target")
-        )
-        current = self.bounds().center
-        return self.shift(point.x - current.x, point.y - current.y)
-
-    def align_to(self, other: "SceneObject2D", direction: Vec2):
-        source = self.bounds().point(direction)
-        target = other.bounds().point(direction)
-        if abs(direction.x) >= abs(direction.y):
-            return self.shift(target.x - source.x, 0.0)
-        return self.shift(0.0, target.y - source.y)
+    def scale(
+        self,
+        *,
+        by: float,
+        frame: TransformFrame | None = None,
+        about: Point2 | None = None,
+    ):
+        """Set initial scale in LOCAL/PARENT, or around one explicit pivot."""
+        self._require_layout_mutable()
+        factor = float(by)
+        if factor < 0:
+            raise ValueError("scale(by=...) must be >= 0")
+        if about is not None:
+            if frame is not None:
+                raise ValueError("scale() accepts either frame= or about=, not both")
+            pivot = as_vec2(about, name="about")
+            self.transform = (
+                Transform2D.translation(pivot.x, pivot.y)
+                @ Transform2D.scaling(factor)
+                @ Transform2D.translation(-pivot.x, -pivot.y)
+                @ self.transform
+            )
+            return self
+        if frame is None:
+            raise ValueError("scale() requires LOCAL/PARENT or about=")
+        if frame is WORLD:
+            raise ValueError("WORLD scaling requires Scene ownership; call Scene.add() first")
+        if frame not in (LOCAL, PARENT):
+            raise TypeError("frame must be LOCAL, PARENT, or WORLD")
+        op = Transform2D.scaling(factor)
+        self.transform = self.transform @ op if frame is LOCAL else op @ self.transform
+        return self
 
     def next_to(
         self,
@@ -125,73 +176,17 @@ class SceneObject2D:
         direction: Vec2 = Vec2(1, 0),
         buff: float = 0.25,
     ):
+        """Place this object next to another object or point."""
         if buff < 0:
             raise ValueError("buff must be >= 0")
-        norm = (direction.x * direction.x + direction.y * direction.y) ** 0.5
+        norm = direction.length
         if norm <= 1e-12:
             raise ValueError("next_to direction must be non-zero")
-        d = Vec2(direction.x / norm, direction.y / norm)
-        source = self.bounds().point(Vec2(-d.x, -d.y))
+        d = direction / norm
+        source = self.bounds().point(-d)
         target = (
             other.bounds().point(d)
             if isinstance(other, SceneObject2D)
             else as_vec2(other, name="other")
         )
-        return self.shift(target.x + d.x * buff - source.x, target.y + d.y * buff - source.y)
-
-    def to_edge(self, canvas, direction: Vec2, buff: float = 0.25):
-        if buff < 0:
-            raise ValueError("buff must be >= 0")
-        norm = (direction.x * direction.x + direction.y * direction.y) ** 0.5
-        if norm <= 1e-12:
-            raise ValueError("to_edge direction must be non-zero")
-        d = Vec2(direction.x / norm, direction.y / norm)
-        half_w = canvas.width / (2.0 * canvas.unit_size)
-        half_h = canvas.height / (2.0 * canvas.unit_size)
-        bounds = self.bounds()
-        dx = dy = 0.0
-        if d.x > 1e-12:
-            dx = half_w - buff - bounds.right
-        elif d.x < -1e-12:
-            dx = -half_w + buff - bounds.left
-        if d.y > 1e-12:
-            dy = half_h - buff - bounds.top
-        elif d.y < -1e-12:
-            dy = -half_h + buff - bounds.bottom
-        return self.shift(dx, dy)
-
-    def scale_about(self, factor: float, about: Point2 | None = None):
-        self._require_layout_mutable()
-        if factor < 0:
-            raise ValueError("scale factor must be >= 0")
-        center = self.bounds().center if about is None else as_vec2(about, name="about")
-        op = (
-            Transform2D.translation(center.x, center.y)
-            @ Transform2D.scaling(float(factor))
-            @ Transform2D.translation(-center.x, -center.y)
-        )
-        self.transform = op @ self.transform
-        return self
-
-    def rotate_about(self, radians: float, about: Point2 | None = None):
-        self._require_layout_mutable()
-        center = self.bounds().center if about is None else as_vec2(about, name="about")
-        op = (
-            Transform2D.translation(center.x, center.y)
-            @ Transform2D.rotation(float(radians))
-            @ Transform2D.translation(-center.x, -center.y)
-        )
-        self.transform = op @ self.transform
-        return self
-
-    def set_opacity(self, opacity: float):
-        self._require_layout_mutable()
-        if not 0.0 <= opacity <= 1.0:
-            raise ValueError("opacity must be in [0, 1]")
-        self.opacity = float(opacity)
-        return self
-
-    def set_z_index(self, z_index: int):
-        self._require_layout_mutable()
-        self.z_index = int(z_index)
-        return self
+        return self._translate_parent(target + d * float(buff) - source)

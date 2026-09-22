@@ -10,16 +10,16 @@ class TimelineIndexTests(unittest.TestCase):
         scene.add(obj)
         with self.assertRaisesRegex(ValueError, "chronological order"):
             with scene.parallel():
-                scene.transform(obj, to=Transform2D.translation(3, 0), duration=1, at=2)
-                scene.transform(obj, to=Transform2D.translation(1, 0), duration=1, at=0)
+                scene._handle(obj).transform(to=Transform2D.translation(3, 0), duration=1, at=2)
+                scene._handle(obj).transform(to=Transform2D.translation(1, 0), duration=1, at=0)
 
     def test_different_objects_may_use_arbitrary_at_offsets(self):
         a, b = Circle(1), Circle(1)
         scene = Scene()
         scene.add(a, b)
         with scene.parallel():
-            scene.transform(a, to=Transform2D.translation(3, 0), duration=1, at=2)
-            scene.transform(b, to=Transform2D.translation(1, 0), duration=1, at=0)
+            scene._handle(a).transform(to=Transform2D.translation(3, 0), duration=1, at=2)
+            scene._handle(b).transform(to=Transform2D.translation(1, 0), duration=1, at=0)
         self.assertAlmostEqual(scene.evaluate(0.5).objects[1].snapshot.transform.tx, 0.5)
         self.assertAlmostEqual(scene.evaluate(2.5).objects[0].snapshot.transform.tx, 1.5)
 

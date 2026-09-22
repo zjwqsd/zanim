@@ -324,6 +324,37 @@ def affine2d(
     )
 
 
+def _resolve_transform2d(
+    transform: Transform2D | SE2 | None,
+    *,
+    position: Point2 | None = None,
+    rotation: float | None = None,
+    scale: float | tuple[float, float] | None = None,
+    shear: Point2 | None = None,
+    owner: str = "object",
+) -> Transform2D:
+    """Resolve one complete initial affine transform from constructor sugar."""
+    sugar = any(value is not None for value in (position, rotation, scale, shear))
+    if transform is not None and sugar:
+        raise ValueError(
+            f"{owner} accepts either transform= or position/rotation/scale/shear sugar, not both"
+        )
+    if transform is None:
+        if not sugar:
+            return Transform2D()
+        return affine2d(
+            position=(0.0, 0.0) if position is None else position,
+            rotation=0.0 if rotation is None else rotation,
+            scale=1.0 if scale is None else scale,
+            shear=(0.0, 0.0) if shear is None else shear,
+        )
+    if isinstance(transform, SE2):
+        return transform.as_affine()
+    if isinstance(transform, Transform2D):
+        return transform
+    raise TypeError("transform must be Transform2D or SE2")
+
+
 @dataclass(slots=True)
 class Canvas:
     width: int = 1920

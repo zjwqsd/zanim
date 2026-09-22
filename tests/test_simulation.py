@@ -82,14 +82,14 @@ class SimulationTests(unittest.TestCase):
         scene.add(obj)
         scene.bind(obj, simulation, position=lambda state: (state.x, 0.0))
         with self.assertRaises(TypeError):
-            scene.move(obj, to=(1.0, 0.0))
+            scene._handle(obj).move(to=(1.0, 0.0))
 
     def test_binding_rejects_existing_transform_clip(self):
         obj = Circle(0.2)
         simulation = Simulation(CounterState(), advance_counter)
         scene = Scene()
         scene.add(obj)
-        scene.move(obj, to=(1.0, 0.0), duration=1.0)
+        scene._handle(obj).move(to=(1.0, 0.0), duration=1.0)
         with self.assertRaises(ValueError):
             scene.bind(obj, simulation, position=lambda state: (state.x, 0.0))
 

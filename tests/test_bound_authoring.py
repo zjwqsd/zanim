@@ -12,7 +12,6 @@ from zanim import (
     Transform2D,
     Vec2,
     affine2d,
-    pose2d,
 )
 from zanim.bound import BoundGroup, BoundObject2D
 
@@ -25,8 +24,8 @@ class BoundAuthoringTests(unittest.TestCase):
 
         self.assertIsInstance(bound, BoundObject2D)
         self.assertIs(bound.raw, raw)
-        self.assertIs(scene.on(raw), bound)
-        self.assertIs(scene.on(bound), bound)
+        self.assertIs(scene._handle(raw), bound)
+        self.assertIs(scene._handle(bound), bound)
         self.assertIs(scene.objects[0], raw)
 
     def test_add_many_returns_handles_in_order(self):
@@ -48,13 +47,14 @@ class BoundAuthoringTests(unittest.TestCase):
         self.assertAlmostEqual(scene.evaluate(1.5).objects[0].snapshot.transform.tx, 1.5)
         self.assertAlmostEqual(scene.evaluate(1.5).objects[0].snapshot.transform.ty, 1.0)
 
-    def test_pose_is_complete_absolute_se2_target(self):
+    def test_transform_accepts_complete_se2_target(self):
         raw = Square(1)
         scene = Scene()
         obj = scene.add(raw)
-        obj.pose(position=(2, 1), rotation=math.pi / 2, duration=2, easing=Easing.LINEAR)
+        target = SE2(theta=math.pi / 2, translation=Vec2(2, 1))
+        obj.transform(to=target, duration=2, easing=Easing.LINEAR)
 
-        expected = SE2(theta=math.pi / 2, translation=Vec2(2, 1)).as_affine()
+        expected = target.as_affine()
         self.assertEqual(obj.transform_value, expected)
         mid = scene.evaluate(1).objects[0].snapshot.transform
         self.assertAlmostEqual(mid.tx, 1.0)
@@ -88,20 +88,15 @@ class BoundAuthoringTests(unittest.TestCase):
         scene = Scene()
         bound_group = scene.add(group)
         self.assertIsInstance(bound_group, BoundGroup)
-        self.assertIs(bound_group.children[0], scene.on(child))
+        self.assertIs(bound_group.children[0], scene._handle(child))
 
-    def test_bound_handle_does_not_reexpose_pre_add_layout_mutators(self):
+    def test_bound_handle_exposes_world_queries(self):
         scene = Scene()
-        obj = scene.add(Square(1))
-        self.assertFalse(hasattr(obj, "place"))
-        self.assertFalse(hasattr(obj, "shift"))
-        self.assertFalse(hasattr(obj, "move_to"))
+        obj = scene.add(Square(1, position=(2, 3)))
+        self.assertEqual(obj.center, Vec2(2, 3))
+        self.assertEqual(obj.world_point(), Vec2(2, 3))
 
-    def test_pure_pose_and_affine_factories_match_bound_sugar(self):
-        self.assertEqual(
-            pose2d(position=(2, 1), rotation=0.4),
-            SE2(theta=0.4, translation=Vec2(2, 1)),
-        )
+    def test_affine_factory_matches_bound_sugar(self):
         self.assertEqual(
             affine2d(position=(2, 1), rotation=0.4, scale=(2, 0.5), shear=(0.1, -0.2)),
             Transform2D.translation(2, 1)
@@ -114,7 +109,7 @@ class BoundAuthoringTests(unittest.TestCase):
         scene_a = Scene()
         handle = scene_a.add(Square(1))
         with self.assertRaisesRegex(ValueError, "different Scene"):
-            Scene().on(handle)
+            Scene()._handle(handle)
 
     def test_scene_relations_accept_bound_handles(self):
         scene = Scene()
@@ -128,7 +123,7 @@ class BoundAuthoringTests(unittest.TestCase):
         target_raw = Circle(1)
         target = scene.replace(source, target_raw, duration=0.5)
         self.assertIs(target.raw, target_raw)
-        self.assertIs(scene.on(target_raw), target)
+        self.assertIs(scene._handle(target_raw), target)
         self.assertEqual(scene.evaluate(0.25).objects, ())
         self.assertEqual(len(scene.evaluate(0.25).transients), 1)
         self.assertEqual(len(scene.evaluate(0.5).objects), 1)

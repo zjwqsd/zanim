@@ -62,7 +62,7 @@ def test_scene_ir_restores_authoring_head_for_continued_animation():
     square = scene.add(Square(1))
     square.move(to=(2, 1), duration=1.0)
     restored = scene_from_ir(json.loads(json.dumps(scene_to_ir(scene))))
-    restored_square = restored.on(restored.items[0])
+    restored_square = restored._handle(restored.items[0])
     assert restored_square.center == Vec2(2, 1)
     restored_square.move(by=(1, 0), frame=WORLD, duration=1.0)
     assert restored_square.center == Vec2(3, 1)
@@ -117,8 +117,7 @@ def test_scene_ir_preserves_se2_rigid_interpolation():
     scene = Scene(fps=60)
     square = Square(1)
     scene.add(square)
-    scene.transform(
-        square,
+    scene._handle(square).transform(
         to=SE2(theta=1.5, translation=Vec2(2.0, -0.5)),
         duration=2.0,
     )
@@ -136,7 +135,7 @@ def test_scene_ir_samples_dynamic_geometry_batch_and_vector_on_video_grid():
     scene = Scene(canvas=Canvas(640, 360, 80), fps=20)
     dynamic_geometry = DynamicGeometryObject2D(
         lambda t: PolylineGeometry((Vec2(0, 0), Vec2(1 + t, t))),
-        style=Square(1).style,
+        stroke=Color(255, 255, 255),
     )
     dynamic_batch = DynamicBatchObject2D(
         lambda t: LineSet(

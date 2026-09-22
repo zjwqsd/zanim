@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from .mesh3d import MeshObject3D
-from .space3d import SE3, Transform3D, Vec3
+from .space3d import SE3, SO3, Transform3D, Vec3, _resolve_transform3d
 
 
 @dataclass(slots=True, init=False)
@@ -29,21 +29,16 @@ class Group3D:
         opacity: float = 1.0,
         *,
         position: Vec3 | tuple[float, float, float] | None = None,
+        rotation: SO3 | None = None,
+        scale: float | Vec3 | tuple[float, float, float] | None = None,
     ) -> None:
-        if transform is not None and position is not None:
-            raise ValueError("Group3D accepts either transform= or position=, not both")
-        if transform is None:
-            if position is None:
-                resolved = Transform3D()
-            else:
-                p = position if isinstance(position, Vec3) else Vec3(*map(float, position))
-                resolved = Transform3D.translation(p.x, p.y, p.z)
-        elif isinstance(transform, SE3):
-            resolved = transform.as_affine()
-        elif isinstance(transform, Transform3D):
-            resolved = transform
-        else:
-            raise TypeError("Group3D transform must be Transform3D or SE3")
+        resolved = _resolve_transform3d(
+            transform,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            owner="Group3D",
+        )
         value = float(opacity)
         if not 0.0 <= value <= 1.0:
             raise ValueError("Group3D opacity must be in [0, 1]")
@@ -60,7 +55,7 @@ class Group3D:
     def __setattr__(self, name: str, value) -> None:
         if not name.startswith("_") and getattr(self, "_zanim_scene_registered", False):
             raise RuntimeError(
-                f"cannot assign {name!r} after Scene.add(); use a Scene timeline operation"
+                f"cannot assign {name!r} after Scene.add(); animate the bound handle instead"
             )
         object.__setattr__(self, name, value)
 

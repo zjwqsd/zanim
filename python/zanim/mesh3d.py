@@ -6,7 +6,7 @@ from math import isfinite
 from typing import Callable
 
 from .geometry import Color
-from .space3d import Transform3D, Vec3
+from .space3d import SE3, SO3, Transform3D, Vec3, _resolve_transform3d
 
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)
@@ -43,7 +43,7 @@ class MeshObject3D:
     def __setattr__(self, name: str, value) -> None:
         if not name.startswith("_") and getattr(self, "_zanim_scene_registered", False):
             raise RuntimeError(
-                f"cannot assign {name!r} after Scene.add(); use a Scene timeline operation"
+                f"cannot assign {name!r} after Scene.add(); animate the bound handle instead"
             )
         object.__setattr__(self, name, value)
 
@@ -53,12 +53,6 @@ class MeshObject3D:
     def __post_init__(self) -> None:
         if not 0.0 <= float(self.opacity) <= 1.0:
             raise ValueError("opacity must be in [0, 1]")
-
-    def set_opacity(self, opacity: float) -> "MeshObject3D":
-        if not 0.0 <= opacity <= 1.0:
-            raise ValueError("opacity must be in [0, 1]")
-        self.opacity = float(opacity)
-        return self
 
 
 @lru_cache(maxsize=1)
@@ -109,13 +103,22 @@ def Box3D(
     size: Vec3 = Vec3(2.0, 2.0, 2.0),
     *,
     color: Color = Color(104, 184, 255),
-    transform: Transform3D = Transform3D(),
+    transform: Transform3D | SE3 | None = None,
+    position: Vec3 | tuple[float, float, float] | None = None,
+    rotation: SO3 | None = None,
+    scale: float | Vec3 | tuple[float, float, float] | None = None,
 ) -> MeshObject3D:
     if size.x <= 0 or size.y <= 0 or size.z <= 0:
         raise ValueError("box dimensions must be positive")
     return MeshObject3D(
         unit_box_mesh(),
-        transform=transform,
+        transform=_resolve_transform3d(
+            transform,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            owner="Box3D",
+        ),
         color=color,
         geometry_transform=Transform3D.scaling(size.x, size.y, size.z),
     )
@@ -125,11 +128,21 @@ def Cube3D(
     side: float = 2.0,
     *,
     color: Color = Color(104, 184, 255),
-    transform: Transform3D = Transform3D(),
+    transform: Transform3D | SE3 | None = None,
+    position: Vec3 | tuple[float, float, float] | None = None,
+    rotation: SO3 | None = None,
+    scale: float | Vec3 | tuple[float, float, float] | None = None,
 ) -> MeshObject3D:
     if side <= 0:
         raise ValueError("cube side must be positive")
-    return Box3D(Vec3(side, side, side), color=color, transform=transform)
+    return Box3D(
+        Vec3(side, side, side),
+        color=color,
+        transform=transform,
+        position=position,
+        rotation=rotation,
+        scale=scale,
+    )
 
 
 def Surface3D(
@@ -139,7 +152,10 @@ def Surface3D(
     y_range: tuple[float, float] = (-3.0, 3.0),
     resolution: tuple[int, int] = (81, 81),
     color: Color = Color(82, 196, 150),
-    transform: Transform3D = Transform3D(),
+    transform: Transform3D | SE3 | None = None,
+    position: Vec3 | tuple[float, float, float] | None = None,
+    rotation: SO3 | None = None,
+    scale: float | Vec3 | tuple[float, float, float] | None = None,
 ) -> MeshObject3D:
     """Create z=f(x,y) as a shared-vertex indexed triangle mesh."""
     x0, x1 = map(float, x_range)
@@ -186,6 +202,12 @@ def Surface3D(
             indices.extend((a, c, b, b, c, d))
     return MeshObject3D(
         TriangleMesh(tuple(vertices), tuple(normals), tuple(indices)),
-        transform=transform,
+        transform=_resolve_transform3d(
+            transform,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            owner="Surface3D",
+        ),
         color=color,
     )

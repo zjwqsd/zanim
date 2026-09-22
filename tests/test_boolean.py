@@ -1,4 +1,4 @@
-from zanim import Circle, Difference, Exclusion, Intersection, Union, Vec2, WHITE
+from zanim import WHITE, Circle, Difference, Exclusion, Intersection, Union, Vec2
 from zanim.vector import VectorObject2D
 
 

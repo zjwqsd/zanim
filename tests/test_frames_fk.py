@@ -12,7 +12,6 @@ from zanim import (
     Group,
     Line,
     Scene,
-    Style,
     Transform2D,
     Vec2,
 )
@@ -24,9 +23,9 @@ class TransformFrameTests(unittest.TestCase):
         scene = Scene()
         scene.add(obj)
         with self.assertRaisesRegex(ValueError, "explicit frame"):
-            scene.transform(obj, by=SE2(theta=0.2))
+            scene._handle(obj).transform(by=SE2(theta=0.2))
         with self.assertRaisesRegex(ValueError, "explicit frame"):
-            scene.move(obj, by=RIGHT)
+            scene._handle(obj).move(by=RIGHT)
 
     def test_parent_left_multiply_and_local_right_multiply(self):
         base = SE2(theta=math.pi / 2, translation=Vec2(2, 0)).as_affine()
@@ -34,14 +33,14 @@ class TransformFrameTests(unittest.TestCase):
         parent_obj = Line(ORIGIN, RIGHT, transform=base)
         parent_scene = Scene()
         parent_scene.add(parent_obj)
-        parent_scene.move(parent_obj, by=RIGHT, frame=PARENT, duration=0)
+        parent_scene._handle(parent_obj).move(by=RIGHT, frame=PARENT, duration=0)
         self.assertAlmostEqual(parent_scene._authored_get(parent_obj, "transform").tx, 3.0)
         self.assertAlmostEqual(parent_obj.transform.ty, 0.0)
 
         local_obj = Line(ORIGIN, RIGHT, transform=base)
         local_scene = Scene()
         local_scene.add(local_obj)
-        local_scene.move(local_obj, by=RIGHT, frame=LOCAL, duration=0)
+        local_scene._handle(local_obj).move(by=RIGHT, frame=LOCAL, duration=0)
         self.assertAlmostEqual(local_scene._authored_get(local_obj, "transform").tx, 2.0)
         self.assertAlmostEqual(local_scene._authored_get(local_obj, "transform").ty, 1.0)
 
@@ -50,8 +49,8 @@ class TransformFrameTests(unittest.TestCase):
         parent = Group([child], transform=SE2(theta=math.pi / 2).as_affine())
         scene = Scene()
         scene.add(parent)
-        scene.move(child, by=RIGHT, frame=WORLD, duration=0)
-        world = scene.world_transform(child)
+        scene._handle(child).move(by=RIGHT, frame=WORLD, duration=0)
+        world = scene._world_transform(child)
         self.assertAlmostEqual(world.tx, 1.0)
         self.assertAlmostEqual(world.ty, 2.0)
 
@@ -60,8 +59,8 @@ class TransformFrameTests(unittest.TestCase):
         parent = Group([child], transform=SE2(theta=math.pi / 2).as_affine())
         scene = Scene()
         scene.add(parent)
-        scene.move(child, to=Vec2(3, 4), duration=0)
-        world_center = scene.world_transform(child).apply(ORIGIN)
+        scene._handle(child).move(to=Vec2(3, 4), duration=0)
+        world_center = scene._world_transform(child).apply(ORIGIN)
         self.assertAlmostEqual(world_center.x, 3.0)
         self.assertAlmostEqual(world_center.y, 4.0)
 
@@ -69,13 +68,12 @@ class TransformFrameTests(unittest.TestCase):
         obj = Line(ORIGIN, RIGHT)
         scene = Scene()
         scene.add(obj)
-        scene.transform(
-            obj,
+        scene._handle(obj).transform(
             to=SE2(theta=math.pi / 2, translation=Vec2(2, 0)),
             duration=2,
             easing=Easing.LINEAR,
         )
-        T = scene.world_transform(obj, time=1)
+        T = scene._world_transform(obj, time=1)
         rigid = SE2.from_affine(T)
         self.assertAlmostEqual(rigid.translation.x, 1.0)
         self.assertAlmostEqual(rigid.theta, math.pi / 4)
@@ -85,19 +83,19 @@ class TransformFrameTests(unittest.TestCase):
 class ForwardKinematicsTests(unittest.TestCase):
     def test_nested_groups_are_open_chain_forward_kinematics(self):
         l1, l2, l3 = 2.0, 1.5, 1.0
-        link3 = Line(ORIGIN, Vec2(l3, 0), style=Style())
+        link3 = Line(ORIGIN, Vec2(l3, 0))
         joint3 = Group([link3], transform=Transform2D.translation(l2, 0))
-        link2 = Line(ORIGIN, Vec2(l2, 0), style=Style())
+        link2 = Line(ORIGIN, Vec2(l2, 0))
         joint2 = Group([link2, joint3], transform=Transform2D.translation(l1, 0))
-        link1 = Line(ORIGIN, Vec2(l1, 0), style=Style())
+        link1 = Line(ORIGIN, Vec2(l1, 0))
         joint1 = Group([link1, joint2])
         scene = Scene()
         scene.add(joint1)
 
         q1, q2, q3 = 0.3, -0.5, 0.7
-        scene.transform(joint1, by=SE2(theta=q1), frame=LOCAL, duration=0)
-        scene.transform(joint2, by=SE2(theta=q2), frame=LOCAL, duration=0)
-        scene.transform(joint3, by=SE2(theta=q3), frame=LOCAL, duration=0)
+        scene._handle(joint1).transform(by=SE2(theta=q1), frame=LOCAL, duration=0)
+        scene._handle(joint2).transform(by=SE2(theta=q2), frame=LOCAL, duration=0)
+        scene._handle(joint3).transform(by=SE2(theta=q3), frame=LOCAL, duration=0)
 
         expected = (
             SE2(theta=q1).as_affine()
@@ -106,7 +104,7 @@ class ForwardKinematicsTests(unittest.TestCase):
             @ Transform2D.translation(l2, 0)
             @ SE2(theta=q3).as_affine()
         )
-        actual = scene.world_transform(joint3)
+        actual = scene._world_transform(joint3)
         for a, b in zip(
             (actual.xx, actual.xy, actual.yx, actual.yy, actual.tx, actual.ty),
             (expected.xx, expected.xy, expected.yx, expected.yy, expected.tx, expected.ty),
@@ -117,8 +115,8 @@ class ForwardKinematicsTests(unittest.TestCase):
         slider = Group([], transform=SE2(theta=math.pi / 2, translation=Vec2(1, 0)).as_affine())
         scene = Scene()
         scene.add(slider)
-        scene.move(slider, by=2 * RIGHT, frame=LOCAL, duration=0)
-        p = scene.world_point(slider)
+        scene._handle(slider).move(by=2 * RIGHT, frame=LOCAL, duration=0)
+        p = scene._world_point(slider)
         self.assertAlmostEqual(p.x, 1.0)
         self.assertAlmostEqual(p.y, 2.0)
 
@@ -135,8 +133,8 @@ class WorldFrameConcurrencyTests(unittest.TestCase):
         scene.add(parent)
         with self.assertRaisesRegex(ValueError, "ancestors"):
             with scene.parallel():
-                scene.transform(parent, by=SE2(theta=0.5), frame=LOCAL, duration=1)
-                scene.move(child, by=RIGHT, frame=WORLD, duration=1)
+                scene._handle(parent).transform(by=SE2(theta=0.5), frame=LOCAL, duration=1)
+                scene._handle(child).move(by=RIGHT, frame=WORLD, duration=1)
 
         child2 = Line(ORIGIN, RIGHT)
         parent2 = Group([child2])
@@ -144,8 +142,8 @@ class WorldFrameConcurrencyTests(unittest.TestCase):
         scene2.add(parent2)
         with self.assertRaisesRegex(ValueError, "ancestor transform overlaps"):
             with scene2.parallel():
-                scene2.move(child2, by=RIGHT, frame=WORLD, duration=1)
-                scene2.transform(parent2, by=SE2(theta=0.5), frame=LOCAL, duration=1)
+                scene2._handle(child2).move(by=RIGHT, frame=WORLD, duration=1)
+                scene2._handle(parent2).transform(by=SE2(theta=0.5), frame=LOCAL, duration=1)
 
 
 class RelativeRigidPathTests(unittest.TestCase):
@@ -153,10 +151,10 @@ class RelativeRigidPathTests(unittest.TestCase):
         obj = Line(ORIGIN, RIGHT)
         scene = Scene()
         scene.add(obj)
-        scene.transform(
-            obj, by=SE2(theta=2 * math.pi), frame=LOCAL, duration=2, easing=Easing.LINEAR
+        scene._handle(obj).transform(
+            by=SE2(theta=2 * math.pi), frame=LOCAL, duration=2, easing=Easing.LINEAR
         )
-        mid = scene.world_transform(obj, time=1).apply(RIGHT)
+        mid = scene._world_transform(obj, time=1).apply(RIGHT)
         self.assertAlmostEqual(mid.x, -1.0, places=6)
         self.assertAlmostEqual(mid.y, 0.0, places=6)
 
@@ -164,8 +162,8 @@ class RelativeRigidPathTests(unittest.TestCase):
         obj = Line(ORIGIN, RIGHT, transform=SE2(translation=Vec2(2, 0)))
         scene = Scene()
         scene.add(obj)
-        scene.rotate(obj, by=math.pi, about=ORIGIN, duration=2, easing=Easing.LINEAR)
-        mid_origin = scene.world_point(obj, ORIGIN, time=1)
+        scene._handle(obj).rotate(by=math.pi, about=ORIGIN, duration=2, easing=Easing.LINEAR)
+        mid_origin = scene._world_point(obj, ORIGIN, time=1)
         self.assertAlmostEqual(mid_origin.x, 0.0, places=6)
         self.assertAlmostEqual(mid_origin.y, 2.0, places=6)
         self.assertAlmostEqual(mid_origin.length, 2.0, places=6)

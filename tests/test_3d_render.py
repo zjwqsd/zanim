@@ -2,7 +2,7 @@ import hashlib
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 
-from zanim import Canvas, Color, Cube3D, Scene, Square, Style
+from zanim import Canvas, Color, Cube3D, Scene, Square
 from zanim.render.frame import render_snapshot_rgba
 
 
@@ -25,7 +25,7 @@ class Integrated3DRenderTests(unittest.TestCase):
     def test_3d_layer_participates_in_normal_z_order(self):
         scene = Scene(canvas=Canvas(200, 120, 30))
         cube = Cube3D(2.0, color=Color(70, 150, 245))
-        overlay = Square(1.1, style=Style(fill=Color(245, 70, 70), stroke=None), z_index=1)
+        overlay = Square(1.1, fill=Color(245, 70, 70), stroke=None, z_index=1)
         scene.add(cube, overlay)
 
         def center_rgb() -> tuple[int, int, int]:

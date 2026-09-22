@@ -1,6 +1,6 @@
 import unittest
 
-from zanim import Camera2D, Easing, Scene, Square, Transform2D, Vec2
+from zanim import SE2, Camera2D, Easing, Scene, Square, Transform2D, Vec2
 
 
 class DynamicCameraTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class DynamicCameraTests(unittest.TestCase):
         camera = Camera2D(transform_provider=lambda _t: Transform2D())
         scene = Scene(camera=camera)
         with self.assertRaises(TypeError):
-            scene.transform(camera, to=Transform2D.translation(1, 0))
+            scene._handle(camera).transform(to=Transform2D.translation(1, 0))
 
     def test_provider_must_return_transform(self):
         scene = Scene(camera=Camera2D(transform_provider=lambda _t: None))
@@ -52,7 +52,7 @@ class BoundCameraSugarTests(unittest.TestCase):
 
         scene = Scene()
         scene.add(Square(1))
-        scene.camera.pose(position=(2, 1), rotation=math.pi / 2, duration=2)
+        scene.camera.transform_to(SE2(theta=math.pi / 2, translation=Vec2(2, 1)), duration=2)
         mid = scene.evaluate(1).objects[0].snapshot.transform
         x_axis = mid.apply(Vec2(1, 0)) - mid.apply(Vec2())
         self.assertAlmostEqual(x_axis.x * x_axis.x + x_axis.y * x_axis.y, 1.0)
@@ -70,7 +70,7 @@ class BoundCameraSugarTests(unittest.TestCase):
 
         scene = Scene()
         scene.add(Square(1))
-        scene.camera.rotate_view(by=math.pi, duration=2, easing=Easing.LINEAR)
+        scene.camera.rotate(by=math.pi, duration=2, easing=Easing.LINEAR)
         mid = scene.evaluate(1).objects[0].snapshot.transform
         p = mid.apply(Vec2(1, 0))
         self.assertAlmostEqual(p.x * p.x + p.y * p.y, 1.0)

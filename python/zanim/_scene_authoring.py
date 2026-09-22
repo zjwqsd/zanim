@@ -42,7 +42,7 @@ from .vector import DynamicVectorObject2D, VectorDocument, VectorObject2D
 from .vector_morph import typst_semantic_keys
 
 if TYPE_CHECKING:
-    from .bound import BoundObject2D, BoundVector2D
+    from .bound import BoundObject2D
     from .scene import _RegisteredItem
 
 
@@ -183,7 +183,7 @@ class _SceneAuthoring:
         self._authored_set(obj, "transform", target)
         return clip
 
-    def transform(
+    def _transform(
         self,
         obj: SceneObject2D | MeshObject3D | Group3D,
         *,
@@ -309,17 +309,7 @@ class _SceneAuthoring:
             self._record_world_span(registered.object_id, start, end)
         return clip
 
-    def set_transform(
-        self,
-        obj: SceneObject2D | MeshObject3D | Group3D,
-        *,
-        to: Transform2D | Transform3D | SE2,
-        at: float = 0.0,
-    ):
-        """Set one complete transform instantaneously and seekably."""
-        return self.transform(obj, to=to, duration=0.0, easing=Easing.LINEAR, at=at)
-
-    def move(
+    def _move(
         self,
         obj: SceneObject2D,
         *,
@@ -347,7 +337,7 @@ class _SceneAuthoring:
             if anchor is not None:
                 raise ValueError("move(by=...) does not accept anchor=")
             by = as_vec2(by, name="by")
-            return self.transform(
+            return self._transform(
                 obj,
                 by=Transform2D.translation(by.x, by.y),
                 frame=self._require_frame(frame),
@@ -362,7 +352,7 @@ class _SceneAuthoring:
         anchor_parent = self._authored_anchor(obj, chosen_anchor)
         current_world = self._parent_world_transform_authored(registered).apply(anchor_parent)
         delta_world = to - current_world
-        return self.transform(
+        return self._transform(
             obj,
             by=Transform2D.translation(delta_world.x, delta_world.y),
             frame=WORLD,
@@ -371,7 +361,7 @@ class _SceneAuthoring:
             at=at,
         )
 
-    def move_along(
+    def _move_along(
         self,
         obj: SceneObject2D,
         path: SceneObject2D,
@@ -393,11 +383,11 @@ class _SceneAuthoring:
         self._assert_no_descendant_world_dependency(registered, start, end)
 
         local_points = motion_path_points(path, samples=samples, tolerance=tolerance)
-        path_world = self.world_transform(path, time=start)
+        path_world = self._world_transform(path, time=start)
         world_points = tuple(path_world.apply(point) for point in local_points)
 
         current = self._authored_get(obj, "transform")
-        current_world_center = self.world_anchor(obj)
+        current_world_center = self._world_anchor(obj)
         parent_world = self._parent_world_transform_authored(registered)
         parent_world_inv = parent_world.inverse()
 
@@ -411,7 +401,7 @@ class _SceneAuthoring:
                 @ current
             )
 
-        clip = self.transform_function(
+        clip = self._transform_function(
             obj,
             provider,
             duration=duration,
@@ -422,7 +412,7 @@ class _SceneAuthoring:
             self._record_world_span(registered.object_id, start, end)
         return clip
 
-    def rotate(
+    def _rotate(
         self,
         obj: SceneObject2D,
         *,
@@ -466,7 +456,7 @@ class _SceneAuthoring:
                 self._record_world_span(registered.object_id, start, end)
             return clip
         resolved = self._require_frame(frame)
-        return self.transform(
+        return self._transform(
             obj,
             by=SE2(theta=float(by)),
             frame=resolved,
@@ -475,7 +465,7 @@ class _SceneAuthoring:
             at=at,
         )
 
-    def scale(
+    def _scale(
         self,
         obj: SceneObject2D,
         *,
@@ -501,9 +491,9 @@ class _SceneAuthoring:
                 @ Transform2D.scaling(factor)
                 @ Transform2D.translation(-about.x, -about.y)
             )
-            return self.transform(obj, by=op, frame=WORLD, duration=duration, easing=easing, at=at)
+            return self._transform(obj, by=op, frame=WORLD, duration=duration, easing=easing, at=at)
         resolved = self._require_frame(frame)
-        return self.transform(
+        return self._transform(
             obj,
             by=Transform2D.scaling(factor),
             frame=resolved,
@@ -511,22 +501,6 @@ class _SceneAuthoring:
             easing=easing,
             at=at,
         )
-
-    def transform_function(
-        self,
-        obj: SceneObject2D | MeshObject3D | Group3D,
-        provider,
-        *,
-        duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
-        at: float = 0.0,
-    ):
-        """Animate with a pure ``alpha -> complete Transform`` provider.
-
-        2D providers may return ``Transform2D`` or ``SE2``. The result is always
-        a complete local-to-parent transform, never an incremental delta.
-        """
-        return self._transform_function(obj, provider, duration, easing, at)
 
     def _transform_function(
         self,
@@ -596,7 +570,7 @@ class _SceneAuthoring:
         self._authored_set(obj, "opacity", float(target))
         return clip
 
-    def fade_in(
+    def _fade_in(
         self,
         obj: SceneObject2D | MeshObject3D | Group3D,
         duration: float | None = None,
@@ -617,7 +591,7 @@ class _SceneAuthoring:
             )
         return self._opacity_to(obj, 1.0, duration, easing, at)
 
-    def fade_out(
+    def _fade_out(
         self,
         obj: SceneObject2D | MeshObject3D | Group3D,
         duration: float | None = None,
@@ -663,7 +637,7 @@ class _SceneAuthoring:
         self._authored_set(obj, "trim", float(target))
         return clip
 
-    def create(
+    def _create(
         self,
         obj: Object2D | VectorObject2D,
         duration: float | None = None,
@@ -755,10 +729,10 @@ class _SceneAuthoring:
         at: float = 0.0,
     ) -> RevealClip:
         if not isinstance(obj, VectorObject2D):
-            raise TypeError("reveal() requires a VectorObject2D")
+            raise TypeError("create() requires a VectorObject2D")
         if abs(float(self._authored_get(obj, "reveal"))) > 1e-12:
             raise ValueError(
-                f"reveal() requires current reveal to be 0; current reveal is {self._authored_get(obj, 'reveal'):g}"
+                f"create() requires current reveal to be 0; current reveal is {self._authored_get(obj, 'reveal'):g}"
             )
         registered = self._require_alive_for_span(obj, duration, at)
         clip = self._timeline.add_reveal(
@@ -847,103 +821,6 @@ class _SceneAuthoring:
         )
         return clip
 
-    def reveal(
-        self,
-        obj: VectorObject2D,
-        *,
-        duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
-        at: float = 0.0,
-    ) -> RevealClip:
-        return self._reveal(obj, duration, easing, at)
-
-    def opacity(
-        self,
-        obj: SceneObject2D | MeshObject3D | Group3D,
-        *,
-        to: float,
-        duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
-        at: float = 0.0,
-    ) -> OpacityClip:
-        return self._opacity_to(obj, to, duration, easing, at)
-
-    def style(
-        self,
-        obj: Object2D,
-        *,
-        to,
-        duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
-        at: float = 0.0,
-    ) -> StyleClip:
-        return self._style_to(obj, to, duration, easing, at)
-
-    def trim(
-        self,
-        obj: Object2D,
-        *,
-        to: float,
-        duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
-        at: float = 0.0,
-    ) -> PathTrimClip:
-        return self._trim_to(obj, to, duration, easing, at)
-
-    def value(
-        self,
-        value: ScalarValue,
-        *,
-        to: float,
-        duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
-        at: float = 0.0,
-    ) -> ValueClip:
-        return self._value_to(value, to, duration, easing, at)
-
-    def media(
-        self,
-        obj: RasterObject2D | AudioObject,
-        duration: float | None = None,
-        *,
-        source_start: float = 0.0,
-        speed: float = 1.0,
-        loop: bool = False,
-        at: float = 0.0,
-    ) -> PlaybackClip:
-        return self._media(obj, duration, source_start=source_start, speed=speed, loop=loop, at=at)
-
-    def batch(
-        self,
-        obj: BatchObject2D,
-        *,
-        to: BatchGeometry,
-        duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
-        at: float = 0.0,
-    ) -> BatchClip:
-        return self._batch_to(obj, to, duration, easing, at)
-
-    def morph(
-        self,
-        obj: VectorObject2D | "BoundVector2D[Any]",
-        *,
-        to: VectorObject2D | VectorDocument,
-        duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
-        at: float = 0.0,
-    ) -> VectorMorphClip:
-        """Morph one vector object's document in place on the Timeline.
-
-        Text uses visible-character correspondence so unchanged glyphs move and
-        restyle continuously. Math and generic vectors fall back to normalized
-        glyph-shape correspondence. Inserted/removed groups grow or shrink
-        locally instead of cross-fading the whole object.
-        """
-        obj = self._unwrap(obj)
-        to = self._unwrap(to)
-        return self._morph_vector(obj, to, duration, easing, at)
-
     def interpolate(
         self,
         source: Object2D | "BoundObject2D[Any]",
@@ -1005,7 +882,7 @@ class _SceneAuthoring:
         source_registered.removed_at = clip.span.start
         target_id = self._register(target, (), set(), clip.span.end)
         self._timeline_event_targets[id(clip)] = (source_registered.object_id, target_id)
-        return self.on(target)
+        return self._handle(target)
 
     def layout(
         self,
@@ -1036,7 +913,7 @@ class _SceneAuthoring:
 
         def schedule():
             return tuple(
-                self.transform(obj, to=target, duration=duration, easing=easing, at=at)
+                self._transform(obj, to=target, duration=duration, easing=easing, at=at)
                 for obj, target in zip(items, targets)
             )
 

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
 
 from .object import SceneObject2D
-from .space import SE2, Point2, Transform2D, affine2d, as_vec2, pose2d
+from .space import SE2, Point2, Transform2D, affine2d, as_vec2
 from .timeline import Easing
 
 if TYPE_CHECKING:
@@ -18,7 +18,7 @@ class Camera2D(SceneObject2D):
     """Scene-owned 2D world-to-view camera.
 
     ``Scene`` binds its camera immediately, so camera animation is authored
-    directly on ``scene.camera`` rather than through ``scene.on(...)``. The
+    directly on ``scene.camera`` rather than through ``scene._handle(...)``. The
     stored transform always means ``world -> view``; it is deliberately not an
     object local/parent transform.
 
@@ -76,23 +76,8 @@ class Camera2D(SceneObject2D):
         at: float = 0.0,
     ):
         """Animate to one complete ``world -> view`` transform."""
-        return self._require_scene().transform(self, to=to, duration=duration, easing=easing, at=at)
-
-    def pose(
-        self,
-        *,
-        position: Point2,
-        rotation: float = 0.0,
-        duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
-        at: float = 0.0,
-    ):
-        """Animate to a complete rigid ``world -> view`` pose."""
-        return self.transform_to(
-            pose2d(position=position, rotation=rotation),
-            duration=duration,
-            easing=easing,
-            at=at,
+        return self._require_scene()._transform(
+            self, to=to, duration=duration, easing=easing, at=at
         )
 
     def affine(
@@ -123,7 +108,7 @@ class Camera2D(SceneObject2D):
         at: float = 0.0,
     ):
         """Animate with ``alpha -> complete world-to-view transform``."""
-        return self._require_scene().transform_function(
+        return self._require_scene()._transform_function(
             self, provider, duration=duration, easing=easing, at=at
         )
 
@@ -176,7 +161,7 @@ class Camera2D(SceneObject2D):
 
         return self.transform_function(provider, duration=duration, easing=easing, at=at)
 
-    def rotate_view(
+    def rotate(
         self,
         *,
         by: float,

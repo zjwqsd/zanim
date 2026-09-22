@@ -23,7 +23,7 @@ class PlaybackTests(unittest.TestCase):
         scene = Scene()
         scene.add(video)
         with self.assertRaises(ValueError):
-            scene.media(video, duration=3.0)
+            scene._handle(video).media(duration=3.0)
 
     def test_static_image_can_be_scheduled(self):
         with tempfile.TemporaryDirectory() as td:
@@ -33,7 +33,7 @@ class PlaybackTests(unittest.TestCase):
             scene = Scene()
             scene
             scene.add(image)
-            scene.media(image, duration=2)
+            scene._handle(image).media(duration=2)
             self.assertEqual(len(scene.evaluate(1).rasters), 1)
             self.assertEqual(len(scene.evaluate(3).rasters), 0)
 
@@ -74,7 +74,7 @@ class PlaybackTests(unittest.TestCase):
         audio = Audio(MEDIA / "tone.wav", gain=0.2)
         scene = Scene()
         scene.add(audio)
-        scene.media(audio, duration=2.0, loop=True, at=0.25)
+        scene._handle(audio).media(duration=2.0, loop=True, at=0.25)
         with tempfile.TemporaryDirectory() as td:
             output = Path(td) / "mix.wav"
             render_audio_mix(scene, output, scene.duration)

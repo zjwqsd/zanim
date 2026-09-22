@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from zanim import Canvas, Circle, Color, Group, Scene, Square, Style
+from zanim import Canvas, Circle, Color, Group, Scene, Square
 from zanim.cli import _load_scene
 from zanim.ir import scene_to_ir
 from zanim.preview import PreviewServer
@@ -16,12 +16,12 @@ from zanim.source import get_preview_source, reload_preview_scene
 
 def _write_reload_module(path: Path, *, duration: float) -> None:
     path.write_text(
-        "from zanim import Canvas, Circle, Color, Scene, Style, Transform2D\n\n"
+        "from zanim import Canvas, Circle, Color, Scene, Transform2D\n\n"
         "class ReloadScene(Scene):\n"
         "    def setup(self):\n"
         "        self.canvas = Canvas(80, 48, 12)\n"
         "        self.fps = 10\n"
-        "        self.marker = Circle(1, style=Style(fill=Color(230, 90, 90)))\n"
+        "        self.marker = Circle(1, fill=Color(230, 90, 90))\n"
         "    def construct(self):\n"
         "        marker = self.add(self.marker)\n"
         f"        marker.transform(to=Transform2D.translation(1, 0), duration={duration!r})\n",
@@ -183,7 +183,7 @@ class PreviewSourceTests(unittest.TestCase):
 
     def test_unloaded_scene_has_timeline_with_fallback_names(self):
         scene = Scene(canvas=Canvas(80, 48, 12), fps=10)
-        scene.add(Circle(1, style=Style(fill=Color(230, 90, 90))))
+        scene.add(Circle(1, fill=Color(230, 90, 90)))
         ir = scene_to_ir(scene, include_debug=True)
         self.assertEqual(ir["debug"]["timeline"][0]["label"], "Circle#1-add")
         self.assertNotIn("source", ir["debug"])

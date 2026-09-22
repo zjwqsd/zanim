@@ -1,6 +1,6 @@
 import unittest
 
-from zanim import Circle, Scene, Square, Transform2D, Vec2
+from zanim import Circle, Row, Scene, Square, Transform2D, Vec2
 from zanim.group import Group
 
 
@@ -20,7 +20,8 @@ class BoundsAndGroupTests(unittest.TestCase):
         self.assertAlmostEqual(b.bounds().left - a.bounds().right, 0.4)
 
         c = Square(2)
-        group = Group([a, b, c]).arrange(Vec2(1, 0), buff=0.2)
+        group = Group([a, b, c])
+        Row(gap=0.2).place(*group.children)
         self.assertEqual(len(group), 3)
         self.assertAlmostEqual(group[1].bounds().left - group[0].bounds().right, 0.2)
         self.assertAlmostEqual(group[2].bounds().left - group[1].bounds().right, 0.2)
@@ -32,14 +33,14 @@ class BoundsAndGroupTests(unittest.TestCase):
         scene.add(group)
         self.assertEqual(len(scene.objects), 1)
         self.assertAlmostEqual(scene.evaluate(0).objects[0].snapshot.transform.tx, 3)
-        scene.transform(group, to=Transform2D.translation(5, 0), duration=1)
+        scene._handle(group).transform(to=Transform2D.translation(5, 0), duration=1)
         self.assertAlmostEqual(scene.evaluate(1).objects[0].snapshot.transform.tx, 6)
 
     def test_camera_is_same_transform_channel(self):
         obj = Square(1, transform=Transform2D.translation(2, 0))
         scene = Scene()
         scene.add(obj)
-        scene.transform(scene.camera, to=Transform2D.scaling(2), duration=1)
+        scene.camera.transform_to(Transform2D.scaling(2), duration=1)
         snap = scene.evaluate(1).objects[0].snapshot
         self.assertAlmostEqual(snap.transform.tx, 4)
         self.assertAlmostEqual(snap.transform.xx, 2)
@@ -58,7 +59,7 @@ class BoundsAndGroupTests(unittest.TestCase):
         group = Group([child], opacity=0.5)
         scene = Scene()
         scene.add(group)
-        scene.fade_out(group, duration=2)
+        scene._handle(group).fade_out(duration=2)
         self.assertAlmostEqual(scene.evaluate(0).objects[0].snapshot.opacity, 0.4)
         self.assertAlmostEqual(scene.evaluate(1).objects[0].snapshot.opacity, 0.2)
         self.assertAlmostEqual(scene.evaluate(2).objects[0].snapshot.opacity, 0)

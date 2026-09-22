@@ -20,7 +20,7 @@ from .geometry import (
     SquareGeometry,
 )
 from .group import Group
-from .space import SE2, Point2, Transform2D, Vec2, as_vec2
+from .space import PARENT, SE2, Point2, Transform2D, Vec2, as_vec2
 
 
 def _points(values: Iterable[Point2], *, name: str) -> tuple[Vec2, ...]:
@@ -107,7 +107,6 @@ class Polyline(Shape):
         super().__init__(PolylineGeometry(_points(points, name="point")), **kwargs)
 
 
-
 class Brace(Polyline):
     def __init__(
         self,
@@ -151,19 +150,45 @@ class Brace(Polyline):
         notch_w = min(0.20, max(0.10, span * 0.055))
         end_y = -float(depth) * 0.52
         segments = (
-            ((-half, end_y), (-half, -depth * 0.18), (-half + hook_w * 0.25, 0.0), (-half + hook_w, 0.0)),
-            ((-half + hook_w, 0.0), (-half + span * 0.22, 0.0), (-notch_w * 1.8, 0.0), (-notch_w, 0.0)),
-            ((-notch_w, 0.0), (-notch_w * 0.58, 0.0), (-notch_w * 0.34, depth * 0.72), (0.0, depth)),
+            (
+                (-half, end_y),
+                (-half, -depth * 0.18),
+                (-half + hook_w * 0.25, 0.0),
+                (-half + hook_w, 0.0),
+            ),
+            (
+                (-half + hook_w, 0.0),
+                (-half + span * 0.22, 0.0),
+                (-notch_w * 1.8, 0.0),
+                (-notch_w, 0.0),
+            ),
+            (
+                (-notch_w, 0.0),
+                (-notch_w * 0.58, 0.0),
+                (-notch_w * 0.34, depth * 0.72),
+                (0.0, depth),
+            ),
             ((0.0, depth), (notch_w * 0.34, depth * 0.72), (notch_w * 0.58, 0.0), (notch_w, 0.0)),
             ((notch_w, 0.0), (notch_w * 1.8, 0.0), (half - span * 0.22, 0.0), (half - hook_w, 0.0)),
-            ((half - hook_w, 0.0), (half - hook_w * 0.25, 0.0), (half, -depth * 0.18), (half, end_y)),
+            (
+                (half - hook_w, 0.0),
+                (half - hook_w * 0.25, 0.0),
+                (half, -depth * 0.18),
+                (half, end_y),
+            ),
         )
 
         def cubic(p0, p1, p2, p3, alpha):
             u = 1.0 - alpha
             return (
-                u**3 * p0[0] + 3*u*u*alpha*p1[0] + 3*u*alpha*alpha*p2[0] + alpha**3*p3[0],
-                u**3 * p0[1] + 3*u*u*alpha*p1[1] + 3*u*alpha*alpha*p2[1] + alpha**3*p3[1],
+                u**3 * p0[0]
+                + 3 * u * u * alpha * p1[0]
+                + 3 * u * alpha * alpha * p2[0]
+                + alpha**3 * p3[0],
+                u**3 * p0[1]
+                + 3 * u * u * alpha * p1[1]
+                + 3 * u * alpha * alpha * p2[1]
+                + alpha**3 * p3[1],
             )
 
         local_points = []
@@ -176,7 +201,7 @@ class Brace(Polyline):
         def world(p):
             x, y = p
             u, v = center_u + x, base_v + y
-            return Vec2(t.x*u + d.x*v, t.y*u + d.y*v)
+            return Vec2(t.x * u + d.x * v, t.y * u + d.y * v)
 
         self.direction = d
         self.tangent = t
@@ -194,8 +219,8 @@ class Brace(Polyline):
         u = self._brace_center_u
         v = self._brace_base_v + self.depth + float(buff)
         return Vec2(
-            self.tangent.x*u + self.direction.x*v,
-            self.tangent.y*u + self.direction.y*v,
+            self.tangent.x * u + self.direction.x * v,
+            self.tangent.y * u + self.direction.y * v,
         )
 
 
@@ -336,7 +361,7 @@ class NumberLine(Group):
                     font_size=label_font_size,
                     transform=Transform2D.translation(x, -tick_size / 2 - label_buff),
                 )
-                label.shift(0, -label.bounds().height / 2)
+                label.move(by=(0, -label.bounds().height / 2), frame=PARENT)
                 children.append(label)
                 value += tick_step
         super().__init__(children, transform=transform, opacity=opacity, z_index=z_index)

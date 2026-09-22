@@ -6,11 +6,11 @@ from zanim import (
     Color,
     Group,
     Scene,
-    Style,
     Transform2D,
     Vec2,
     affine2d,
 )
+from zanim.geometry import StrokeStyle, Style
 
 WHITE = Color(240, 240, 240)
 RED = Color(220, 60, 70)
@@ -26,17 +26,21 @@ class ConstructorSugarTests(unittest.TestCase):
 
     def test_object_style_sugar_is_explicit(self):
         outline = Circle(1, stroke=WHITE, stroke_width=0.045)
-        self.assertEqual(outline.style, Style.outline(WHITE, 0.045))
+        self.assertEqual(outline.style, Style(fill=None, stroke=StrokeStyle(WHITE, 0.045)))
 
         fill = Circle(1, fill=RED.with_alpha(128))
-        self.assertEqual(fill.style, Style.solid(RED.with_alpha(128)))
+        self.assertEqual(fill.style, Style(fill=RED.with_alpha(128), stroke=None))
 
         painted = Circle(1, fill=RED.with_alpha(128), stroke=WHITE, stroke_width=0.05)
-        self.assertEqual(painted.style, Style.paint(RED.with_alpha(128), WHITE, 0.05))
+        self.assertEqual(
+            painted.style,
+            Style(fill=RED.with_alpha(128), stroke=StrokeStyle(WHITE, 0.05)),
+        )
 
-    def test_style_and_style_sugar_cannot_mix(self):
-        with self.assertRaisesRegex(ValueError, "either style="):
-            Circle(1, style=Style.solid(RED), stroke=WHITE)
+    def test_explicit_none_style_fields_are_unambiguous(self):
+        invisible = Circle(1, fill=None, stroke=None)
+        self.assertIsNone(invisible.style.fill)
+        self.assertIsNone(invisible.style.stroke)
         with self.assertRaisesRegex(ValueError, "stroke_width requires"):
             Circle(1, fill=RED, stroke_width=0.04)
 
@@ -61,20 +65,24 @@ class ConstructorSugarTests(unittest.TestCase):
         group = scene.add(group)
         self.assertEqual(group.world_point(), Vec2(2, 1))
 
-    def test_bound_style_sugar_is_only_timeline_sugar(self):
-        obj = Circle(1, stroke=WHITE)
+    def test_bound_style_updates_only_selected_fields(self):
+        obj = Circle(1, fill=None, stroke=WHITE)
         scene = Scene()
         obj = scene.add(obj)
 
-        obj.paint(fill=RED.with_alpha(128), stroke=RED, stroke_width=0.045)
-        self.assertEqual(obj.style_value, Style.paint(RED.with_alpha(128), RED, 0.045))
+        obj.style(fill=RED.with_alpha(128), stroke=RED, stroke_width=0.045)
+        self.assertEqual(obj.style_value.fill, RED.with_alpha(128))
+        self.assertEqual(obj.style_value.stroke.color, RED)
+        self.assertEqual(obj.style_value.stroke.width, 0.045)
         self.assertEqual(len(scene._timeline.clips), 1)
 
-        obj.outline(WHITE, width=0.02)
-        self.assertEqual(obj.style_value, Style.outline(WHITE, 0.02))
+        obj.style(stroke=WHITE, stroke_width=0.02)
+        self.assertEqual(obj.style_value.fill, RED.with_alpha(128))
+        self.assertEqual(obj.style_value.stroke.color, WHITE)
+        self.assertEqual(obj.style_value.stroke.width, 0.02)
 
-        obj.fill(RED)
-        self.assertEqual(obj.style_value, Style.solid(RED))
+        obj.style(stroke=None)
+        self.assertIsNone(obj.style_value.stroke)
 
 
 if __name__ == "__main__":

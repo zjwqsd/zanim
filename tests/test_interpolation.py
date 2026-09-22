@@ -3,7 +3,6 @@ import unittest
 from zanim import Circle, Square, Transform2D, Vec2
 from zanim.geometry import CircleGeometry, SquareGeometry
 from zanim.interpolation import ObjectInterpolation
-from zanim.space import Linear2D
 
 
 class ObjectInterpolationLifetimeTests(unittest.TestCase):
@@ -25,12 +24,12 @@ class ObjectInterpolationLifetimeTests(unittest.TestCase):
         transition = ObjectInterpolation.from_objects(source, target)
         frozen_source_transform = transition.source.transform
 
-        # This is a real state change on the persistent source object.
-        source.apply_linear_local(Linear2D.scaling(2, 1))
+        # A later raw-state edit must not rewrite the frozen interpolation snapshot.
+        source.transform = source.transform @ Transform2D.scaling(2, 1)
 
         self.assertNotEqual(source.transform, frozen_source_transform)
         self.assertEqual(transition.source.transform, frozen_source_transform)
-        self.assertEqual(source.local_to_world(Vec2()), Vec2(2, 3))
+        self.assertEqual(source.transform.apply(Vec2()), Vec2(2, 3))
 
 
 if __name__ == "__main__":

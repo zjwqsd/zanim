@@ -7,7 +7,7 @@ from typing import Callable, Mapping, Sequence
 from .batch import BatchObject2D
 from .dynamic import DynamicNumber, NumberFormat
 from .geometry import Color, Object2D
-from .space import Transform2D
+from .space import Point2, Transform2D, _resolve_transform2d
 from .vector import VectorObject2D
 
 SceneObject = Object2D | BatchObject2D | VectorObject2D
@@ -181,10 +181,22 @@ class FormulaTemplate:
         scene,
         bindings: Mapping[str, object],
         *,
-        transform: Transform2D = Transform2D(),
+        transform: Transform2D | None = None,
+        position: Point2 | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Point2 | None = None,
     ) -> FormulaInstance:
         from ._formula_layout import object_size
 
+        transform = _resolve_transform2d(
+            transform,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
+            owner="FormulaTemplate.mount()",
+        )
         all_objects: list[SceneObject] = []
         slots: dict[str, tuple[SceneObject, ...]] = {}
 

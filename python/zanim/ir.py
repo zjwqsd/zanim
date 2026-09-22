@@ -1271,9 +1271,12 @@ def scene_from_ir(ir: dict[str, Any]) -> Scene:
         elif kind == "group":
             obj = Group([], **common)
         elif kind == "object2d":
+            style = _style_from(s["style"])
             obj = Object2D(
                 _geometry_from(s["geometry"]),
-                style=_style_from(s["style"]),
+                fill=style.fill,
+                stroke=None if style.stroke is None else style.stroke.color,
+                stroke_width=None if style.stroke is None else style.stroke.width,
                 trim=float(s.get("trim", 1)),
                 **common,
             )
@@ -1305,9 +1308,12 @@ def scene_from_ir(ir: dict[str, Any]) -> Scene:
             start = float(s["sample_start"])
             times = tuple(start + float(x) for x in s["sample_offsets"])
             samples = tuple(_geometry_from(x) for x in s["samples"])
+            style = _style_from(s["style"])
             obj = DynamicGeometryObject2D(
                 lambda time, times=times, samples=samples: _sample_lookup(times, samples, time),
-                style=_style_from(s["style"]),
+                fill=style.fill,
+                stroke=None if style.stroke is None else style.stroke.color,
+                stroke_width=None if style.stroke is None else style.stroke.width,
                 **common,
             )
             obj.trim = float(s.get("trim", 1))

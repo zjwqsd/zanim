@@ -13,7 +13,7 @@ from PIL import Image as PILImage, ImageChops, ImageFilter
 
 from .object import SceneObject2D
 from .runtime import require_ffmpeg, require_ffprobe
-from .space import SE2, Transform2D
+from .space import SE2, Point2, Transform2D, _resolve_transform2d
 
 
 @dataclass(frozen=True, slots=True)
@@ -361,9 +361,7 @@ class SceneViewportSource(RasterSource):
         self.width = max(1, int(pixel_width))
         self.height = max(1, int(pixel_height))
         self.duration = duration
-        self.frame_count = max(
-            1, round((duration or 0.0) * max(1, int(scene.fps)))
-        )
+        self.frame_count = max(1, round((duration or 0.0) * max(1, int(scene.fps))))
 
     @staticmethod
     def _value(value, time: float):
@@ -466,9 +464,13 @@ class RasterObject2D(SceneObject2D):
         *,
         width: float | None = None,
         height: float | None = None,
-        transform: Transform2D | SE2 = Transform2D(),
+        transform: Transform2D | SE2 | None = None,
         opacity: float = 1.0,
         z_index: int = 0,
+        position: Point2 | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Point2 | None = None,
     ) -> None:
         if not isinstance(source, RasterSource):
             raise TypeError("RasterObject2D source must be RasterSource")
@@ -485,7 +487,14 @@ class RasterObject2D(SceneObject2D):
         if self.width <= 0 or self.height <= 0:
             raise ValueError("raster logical dimensions must be positive")
         self.source = source
-        self.transform = transform
+        self.transform = _resolve_transform2d(
+            transform,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
+            owner=type(self).__name__,
+        )
         self.opacity = float(opacity)
         self.z_index = int(z_index)
         self._validate_scene_state()

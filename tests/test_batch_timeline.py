@@ -29,7 +29,7 @@ class BatchTimelineTests(unittest.TestCase):
         scene = Scene()
         scene.add(obj)
         with self.assertRaises(ValueError):
-            scene.batch(obj, to=target)
+            scene._handle(obj).batch(to=target)
 
     def test_dynamic_batch_is_absolute_time_and_random_access(self):
         def provider(time):
@@ -54,7 +54,7 @@ class BatchTimelineTests(unittest.TestCase):
         scene = Scene()
         scene.add(obj)
         with self.assertRaises(TypeError):
-            scene.batch(obj, to=initial)
+            scene._handle(obj).batch(to=initial)
 
 
 if __name__ == "__main__":

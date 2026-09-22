@@ -434,3 +434,60 @@ class Transform3D:
 
     def as_tuple(self) -> tuple[float, ...]:
         return tuple(value for row in self.as_rows() for value in row)
+
+
+def _resolve_transform3d(
+    transform: Transform3D | SE3 | None,
+    *,
+    position: Vec3 | tuple[float, float, float] | None = None,
+    rotation: SO3 | None = None,
+    scale: float | Vec3 | tuple[float, float, float] | None = None,
+    owner: str = "object",
+) -> Transform3D:
+    """Resolve one complete initial 3D transform from constructor sugar."""
+    sugar = position is not None or rotation is not None or scale is not None
+    if transform is not None and sugar:
+        raise ValueError(
+            f"{owner} accepts either transform= or position/rotation/scale sugar, not both"
+        )
+    if transform is not None:
+        if isinstance(transform, SE3):
+            return transform.as_affine()
+        if isinstance(transform, Transform3D):
+            return transform
+        raise TypeError("transform must be Transform3D or SE3")
+
+    if position is None:
+        p = Vec3()
+    elif isinstance(position, Vec3):
+        p = position
+    elif isinstance(position, tuple) and len(position) == 3:
+        p = Vec3(*map(float, position))
+    else:
+        raise TypeError("position must be Vec3 or numeric (x, y, z) tuple")
+
+    if rotation is None:
+        r = SO3()
+    elif isinstance(rotation, SO3):
+        r = rotation
+    else:
+        raise TypeError("rotation must be SO3")
+
+    if scale is None:
+        sx = sy = sz = 1.0
+    elif isinstance(scale, (int, float)):
+        sx = sy = sz = float(scale)
+    elif isinstance(scale, Vec3):
+        sx, sy, sz = scale.x, scale.y, scale.z
+    elif isinstance(scale, tuple) and len(scale) == 3:
+        sx, sy, sz = map(float, scale)
+    else:
+        raise TypeError("scale must be a number, Vec3, or numeric (x, y, z) tuple")
+    if sx < 0 or sy < 0 or sz < 0:
+        raise ValueError("scale components must be >= 0")
+
+    return (
+        Transform3D.translation(p.x, p.y, p.z)
+        @ r.to_transform3d()
+        @ Transform3D.scaling(sx, sy, sz)
+    )

@@ -5,7 +5,7 @@ from typing import Callable
 
 from .geometry import Color, CubicBezierGeometry, StrokeStyle
 from .object import SceneObject2D
-from .space import SE2, Linear2D, Transform2D, Vec2
+from .space import SE2, Point2, Transform2D, Vec2, _resolve_transform2d
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +60,7 @@ class VectorDocument:
             raise ValueError("vector path group is outside document group_count")
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, init=False)
 class VectorObject2D(SceneObject2D):
     """Persistent scene object backed by an immutable VectorDocument."""
 
@@ -69,6 +69,33 @@ class VectorObject2D(SceneObject2D):
     reveal: float = 1.0
     opacity: float = 1.0
     z_index: int = 0
+
+    def __init__(
+        self,
+        document: VectorDocument,
+        transform: Transform2D | SE2 | None = None,
+        reveal: float = 1.0,
+        opacity: float = 1.0,
+        z_index: int = 0,
+        *,
+        position: Point2 | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Point2 | None = None,
+    ) -> None:
+        self.document = document
+        self.transform = _resolve_transform2d(
+            transform,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
+            owner=type(self).__name__,
+        )
+        self.reveal = float(reveal)
+        self.opacity = float(opacity)
+        self.z_index = int(z_index)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         self._validate_scene_state()
@@ -80,22 +107,6 @@ class VectorObject2D(SceneObject2D):
         _ = time
         return initial
 
-    def apply_linear_local(self, linear: Linear2D) -> "VectorObject2D":
-        self.transform = self.transform @ linear.as_affine()
-        return self
-
-    def apply_linear_world(self, linear: Linear2D) -> "VectorObject2D":
-        self.transform = linear.as_affine() @ self.transform
-        return self
-
-    def apply_se2_local(self, rigid: SE2) -> "VectorObject2D":
-        self.transform = self.transform @ rigid.as_affine()
-        return self
-
-    def apply_se2_world(self, rigid: SE2) -> "VectorObject2D":
-        self.transform = rigid.as_affine() @ self.transform
-        return self
-
 
 class DynamicVectorObject2D(VectorObject2D):
     """VectorObject2D whose immutable document is a pure function of time."""
@@ -104,10 +115,14 @@ class DynamicVectorObject2D(VectorObject2D):
         self,
         provider: Callable[[float], VectorDocument],
         *,
-        transform: Transform2D | SE2 = Transform2D(),
+        transform: Transform2D | SE2 | None = None,
         reveal: float = 1.0,
         opacity: float = 1.0,
         z_index: int = 0,
+        position: Point2 | None = None,
+        rotation: float | None = None,
+        scale: float | tuple[float, float] | None = None,
+        shear: Point2 | None = None,
     ) -> None:
         if not callable(provider):
             raise TypeError("dynamic vector provider must be callable")
@@ -116,7 +131,15 @@ class DynamicVectorObject2D(VectorObject2D):
         if not isinstance(initial, VectorDocument):
             raise TypeError("dynamic vector provider must return VectorDocument")
         super().__init__(
-            document=initial, transform=transform, reveal=reveal, opacity=opacity, z_index=z_index
+            document=initial,
+            transform=transform,
+            reveal=reveal,
+            opacity=opacity,
+            z_index=z_index,
+            position=position,
+            rotation=rotation,
+            scale=scale,
+            shear=shear,
         )
 
     def document_at(self, time: float) -> VectorDocument:
