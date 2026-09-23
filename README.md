@@ -24,9 +24,10 @@ Published wheels bundle the native Zig renderer and browser/WASM preview runtime
 ## Python quick start
 
 ```python
-from zanim import BLUE, Canvas, Circle, Scene
+from zanim import BLUE, Circle, Scene
 
-scene = Scene(canvas=Canvas(1280, 720, 90), fps=60)
+# The built-in Manim theme is active by default.
+scene = Scene()
 circle = scene.add(Circle(1, fill=BLUE))
 circle.move(to=(2, 0), duration=2)
 ```
@@ -35,6 +36,7 @@ circle.move(to=(2, 0), duration=2)
 zanim preview scene.py
 zanim render scene.py -o scene.mp4
 zanim render scene.py --time 1.25 -o frame.png
+zanim render scene.py --config zanim.toml -o scene.mp4
 zanim info
 ```
 
@@ -67,6 +69,27 @@ scene.render(start=2, end=5)
 ```
 
 `Scene` is absolute-time and random-access. Preview seek does not replay earlier frames.
+
+## Themes and configuration
+
+`manim` is the default authoring theme. Theme values are resolved at object/Scene creation time, so runtime switching affects new authoring without changing objects that already exist. Explicit parameters always override the theme.
+
+```python
+from zanim import MANIM, apply_config, set_theme
+
+set_theme("manim")
+apply_config("zanim.toml")  # TOML or JSON
+
+paper = MANIM.with_overrides({
+    "name": "paper",
+    "canvas": {"background": "#f7f4ed"},
+    "style": {"stroke": "#20242a"},
+})
+```
+
+Python and Web configuration use the same snake_case theme schema. See `docs/THEMES.md` for the complete fields, runtime/context switching, named custom themes, and Web JSON loading.
+
+`preview`, `render`, and `export-ir` accept `--config path/to/zanim.toml`; when the flag is omitted they honor `ZANIM_CONFIG`. Configuration is applied before the scene module is imported. `render-ir` intentionally ignores authoring themes because exported IR is self-contained.
 
 ## Typst on Python
 
@@ -105,7 +128,7 @@ Authoring stays ordinary TypeScript:
 ```ts
 import { Circle, Math, Scene } from '@zanim/web';
 
-const scene = await Scene.create('#canvas', { renderer: { unitSize: 90 } });
+const scene = await Scene.create('#canvas'); // Manim theme by default
 scene.add(new Circle(1)).move([2, 0], { duration: 2 });
 scene.add(new Math('integral_0^1 x^2 dif x = 1/3'));
 ```

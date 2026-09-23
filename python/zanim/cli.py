@@ -6,6 +6,7 @@ import argparse
 import importlib
 import importlib.util
 import inspect
+import os
 import platform
 import sys
 from importlib.metadata import PackageNotFoundError, version
@@ -161,7 +162,16 @@ def _load_scene(path: str | Path, scene_class_name: str | None = None) -> Scene:
         raise
 
 
+def _apply_authoring_config(args) -> None:
+    from .config import apply_config
+
+    source = getattr(args, "config", None) or os.environ.get("ZANIM_CONFIG")
+    if source:
+        apply_config(source)
+
+
 def _cmd_preview(args) -> int:
+    _apply_authoring_config(args)
     scene = _load_scene(args.file, args.scene)
     scene.preview(
         host=args.host,
@@ -173,6 +183,7 @@ def _cmd_preview(args) -> int:
 
 
 def _cmd_render(args) -> int:
+    _apply_authoring_config(args)
     scene = _load_scene(args.file, args.scene)
     source = Path(args.file).resolve()
     if args.time is not None and (args.start is not None or args.end is not None):
@@ -191,6 +202,7 @@ def _cmd_render(args) -> int:
 
 
 def _cmd_export_ir(args) -> int:
+    _apply_authoring_config(args)
     scene = _load_scene(args.file, args.scene)
     from .ir import write_scene_ir
 
@@ -259,6 +271,10 @@ def build_parser() -> argparse.ArgumentParser:
     preview = sub.add_parser("preview", help="open browser-native Scene IR preview")
     preview.add_argument("file", help="Python scene script")
     preview.add_argument(
+        "--config",
+        help="TOML/JSON authoring config; defaults to ZANIM_CONFIG when set",
+    )
+    preview.add_argument(
         "--scene", help="explicit Scene subclass name when the file defines more than one"
     )
     preview.add_argument("--host", default="127.0.0.1")
@@ -273,6 +289,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     render = sub.add_parser("render", help="render a Scene from a Python file")
     render.add_argument("file", help="Python scene script")
+    render.add_argument(
+        "--config",
+        help="TOML/JSON authoring config; defaults to ZANIM_CONFIG when set",
+    )
     render.add_argument("-o", "--output")
     render.add_argument(
         "--scene", help="explicit Scene subclass name when the file defines more than one"
@@ -284,6 +304,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     export_ir = sub.add_parser("export-ir", help="compile a Python Scene to portable Scene IR")
     export_ir.add_argument("file", help="Python scene script")
+    export_ir.add_argument(
+        "--config",
+        help="TOML/JSON authoring config; defaults to ZANIM_CONFIG when set",
+    )
     export_ir.add_argument("-o", "--output")
     export_ir.add_argument(
         "--scene", help="explicit Scene subclass name when the file defines more than one"

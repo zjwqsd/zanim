@@ -4,7 +4,7 @@ import ctypes
 from pathlib import Path
 
 from .abi import load_library
-from .wire import encode_snapshot
+from .wire import _pack_rgba, encode_snapshot
 
 
 def render_snapshot_rgb0(buffer: bytearray, snapshot, canvas) -> None:
@@ -20,6 +20,7 @@ def render_snapshot_rgb0(buffer: bytearray, snapshot, canvas) -> None:
         int(canvas.width),
         int(canvas.height),
         float(canvas.unit_size),
+        _pack_rgba(canvas.background),
         encoded.draw_array,
         len(encoded.draw_items),
         encoded.object_array,
@@ -89,6 +90,7 @@ def render_snapshot(path: str | Path, snapshot, canvas) -> Path:
         int(canvas.width),
         int(canvas.height),
         float(canvas.unit_size),
+        _pack_rgba(canvas.background),
         encoded.draw_array,
         len(encoded.draw_items),
         encoded.object_array,

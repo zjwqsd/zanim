@@ -400,7 +400,22 @@ class Timeline:
             return float(duration)
         if self._parallel_base is not None and self._parallel_duration is not None:
             return self._parallel_duration
-        return 1.0
+        from .theme import get_theme
+
+        return float(get_theme().animation.duration)
+
+    @staticmethod
+    def _resolve_easing(easing: Easing | str | None) -> Easing:
+        if easing is None:
+            from .theme import get_theme
+
+            easing = get_theme().animation.easing
+        if isinstance(easing, Easing):
+            return easing
+        try:
+            return Easing(str(easing))
+        except ValueError as exc:
+            raise ValueError(f"unknown easing {easing!r}") from exc
 
     def _span(self, duration: float | None, at: float) -> TimeSpan:
         return TimeSpan(self._schedule_base() + at, self._resolve_duration(duration))
@@ -442,30 +457,34 @@ class Timeline:
         self._advance_after_schedule(clip.span.end)
         return clip
 
-    def add_transform(
-        self, object_id, before, after, duration=None, easing=Easing.SMOOTHSTEP, at=0.0
-    ):
+    def add_transform(self, object_id, before, after, duration=None, easing=None, at=0.0):
         return self._append(
-            TransformClip(object_id, self._span(duration, at), before, after, easing)
+            TransformClip(
+                object_id, self._span(duration, at), before, after, self._resolve_easing(easing)
+            )
         )
 
-    def add_se2_transform(
-        self, object_id, before, after, duration=None, easing=Easing.SMOOTHSTEP, at=0.0
-    ):
+    def add_se2_transform(self, object_id, before, after, duration=None, easing=None, at=0.0):
         if not isinstance(before, SE2) or not isinstance(after, SE2):
             raise TypeError("SE2 transform clips require SE2 endpoints")
         return self._append(
-            SE2TransformClip(object_id, self._span(duration, at), before, after, easing)
+            SE2TransformClip(
+                object_id, self._span(duration, at), before, after, self._resolve_easing(easing)
+            )
         )
 
     def add_transform_function(
-        self, object_id, provider, before, duration=None, easing=Easing.SMOOTHSTEP, at=0.0
+        self, object_id, provider, before, duration=None, easing=None, at=0.0
     ):
         span = self._span(duration, at)
         after = provider(1.0)
         if not isinstance(after, Transform2D):
             raise TypeError("transform function must return Transform2D")
-        return self._append(TransformFunctionClip(object_id, span, provider, before, after, easing))
+        return self._append(
+            TransformFunctionClip(
+                object_id, span, provider, before, after, self._resolve_easing(easing)
+            )
+        )
 
     def add_vector_morph(
         self,
@@ -473,7 +492,7 @@ class Timeline:
         before,
         after,
         duration=None,
-        easing=Easing.SMOOTHSTEP,
+        easing=None,
         at=0.0,
         *,
         source_keys=None,
@@ -483,33 +502,37 @@ class Timeline:
             raise TypeError("vector morph clips require VectorDocument endpoints")
         span = self._span(duration, at)
         plan = prepare_vector_morph(before, after, source_keys=source_keys, target_keys=target_keys)
-        return self._append(VectorMorphClip(object_id, span, before, after, plan, easing))
-
-    def add_transform3d(
-        self, object_id, before, after, duration=None, easing=Easing.SMOOTHSTEP, at=0.0
-    ):
         return self._append(
-            Transform3DClip(object_id, self._span(duration, at), before, after, easing)
+            VectorMorphClip(object_id, span, before, after, plan, self._resolve_easing(easing))
         )
 
-    def add_se3_transform(
-        self, object_id, before, after, duration=None, easing=Easing.SMOOTHSTEP, at=0.0
-    ):
+    def add_transform3d(self, object_id, before, after, duration=None, easing=None, at=0.0):
+        return self._append(
+            Transform3DClip(
+                object_id, self._span(duration, at), before, after, self._resolve_easing(easing)
+            )
+        )
+
+    def add_se3_transform(self, object_id, before, after, duration=None, easing=None, at=0.0):
         if not isinstance(before, SE3) or not isinstance(after, SE3):
             raise TypeError("SE3 transform clips require SE3 endpoints")
         return self._append(
-            SE3TransformClip(object_id, self._span(duration, at), before, after, easing)
+            SE3TransformClip(
+                object_id, self._span(duration, at), before, after, self._resolve_easing(easing)
+            )
         )
 
     def add_transform3d_function(
-        self, object_id, provider, before, duration=None, easing=Easing.SMOOTHSTEP, at=0.0
+        self, object_id, provider, before, duration=None, easing=None, at=0.0
     ):
         span = self._span(duration, at)
         after = provider(1.0)
         if not isinstance(after, Transform3D):
             raise TypeError("3D transform function must return Transform3D")
         return self._append(
-            Transform3DFunctionClip(object_id, span, provider, before, after, easing)
+            Transform3DFunctionClip(
+                object_id, span, provider, before, after, self._resolve_easing(easing)
+            )
         )
 
     def add_camera3d(
@@ -517,7 +540,7 @@ class Timeline:
         before: Camera3DState,
         after: Camera3DState,
         duration=None,
-        easing=Easing.SMOOTHSTEP,
+        easing=None,
         at=0.0,
     ):
         resolved = self._resolve_duration(duration)
@@ -526,42 +549,62 @@ class Timeline:
                 raise ValueError("Camera3D layer_z_index changes must be instantaneous")
             if (before.orthographic_height is None) != (after.orthographic_height is None):
                 raise ValueError("Camera3D projection mode changes must be instantaneous")
-        return self._append(Camera3DClip(-1, self._span(duration, at), before, after, easing))
+        return self._append(
+            Camera3DClip(-1, self._span(duration, at), before, after, self._resolve_easing(easing))
+        )
 
-    def add_opacity(
-        self, object_id, before, after, duration=None, easing=Easing.SMOOTHSTEP, at=0.0
-    ):
+    def add_opacity(self, object_id, before, after, duration=None, easing=None, at=0.0):
         if not (0 <= before <= 1 and 0 <= after <= 1):
             raise ValueError("opacity endpoints must be in [0, 1]")
-        return self._append(OpacityClip(object_id, self._span(duration, at), before, after, easing))
+        return self._append(
+            OpacityClip(
+                object_id, self._span(duration, at), before, after, self._resolve_easing(easing)
+            )
+        )
 
-    def add_style(self, object_id, before, after, duration=None, easing=Easing.SMOOTHSTEP, at=0.0):
-        return self._append(StyleClip(object_id, self._span(duration, at), before, after, easing))
+    def add_style(self, object_id, before, after, duration=None, easing=None, at=0.0):
+        return self._append(
+            StyleClip(
+                object_id, self._span(duration, at), before, after, self._resolve_easing(easing)
+            )
+        )
 
-    def add_path_trim(
-        self, object_id, before, after, duration=None, easing=Easing.SMOOTHSTEP, at=0.0
-    ):
+    def add_path_trim(self, object_id, before, after, duration=None, easing=None, at=0.0):
         if not (0 <= before <= 1 and 0 <= after <= 1):
             raise ValueError("path trim endpoints must be in [0, 1]")
         return self._append(
-            PathTrimClip(object_id, self._span(duration, at), before, after, easing)
+            PathTrimClip(
+                object_id, self._span(duration, at), before, after, self._resolve_easing(easing)
+            )
         )
 
-    def add_batch(self, object_id, before, after, duration=None, easing=Easing.SMOOTHSTEP, at=0.0):
+    def add_batch(self, object_id, before, after, duration=None, easing=None, at=0.0):
         if type(before) is not type(after) or len(before) != len(after):
             raise ValueError("batch clips require the same batch type and element count")
-        return self._append(BatchClip(object_id, self._span(duration, at), before, after, easing))
+        return self._append(
+            BatchClip(
+                object_id, self._span(duration, at), before, after, self._resolve_easing(easing)
+            )
+        )
 
-    def add_reveal(
-        self, object_id, duration=None, easing=Easing.SMOOTHSTEP, at=0.0, before=0.0, after=1.0
-    ):
+    def add_reveal(self, object_id, duration=None, easing=None, at=0.0, before=0.0, after=1.0):
         if not (0 <= before <= 1 and 0 <= after <= 1):
             raise ValueError("reveal endpoints must be in [0, 1]")
-        return self._append(RevealClip(object_id, self._span(duration, at), before, after, easing))
-
-    def add_value(self, value_id, before, after, duration=None, easing=Easing.SMOOTHSTEP, at=0.0):
         return self._append(
-            ValueClip(value_id, self._span(duration, at), float(before), float(after), easing),
+            RevealClip(
+                object_id, self._span(duration, at), before, after, self._resolve_easing(easing)
+            )
+        )
+
+    def add_value(self, value_id, before, after, duration=None, easing=None, at=0.0):
+        return self._append(
+            ValueClip(
+                value_id,
+                self._span(duration, at),
+                float(before),
+                float(after),
+                self._resolve_easing(easing),
+            ),
             key_name="value_id",
         )
 
@@ -600,14 +643,21 @@ class Timeline:
             PlaybackClip(object_id, span, source_start, speed, bool(loop), source_duration)
         )
 
-    def add_interpolation(self, interpolation, duration=None, easing=Easing.SMOOTHSTEP, at=0.0):
+    def add_interpolation(self, interpolation, duration=None, easing=None, at=0.0):
         return self._append(
-            InterpolationClip(interpolation, self._span(duration, at), easing), key_name=None
+            InterpolationClip(
+                interpolation, self._span(duration, at), self._resolve_easing(easing)
+            ),
+            key_name=None,
         )
 
-    def wait(self, duration: float = 1.0) -> TimeSpan:
+    def wait(self, duration: float | None = None) -> TimeSpan:
         if self._parallel_base is not None:
             raise ValueError("wait() is not allowed inside parallel()")
+        if duration is None:
+            from .theme import get_theme
+
+            duration = get_theme().animation.wait_duration
         span = TimeSpan(self.cursor, duration)
         self.cursor = span.end
         return span

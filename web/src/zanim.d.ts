@@ -1,13 +1,33 @@
+export interface CanvasTheme { width:number; height:number; unitSize:number; fps:number; background:string }
+export interface StyleTheme { fill:string|null; stroke:string|null; strokeWidth:number }
+export interface TextTheme { fontSize:number; color:string; fontFamily?:string }
+export interface AnimationTheme { duration:number; waitDuration:number; easing:'linear'|'smoothstep'|'smooth' }
+export interface ShapeTheme { dotRadius:number; arrowTipLength:number; arrowTipWidth:number; arrowBuff:number }
+export interface Theme {
+  name:string; canvas:CanvasTheme; style:StyleTheme; text:TextTheme; math:Omit<TextTheme,'fontFamily'>;
+  animation:AnimationTheme; shape:ShapeTheme; mesh3dColor:string;
+}
+export interface ZanimWebConfig { theme:Theme }
+export const MANIM:Theme;
+export function getTheme():Theme;
+export function setTheme(theme:string|Theme):Theme;
+export function themeNamed(name:string):Theme;
+export function registerTheme(theme:Theme,options?:{replace?:boolean}):Theme;
+export function createTheme(base?:string|Theme,overrides?:Partial<Theme>&Record<string,unknown>):Theme;
+export function configFromObject(config?:{theme?:string|Record<string,unknown>}):ZanimWebConfig;
+export function loadConfig(source:string|{theme?:string|Record<string,unknown>}):Promise<ZanimWebConfig>;
+export function applyConfig(source:string|{theme?:string|Record<string,unknown>}|ZanimWebConfig):Promise<ZanimWebConfig>;
+
 export type Point2 = readonly [number, number];
 export type EasingFunction = (t:number)=>number;
+export type EasingName = 'linear'|'smoothstep'|'smooth';
 export type ScalarLike = number | ScalarValue | ((time:number)=>number);
 export type TransformFrame = 'local'|'parent'|'world';
-export interface TimeOptions { duration?:number; easing?:EasingFunction; at?:number }
+export interface TimeOptions { duration?:number; easing?:EasingFunction|EasingName; at?:number }
 export interface ObjectOptions { transform?:Transform2D; opacity?:number; zIndex?:number }
 export interface StyleState { fill?:string|null; stroke?:string|null; width?:number|null; worldStroke?:boolean }
 
 export const PI:number; export const TAU:number; export const DEGREES:number;
-export const DEFAULT_STROKE_WIDTH:number;
 export const LOCAL:'local'; export const PARENT:'parent'; export const WORLD:'world';
 export const ORIGIN:Point2; export const RIGHT:Point2; export const LEFT:Point2; export const UP:Point2; export const DOWN:Point2;
 export const WHITE:string; export const MUTED:string; export const BLUE:string; export const GREEN:string;

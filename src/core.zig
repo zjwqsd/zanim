@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const ZANIM_ABI_VERSION: u32 = 3;
+pub const ZANIM_ABI_VERSION: u32 = 4;
 
 export fn zanim_abi_version() u32 {
     return ZANIM_ABI_VERSION;
@@ -100,6 +100,7 @@ export fn zanim_render_scene_frame(
     width: u32,
     height: u32,
     unit_size: f64,
+    background_rgba: u32,
     draw_items: ?[*]const scene_wire.WireDrawItem,
     draw_item_count: u32,
     objects: ?[*]const scene_wire.WireObject,
@@ -141,6 +142,7 @@ export fn zanim_render_scene_frame(
         @intCast(width),
         @intCast(height),
         unit_size,
+        background_rgba,
         draw_slice,
         object_slice,
         batch_slice,
@@ -161,6 +163,7 @@ export fn zanim_render_scene_rgb0(
     width: u32,
     height: u32,
     unit_size: f64,
+    background_rgba: u32,
     draw_items: ?[*]const scene_wire.WireDrawItem,
     draw_item_count: u32,
     objects: ?[*]const scene_wire.WireObject,
@@ -208,6 +211,7 @@ export fn zanim_render_scene_rgb0(
         @intCast(width),
         @intCast(height),
         unit_size,
+        background_rgba,
         draw_slice,
         object_slice,
         batch_slice,

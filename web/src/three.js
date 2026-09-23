@@ -1,4 +1,5 @@
-import { BLUE, ZObject, parseWebColor, sampleValue } from './core.js';
+import { ZObject, parseWebColor, sampleValue } from './core.js';
+import { getTheme } from './theme.js';
 
 export class Vec3 {
   constructor(x=0,y=0,z=0){this.x=Number(x);this.y=Number(y);this.z=Number(z);}
@@ -76,7 +77,7 @@ function packColorRGBA(color){
 function atTime(value,time,object){return typeof value==='function'?value(time,object):value;}
 
 export class MeshObject3D {
-  constructor(mesh,{transform=Transform3D.identity(),geometryTransform=Transform3D.identity(),color=BLUE,opacity=1}={}){
+  constructor(mesh,options={}){const theme=getTheme(),{transform=Transform3D.identity(),geometryTransform=Transform3D.identity(),color=theme.mesh3dColor,opacity=1}=options;
     if(!(mesh instanceof TriangleMesh))throw new TypeError('MeshObject3D requires TriangleMesh');
     this.mesh=mesh;this.transform=transform;this.geometryTransform=geometryTransform;this.color=color;this.opacity=opacity;
   }

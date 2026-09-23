@@ -72,7 +72,7 @@ class Camera2D(SceneObject2D):
         to: Transform2D | SE2,
         *,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         """Animate to one complete ``world -> view`` transform."""
@@ -88,7 +88,7 @@ class Camera2D(SceneObject2D):
         scale: float | tuple[float, float] = 1.0,
         shear: Point2 = (0.0, 0.0),
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         """Animate to ``Translation @ Rotation @ Shear @ Scale`` in view space."""
@@ -104,7 +104,7 @@ class Camera2D(SceneObject2D):
         provider,
         *,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         """Animate with ``alpha -> complete world-to-view transform``."""
@@ -117,7 +117,7 @@ class Camera2D(SceneObject2D):
         *,
         by: Point2,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         """Move the camera by one explicit delta in Scene-world coordinates.
@@ -140,7 +140,7 @@ class Camera2D(SceneObject2D):
         by: float,
         about: Point2 = (0.0, 0.0),
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         """Zoom by a positive factor about one explicit view-space point."""
@@ -167,7 +167,7 @@ class Camera2D(SceneObject2D):
         by: float,
         about: Point2 = (0.0, 0.0),
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         """Rotate the camera by ``by`` about one explicit view-space point.

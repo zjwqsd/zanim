@@ -69,8 +69,8 @@ class InfiniteLine(InfiniteObject2D):
         direction: Point2 = (1.0, 0.0),
         *,
         transform: Transform2D | SE2 | None = None,
-        color: Color = Color(230, 232, 238),
-        stroke_width: float = 0.035,
+        color: Color | None = None,
+        stroke_width: float | None = None,
         opacity: float = 1.0,
         z_index: int = 0,
         position: Point2 | None = None,
@@ -78,6 +78,13 @@ class InfiniteLine(InfiniteObject2D):
         scale: float | tuple[float, float] | None = None,
         shear: Point2 | None = None,
     ) -> None:
+        from .theme import get_theme
+
+        theme = get_theme()
+        color = theme.style.stroke if color is None else color
+        if color is None:
+            raise ValueError("InfiniteLine requires a color when the theme stroke is disabled")
+        stroke_width = theme.style.stroke_width if stroke_width is None else float(stroke_width)
         self.point = as_vec2(point, name="point")
         self.direction = as_vec2(direction, name="direction")
         if self.direction.length <= 1e-12:

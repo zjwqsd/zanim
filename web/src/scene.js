@@ -35,12 +35,15 @@ import {
   worldTransformAt,
 } from './evaluator.js';
 import { destroyScene, pauseScene, playScene, renderScene, seekScene } from './player.js';
+import { getTheme } from './theme.js';
 
 class HeadlessRenderer {
-  constructor({ width = 1280, height = 720, unitSize = 90 } = {}) {
+  constructor(options = {}) {
+    const theme = getTheme(), { width = theme.canvas.width, height = theme.canvas.height, unitSize = theme.canvas.unitSize, background = theme.canvas.background } = options;
     this.canvas = { width, height };
     this.baseUnitSize = unitSize;
     this.unitSize = unitSize;
+    this.background = background;
     this.dpr = 1;
   }
   resize() {}
@@ -60,7 +63,8 @@ function spansTouch(a0, a1, b0, b1) {
 }
 
 export class Scene {
-  constructor(renderer, { fps = 60 } = {}) {
+  constructor(renderer, options = {}) {
+    const { fps = getTheme().canvas.fps } = options;
     this.renderer = renderer;
     this.objects = [];
     this.fps = fps;
@@ -97,15 +101,16 @@ export class Scene {
     this._track(this.camera, 0);
   }
 
-  static headless({ width = 1280, height = 720, unitSize = 90, fps = 60 } = {}) {
-    return new Scene(new HeadlessRenderer({ width, height, unitSize }), { fps });
+  static headless(options = {}) {
+    const theme = getTheme(), { width = theme.canvas.width, height = theme.canvas.height, unitSize = theme.canvas.unitSize, background = theme.canvas.background, fps = theme.canvas.fps } = options;
+    return new Scene(new HeadlessRenderer({ width, height, unitSize, background }), { fps });
   }
 
-  static async create(canvas, { wasmURL = DEFAULT_WASM_URL, wasm = null, renderer = {}, fps = 60, observeResize = true } = {}) {
+  static async create(canvas, { wasmURL = DEFAULT_WASM_URL, wasm = null, renderer = {}, fps = null, observeResize = true } = {}) {
     const target = typeof canvas === 'string' ? document.querySelector(canvas) : canvas;
     if (!target || typeof target.getContext !== 'function') throw new TypeError('Scene.create requires a canvas element or selector');
     const engine = wasm ?? await ZanimWasm.load(wasmURL);
-    const scene = new Scene(new CanvasRenderer(target, engine, renderer), { fps });
+    const scene = new Scene(new CanvasRenderer(target, engine, renderer), { fps: fps ?? getTheme().canvas.fps });
     if (observeResize && typeof ResizeObserver !== 'undefined') {
       scene._resizeObserver = new ResizeObserver(() => scene.render());
       scene._resizeObserver.observe(target);
@@ -217,9 +222,18 @@ export class Scene {
   _scheduleBase() { return this._parallelBase == null ? this.cursor : this._parallelBase; }
 
   _resolveDuration(duration) {
-    const value = duration ?? this._parallelDuration ?? 1;
+    const value = duration ?? this._parallelDuration ?? getTheme().animation.duration;
     if (!(value >= 0)) throw new RangeError('duration must be >= 0');
     return Number(value);
+  }
+
+  _resolveEasing(easing) {
+    if (typeof easing === 'function') return easing;
+    const name = easing ?? getTheme().animation.easing;
+    const key = String(name).toUpperCase();
+    const resolved = Easing[key];
+    if (typeof resolved !== 'function') throw new RangeError(`unknown easing ${name}`);
+    return resolved;
   }
 
   _span(duration, at = 0) {
@@ -234,8 +248,9 @@ export class Scene {
     this.duration = Math.max(this.duration, end);
   }
 
-  animateValue(value, { to, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
+  animateValue(value, { to, duration = null, easing = null, at = 0 } = {}) {
     if (!this.values.includes(value)) this.addValue(value);
+    easing = this._resolveEasing(easing);
     const span = this._span(duration, at);
     const existing = this._valueClipsByValue.get(value.id) ?? [];
     if (existing.some(clip => spansOverlap(span.start, span.end, clip.start, clip.end))) throw new Error(`overlapping value channel for value ${value.id}`);
@@ -251,9 +266,11 @@ export class Scene {
 
   valueAt(value, time) { return evaluateValue(this, value, time); }
 
-  wait(seconds = 1) {
+  wait(seconds = null) {
     if (this._parallelBase != null) throw new Error('wait() is not allowed inside parallel()');
-    this.cursor += seconds;
+    const duration = Number(seconds ?? getTheme().animation.waitDuration);
+    if (!(duration >= 0)) throw new RangeError('wait duration must be >= 0');
+    this.cursor += duration;
     this.duration = Math.max(this.duration, this.cursor);
     return this;
   }
@@ -357,7 +374,8 @@ export class Scene {
     spans.push([start, end]);
   }
 
-  animate(object, { transform = undefined, opacity = undefined, reveal = undefined, style = undefined, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
+  animate(object, { transform = undefined, opacity = undefined, reveal = undefined, style = undefined, duration = null, easing = null, at = 0 } = {}) {
+    easing = this._resolveEasing(easing);
     const span = this._span(duration, at);
     this._requireAliveForSpan(object, span);
     if (transform !== undefined) this._assertNoDescendantWorldDependency(object, span.start, span.end);
@@ -376,7 +394,8 @@ export class Scene {
     return object;
   }
 
-  transformFunction(object, provider, { duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
+  transformFunction(object, provider, { duration = null, easing = null, at = 0 } = {}) {
+    easing = this._resolveEasing(easing);
     const span = this._span(duration, at);
     this._requireAliveForSpan(object, span);
     this._assertNoDescendantWorldDependency(object, span.start, span.end);
@@ -390,15 +409,15 @@ export class Scene {
     return object;
   }
 
-  fadeIn(object, { duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
+  fadeIn(object, { duration = null, easing = null, at = 0 } = {}) {
     const before = this.stateAt(object, this._span(duration, at).start);
     if (Math.abs(before.opacity) > 1e-12) throw new Error(`fadeIn() requires opacity 0, got ${before.opacity}`);
     return this.animate(object, { opacity: 1, duration, easing, at });
   }
-  fadeOut(object, { duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) { return this.animate(object, { opacity: 0, duration, easing, at }); }
-  style(object, { to, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) { const current=this.stateAt(object,this._span(duration,at).start).style; if (!current) throw new TypeError('style() requires a styled 2D object'); const target={...current,...to}; return this.animate(object, { style: target, duration, easing, at }); }
-  trim(object, { to, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) { if (!('reveal' in object)) throw new TypeError('trim() requires a path-trimmable object'); if (!(to >= 0 && to <= 1)) throw new RangeError('trim target must be in [0,1]'); return this.animate(object, { reveal: to, duration, easing, at }); }
-  create(object, { duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) { const before = this.stateAt(object, this._span(duration, at).start); if (before.reveal == null) throw new TypeError('create() currently supports path objects'); if (Math.abs(before.reveal) > 1e-12) throw new Error(`create() requires trim 0, got ${before.reveal}`); return this.trim(object, { to: 1, duration, easing, at }); }
+  fadeOut(object, { duration = null, easing = null, at = 0 } = {}) { return this.animate(object, { opacity: 0, duration, easing, at }); }
+  style(object, { to, duration = null, easing = null, at = 0 } = {}) { const current=this.stateAt(object,this._span(duration,at).start).style; if (!current) throw new TypeError('style() requires a styled 2D object'); const target={...current,...to}; return this.animate(object, { style: target, duration, easing, at }); }
+  trim(object, { to, duration = null, easing = null, at = 0 } = {}) { if (!('reveal' in object)) throw new TypeError('trim() requires a path-trimmable object'); if (!(to >= 0 && to <= 1)) throw new RangeError('trim target must be in [0,1]'); return this.animate(object, { reveal: to, duration, easing, at }); }
+  create(object, { duration = null, easing = null, at = 0 } = {}) { const before = this.stateAt(object, this._span(duration, at).start); if (before.reveal == null) throw new TypeError('create() currently supports path objects'); if (Math.abs(before.reveal) > 1e-12) throw new Error(`create() requires trim 0, got ${before.reveal}`); return this.trim(object, { to: 1, duration, easing, at }); }
 
   batchAt(object, time) { return evaluateBatch(this, object, time); }
 
@@ -446,7 +465,8 @@ export class Scene {
     return Math.min(sourceDuration, clip.sourceStart + elapsed);
   }
 
-  batch(object, { to, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
+  batch(object, { to, duration = null, easing = null, at = 0 } = {}) {
+    easing = this._resolveEasing(easing);
     if (!(object instanceof CachedBatch2D)) throw new TypeError('batch() requires a batch object');
     const target = to instanceof CachedBatch2D ? to.items : to;
     if (!Array.isArray(target)) throw new TypeError('batch target must be an item array or batch object');
@@ -469,7 +489,7 @@ export class Scene {
 
   worldTransformAt(object, time = this.cursor) { return worldTransformAt(this, object, time); }
 
-  move(object, by, { frame = WORLD, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
+  move(object, by, { frame = WORLD, duration = null, easing = null, at = 0 } = {}) {
     const span = this._span(duration, at);
     const v = Vec2.from(by), current = this.authoredState(object).transform, delta = Transform2D.translation(v.x, v.y);
     let target;
@@ -485,7 +505,7 @@ export class Scene {
     return this.animate(object, { transform: target, duration, easing, at });
   }
 
-  moveAlong(object,path,{duration=null,easing=Easing.SMOOTHSTEP,at=0,samples=256,tolerance=1e-3}={}){
+  moveAlong(object,path,{duration=null,easing=null,at=0,samples=256,tolerance=1e-3}={}){
     const span=this._span(duration,at);
     this._requireAliveForSpan(object,span);
     this._requireAliveForSpan(path,span);
@@ -508,7 +528,7 @@ export class Scene {
     return this.transformFunction(object,provider,{duration,easing,at});
   }
 
-  rotate(object, by, { frame = PARENT, about = null, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
+  rotate(object, by, { frame = PARENT, about = null, duration = null, easing = null, at = 0 } = {}) {
     const span = this._span(duration, at);
     const current = this.authoredState(object).transform;
     const angle = Number(by);
@@ -537,7 +557,7 @@ export class Scene {
     return this.transformFunction(object, provider, { duration, easing, at });
   }
 
-  scale(object, by, { frame = PARENT, about = null, duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
+  scale(object, by, { frame = PARENT, about = null, duration = null, easing = null, at = 0 } = {}) {
     const span = this._span(duration, at);
     const S = Transform2D.scaling(by), current = this.authoredState(object).transform;
     let target;
@@ -560,11 +580,12 @@ export class Scene {
     return this.animate(object, { transform: target, duration, easing, at });
   }
 
-  affine(object, { position = [0, 0], rotation = 0, scale = 1, shear = [0, 0], duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
+  affine(object, { position = [0, 0], rotation = 0, scale = 1, shear = [0, 0], duration = null, easing = null, at = 0 } = {}) {
     return this.animate(object, { transform: Transform2D.affine({ position, rotation, scale, shear }), duration, easing, at });
   }
 
-  interpolate(source, target, { duration = null, easing = Easing.SMOOTHSTEP, at = 0 } = {}) {
+  interpolate(source, target, { duration = null, easing = null, at = 0 } = {}) {
+    easing = this._resolveEasing(easing);
     const span = this._span(duration, at);
     const sourceState = this.authored.has(source.id) ? this.authoredState(source) : cloneState(source);
     const targetState = this.authored.has(target.id) ? this.authoredState(target) : cloneState(target);
@@ -583,9 +604,10 @@ export class Scene {
     return transient;
   }
 
-  replace(source, target, { duration = 1, easing = Easing.SMOOTHSTEP } = {}) {
+  replace(source, target, { duration = null, easing = null } = {}) {
     if (!this.objects.includes(source)) throw new Error('replace() source must be a top-level scene object');
     if (this._trackedObjects.has(target.id)) throw new Error('replace() target must not already be in the scene');
+    duration = this._resolveDuration(duration);
     const start = this.cursor, end = start + duration;
     this.interpolate(source, target, { duration, easing, at: 0 });
     source.death = start;
@@ -645,7 +667,7 @@ export class Scene {
     args = args.slice(0, -1);
     const objects = args.length === 1 && args[0] instanceof Group ? args[0].children : args;
     const targets = this._withAuthoredObjects(objects, () => options.to.targets(...objects));
-    this.parallel(options.duration ?? 1, api => objects.forEach((object, i) => api.animate(object, { transform: targets[i], easing: options.easing ?? Easing.SMOOTHSTEP, at: options.at ?? 0 })));
+    this.parallel(options.duration ?? getTheme().animation.duration, api => objects.forEach((object, i) => api.animate(object, { transform: targets[i], easing: options.easing ?? null, at: options.at ?? 0 })));
     return objects;
   }
 

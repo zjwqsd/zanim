@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import {
-  DEFAULT_STROKE_WIDTH,
+  getTheme,
   DynamicLineSet,
   Line,
   CircleSet,
@@ -11,18 +11,18 @@ import {
   Transform2D,
 } from './src/zanim.js'
 
-assert.equal(new Line().width, DEFAULT_STROKE_WIDTH)
+assert.equal(new Line().width, getTheme().style.strokeWidth)
 assert.equal(new Line().worldStroke, true)
 
 const staticLines = new LineSet()
 const staticCircles = new CircleSet()
 const staticRects = new RectSet()
 for (const batch of [staticLines, staticCircles, staticRects]) {
-  assert.equal(batch.width, DEFAULT_STROKE_WIDTH)
+  assert.equal(batch.width, getTheme().style.strokeWidth)
   assert.equal(batch.worldStroke, true)
 }
 const dynamic = new DynamicLineSet(() => [[0,0,1,0,'#ffffff']])
-assert.equal(dynamic.width, DEFAULT_STROKE_WIDTH)
+assert.equal(dynamic.width, getTheme().style.strokeWidth)
 assert.equal(dynamic.worldStroke, true)
 
 const scene = Scene.headless({ width:1280, height:720, unitSize:90 })
@@ -34,9 +34,9 @@ scene.style(square, {
 })
 const middle = scene.stateAt(square, .5).style
 const after = scene.stateAt(square, 1).style
-assert.equal(before.width, DEFAULT_STROKE_WIDTH)
-assert.equal(middle.width, DEFAULT_STROKE_WIDTH)
-assert.equal(after.width, DEFAULT_STROKE_WIDTH)
+assert.equal(before.width, getTheme().style.strokeWidth)
+assert.equal(middle.width, getTheme().style.strokeWidth)
+assert.equal(after.width, getTheme().style.strokeWidth)
 assert.equal(after.worldStroke, true)
 
 

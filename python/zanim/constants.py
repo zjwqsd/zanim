@@ -6,7 +6,7 @@ numeric radians remain the complete custom forms.
 
 from math import pi, tau
 
-from .geometry import Color, DEFAULT_STROKE_WIDTH
+from .geometry import DEFAULT_STROKE_WIDTH, Color
 from .space import Vec2
 
 # Mathematical angles.

@@ -191,7 +191,7 @@ class _SceneAuthoring:
         to: Transform2D | Transform3D | SE2 | SE3 | None = None,
         frame: TransformFrame | None = None,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         """Animate an explicit absolute transform or framed relative transform.
@@ -318,7 +318,7 @@ class _SceneAuthoring:
         frame: TransformFrame | None = None,
         anchor=None,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         """Translate one object with explicit relative/absolute semantics.
@@ -367,7 +367,7 @@ class _SceneAuthoring:
         path: SceneObject2D,
         *,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
         samples: int = 256,
         tolerance: float = 1e-3,
@@ -420,7 +420,7 @@ class _SceneAuthoring:
         frame: TransformFrame | None = None,
         about: Point2 | None = None,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         """Rotate in LOCAL/PARENT/WORLD, or about one explicit world point."""
@@ -473,7 +473,7 @@ class _SceneAuthoring:
         frame: TransformFrame | None = None,
         about: Point2 | None = None,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         """Scale in LOCAL/PARENT/WORLD, or about one explicit world point."""
@@ -507,7 +507,7 @@ class _SceneAuthoring:
         obj: SceneObject2D | MeshObject3D | Group3D,
         provider,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         registered = self._require_alive_for_span(obj, duration, at)
@@ -558,7 +558,7 @@ class _SceneAuthoring:
         obj: SceneObject2D | MeshObject3D | Group3D,
         target: float,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ) -> OpacityClip:
         if isinstance(obj, Camera2D):
@@ -574,7 +574,7 @@ class _SceneAuthoring:
         self,
         obj: SceneObject2D | MeshObject3D | Group3D,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ) -> OpacityClip:
         """Fade an explicitly transparent object from opacity 0 to 1.
@@ -595,7 +595,7 @@ class _SceneAuthoring:
         self,
         obj: SceneObject2D | MeshObject3D | Group3D,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ) -> OpacityClip:
         if isinstance(obj, Camera2D):
@@ -612,7 +612,7 @@ class _SceneAuthoring:
         obj: Object2D,
         target,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ) -> StyleClip:
         registered = self._require_alive_for_span(obj, duration, at)
@@ -627,7 +627,7 @@ class _SceneAuthoring:
         obj: Object2D,
         target: float,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ) -> PathTrimClip:
         registered = self._require_alive_for_span(obj, duration, at)
@@ -641,7 +641,7 @@ class _SceneAuthoring:
         self,
         obj: Object2D | VectorObject2D,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         """Reveal an object whose authored creation state is explicitly zero.
@@ -665,7 +665,7 @@ class _SceneAuthoring:
         value: ScalarValue,
         target: float,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ) -> ValueClip:
         registered = self._require_alive_for_span(value, duration, at)
@@ -707,7 +707,7 @@ class _SceneAuthoring:
         obj: BatchObject2D,
         target: BatchGeometry,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ) -> BatchClip:
         registered = self._require_alive_for_span(obj, duration, at)
@@ -725,7 +725,7 @@ class _SceneAuthoring:
         self,
         obj: VectorObject2D,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ) -> RevealClip:
         if not isinstance(obj, VectorObject2D):
@@ -751,7 +751,7 @@ class _SceneAuthoring:
         obj: VectorObject2D,
         target: VectorObject2D | VectorDocument,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ) -> VectorMorphClip:
         if not isinstance(obj, VectorObject2D):
@@ -802,7 +802,7 @@ class _SceneAuthoring:
         source: Object2D,
         target: Object2D,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ) -> InterpolationClip:
         self._require_alive_for_span(source, duration, at)
@@ -827,7 +827,7 @@ class _SceneAuthoring:
         target: Object2D | "BoundObject2D[Any]",
         *,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ) -> InterpolationClip:
         """Render one extra transient interpolation between two existing objects.
@@ -847,7 +847,7 @@ class _SceneAuthoring:
         target: Object2D,
         *,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
     ):
         """Hand off lifetime and return the newly active target handle.
 
@@ -889,7 +889,7 @@ class _SceneAuthoring:
         *objects,
         to,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         """Animate existing 2D objects to an explicit layout specification.
@@ -931,5 +931,5 @@ class _SceneAuthoring:
         """
         return self._timeline.parallel(duration=duration)
 
-    def wait(self, duration: float = 1.0):
+    def wait(self, duration: float | None = None):
         return self._timeline.wait(duration)

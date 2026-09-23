@@ -66,6 +66,28 @@ Formula source, `fontSize` and `color` are intentionally build-time static. Use 
 
 `configureTypstCompiler(...)` remains available for explicit development integrations. Python Preview uses it to point Web Preview at Python's `/api/typst`; production apps normally use the Vite-precompiled SVG path.
 
+## Themes
+
+The browser runtime uses the built-in `manim` theme by default. Theme defaults are read when new objects/Scenes are created; explicit constructor options always win.
+
+```js
+import { MANIM, Scene, applyConfig, createTheme, setTheme } from '@zanim/web'
+
+setTheme('manim')
+const scene = await Scene.create(canvas)
+
+const paper = createTheme(MANIM, {
+  name: 'paper',
+  canvas: { background: '#f7f4ed' },
+  style: { stroke: '#20242a' },
+})
+setTheme(paper)
+
+await applyConfig('/zanim.json')
+```
+
+Configuration JSON uses the same snake_case field names as Python TOML/JSON (`unit_size`, `stroke_width`, `font_size`, `wait_duration`, `dot_radius`, etc.). Theme-derived browser canvases preserve the canonical Manim logical frame under responsive resizing; passing an explicit `renderer.unitSize` opts out of that behavior.
+
 ## Stroke semantics
 
 A stroke is visual style around a centerline, not ribbon geometry. Zanim therefore applies object, group, and camera transforms to the path first and strokes the resulting path afterwards. Ordinary `strokeWidth` does **not** change when an object is scaled, sheared, nested under a scaled group, or viewed through a zoomed camera. This matches Python Zanim and Manim's default non-scaling stroke behavior.

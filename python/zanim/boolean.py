@@ -8,7 +8,6 @@ from .geometry import (
     CircleGeometry,
     Color,
     CubicBezierGeometry,
-    DEFAULT_STROKE_WIDTH,
     EllipseGeometry,
     LineGeometry,
     Object2D,
@@ -24,7 +23,6 @@ from .path import flatten_vector_contour
 from .render.abi import load_library
 from .space import Transform2D, Vec2
 from .vector import VectorContour, VectorDocument, VectorObject2D, VectorPath
-
 
 _OPERATION_IDS = {
     "intersection": 0,
@@ -239,8 +237,7 @@ def _native_boolean(
         raise RuntimeError(messages.get(code, f"vector boolean backend failed with code {code}"))
 
     points = tuple(
-        Vec2(out_points[i * 2], out_points[i * 2 + 1])
-        for i in range(out_point_count.value)
+        Vec2(out_points[i * 2], out_points[i * 2 + 1]) for i in range(out_point_count.value)
     )
     contours: list[tuple[Vec2, ...]] = []
     start = 0
@@ -277,8 +274,7 @@ def _document_from_contours(
     for points in contours:
         all_points.extend(points)
         segments = tuple(
-            _line_cubic(points[i], points[(i + 1) % len(points)])
-            for i in range(len(points))
+            _line_cubic(points[i], points[(i + 1) % len(points)]) for i in range(len(points))
         )
         vector_contours.append(VectorContour(segments, closed=True))
 
@@ -313,13 +309,20 @@ class BooleanShape(VectorObject2D):
         second,
         operation: str,
         *,
-        color: Color = Color(255, 255, 255),
+        color: Color | None = None,
         fill_opacity: float = 0.5,
-        stroke_width: float = DEFAULT_STROKE_WIDTH,
+        stroke_width: float | None = None,
         tolerance: float = 1.0 / 512.0,
         opacity: float = 1.0,
         z_index: int = 0,
     ) -> None:
+        from .theme import get_theme
+
+        theme = get_theme()
+        color = theme.style.stroke if color is None else color
+        if color is None:
+            raise ValueError("BooleanShape requires a color when the theme stroke is disabled")
+        stroke_width = theme.style.stroke_width if stroke_width is None else float(stroke_width)
         if operation not in _OPERATION_IDS:
             raise ValueError(
                 "operation must be one of: 'intersection', 'union', 'difference', 'exclusion'"

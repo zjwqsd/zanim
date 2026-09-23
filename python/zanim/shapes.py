@@ -9,7 +9,6 @@ from .geometry import (
     CircleGeometry,
     Color,
     CubicBezierGeometry,
-    DEFAULT_STROKE_WIDTH,
     EllipseGeometry,
     LineGeometry,
     Object2D,
@@ -115,11 +114,18 @@ class Brace(Polyline):
         direction: Point2 = (0.0, -1.0),
         buff: float = 0.2,
         depth: float = 0.12,
-        color: Color = Color(255, 255, 255),
-        stroke_width: float = 0.025,
+        color: Color | None = None,
+        stroke_width: float | None = None,
         samples: int = 8,
         **kwargs,
     ) -> None:
+        from .theme import get_theme
+
+        theme = get_theme()
+        color = theme.style.stroke if color is None else color
+        if color is None:
+            raise ValueError("Brace requires a color when the theme stroke is disabled")
+        stroke_width = theme.style.stroke_width if stroke_width is None else float(stroke_width)
         d = as_vec2(direction, name="direction").normalized()
         t = Vec2(-d.y, d.x)
         b = target.bounds()
@@ -247,11 +253,18 @@ class Dot(Circle):
         self,
         point: Point2 = (0.0, 0.0),
         *,
-        radius: float = 0.08,
-        color: Color = Color(255, 255, 255),
+        radius: float | None = None,
+        color: Color | None = None,
         opacity: float = 1.0,
         z_index: int = 0,
     ) -> None:
+        from .theme import get_theme
+
+        theme = get_theme()
+        radius = theme.shape.dot_radius if radius is None else float(radius)
+        color = theme.style.stroke if color is None else color
+        if color is None:
+            raise ValueError("Dot requires a color when the theme stroke is disabled")
         p = as_vec2(point, name="point")
         super().__init__(
             radius,
@@ -268,14 +281,24 @@ class Arrow(Group):
         start: Point2 = (0.0, 0.0),
         end: Point2 = (1.0, 0.0),
         *,
-        color: Color = Color(255, 255, 255),
-        stroke_width: float = DEFAULT_STROKE_WIDTH,
-        tip_length: float = 0.35,
-        tip_width: float = 0.35,
-        buff: float = 0.25,
+        color: Color | None = None,
+        stroke_width: float | None = None,
+        tip_length: float | None = None,
+        tip_width: float | None = None,
+        buff: float | None = None,
         opacity: float = 1.0,
         z_index: int = 0,
     ) -> None:
+        from .theme import get_theme
+
+        theme = get_theme()
+        color = theme.style.stroke if color is None else color
+        if color is None:
+            raise ValueError("Arrow requires a color when the theme stroke is disabled")
+        stroke_width = theme.style.stroke_width if stroke_width is None else float(stroke_width)
+        tip_length = theme.shape.arrow_tip_length if tip_length is None else float(tip_length)
+        tip_width = theme.shape.arrow_tip_width if tip_width is None else float(tip_width)
+        buff = theme.shape.arrow_buff if buff is None else float(buff)
         start = as_vec2(start, name="start")
         end = as_vec2(end, name="end")
         dx, dy = end.x - start.x, end.y - start.y

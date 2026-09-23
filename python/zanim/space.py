@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from math import atan2, cos, isfinite, pi, sin
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .geometry import Color
 
 
 class TransformFrame(str, Enum):
@@ -355,11 +359,28 @@ def _resolve_transform2d(
     raise TypeError("transform must be Transform2D or SE2")
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, init=False)
 class Canvas:
-    width: int = 1920
-    height: int = 1080
-    unit_size: float = 100.0
+    width: int
+    height: int
+    unit_size: float
+    background: "Color"
+
+    def __init__(
+        self,
+        width: int | None = None,
+        height: int | None = None,
+        unit_size: float | None = None,
+        background=None,
+    ) -> None:
+        from .theme import get_theme
+
+        defaults = get_theme().canvas
+        self.width = defaults.width if width is None else int(width)
+        self.height = defaults.height if height is None else int(height)
+        self.unit_size = defaults.unit_size if unit_size is None else float(unit_size)
+        self.background = defaults.background if background is None else background
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         if self.width <= 0 or self.height <= 0:

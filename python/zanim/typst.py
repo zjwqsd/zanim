@@ -117,9 +117,9 @@ class Text(VectorObject2D):
         self,
         content: str,
         *,
-        font_size: float = 48.0,
+        font_size: float | None = None,
         font: str | tuple[str, ...] | None = None,
-        color: Color = Color(255, 255, 255),
+        color: Color | None = None,
         transform: Transform2D | SE2 | None = None,
         reveal: float = 1.0,
         opacity: float = 1.0,
@@ -129,6 +129,12 @@ class Text(VectorObject2D):
         scale: float | tuple[float, float] | None = None,
         shear: Point2 | None = None,
     ) -> None:
+        from .theme import get_theme
+
+        defaults = get_theme().text
+        font_size = defaults.font_size if font_size is None else float(font_size)
+        font = defaults.font if font is None else font
+        color = defaults.color if color is None else color
         self.content = content
         self.font_size = font_size
         self.font = font
@@ -160,8 +166,8 @@ class Math(VectorObject2D):
         self,
         source: str,
         *,
-        font_size: float = 48.0,
-        color: Color = Color(255, 255, 255),
+        font_size: float | None = None,
+        color: Color | None = None,
         transform: Transform2D | SE2 | None = None,
         reveal: float = 1.0,
         opacity: float = 1.0,
@@ -171,6 +177,11 @@ class Math(VectorObject2D):
         scale: float | tuple[float, float] | None = None,
         shear: Point2 | None = None,
     ) -> None:
+        from .theme import get_theme
+
+        defaults = get_theme().math
+        font_size = defaults.font_size if font_size is None else float(font_size)
+        color = defaults.color if color is None else color
         self.source = source
         self.font_size = font_size
         self.color = color

@@ -1047,6 +1047,7 @@ def scene_to_ir(
             "width": scene.canvas.width,
             "height": scene.canvas.height,
             "unit_size": scene.canvas.unit_size,
+            "background": _color(scene.canvas.background),
         },
         "fps": scene.fps,
         "duration": scene.duration,
@@ -1229,7 +1230,12 @@ def scene_from_ir(ir: dict[str, Any]) -> Scene:
     )
     scene = Scene(
         canvas=Canvas(
-            int(canvas_raw["width"]), int(canvas_raw["height"]), float(canvas_raw["unit_size"])
+            int(canvas_raw["width"]),
+            int(canvas_raw["height"]),
+            float(canvas_raw["unit_size"]),
+            background=(
+                _color_from(canvas_raw["background"]) if "background" in canvas_raw else None
+            ),
         ),
         fps=int(ir["fps"]),
         camera=camera,

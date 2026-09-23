@@ -404,6 +404,7 @@ pub fn renderRgb0(
     width: i32,
     height: i32,
     unit_size: f64,
+    background_rgba: u32,
     draw_items: []const WireDrawItem,
     object_wires: []const WireObject,
     batch_wires: []const batch.WireBatch,
@@ -420,9 +421,10 @@ pub fn renderRgb0(
 
     var threaded: std.Io.Threaded = .init_single_threaded;
     const io = threaded.io();
+    const background = decodeColor(background_rgba);
     var surface = z2d.Surface.initBuffer(
         .image_surface_rgb,
-        .{ .r = 14, .g = 17, .b = 24 },
+        .{ .r = background.r, .g = background.g, .b = background.b },
         pixels[0..expected],
         width,
         height,
@@ -480,6 +482,7 @@ pub fn renderFrame(
     width: i32,
     height: i32,
     unit_size: f64,
+    background_rgba: u32,
     draw_items: []const WireDrawItem,
     object_wires: []const WireObject,
     batch_wires: []const batch.WireBatch,
@@ -493,8 +496,9 @@ pub fn renderFrame(
     var threaded: std.Io.Threaded = .init_single_threaded;
     const io = threaded.io();
 
+    const background = decodeColor(background_rgba);
     var surface = try z2d.Surface.initPixel(
-        .{ .rgb = .{ .r = 14, .g = 17, .b = 24 } },
+        .{ .rgb = .{ .r = background.r, .g = background.g, .b = background.b } },
         allocator,
         width,
         height,

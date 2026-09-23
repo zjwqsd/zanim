@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generic, TypeVar
 
-from .geometry import DEFAULT_STROKE_WIDTH, Color, StrokeStyle, Style
+from .geometry import Color, StrokeStyle, Style
 from .space import Point2, Transform2D, TransformFrame, Vec2, affine2d, as_vec2
 from .space3d import Transform3D, Vec3
 from .timeline import Easing
@@ -14,6 +14,12 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 Scale2 = float | tuple[float, float]
 _UNSET = object()
+
+
+def _default_stroke_width() -> float:
+    from .theme import get_theme
+
+    return float(get_theme().style.stroke_width)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +82,7 @@ class Bound2D(BoundItem[T]):
         to=None,
         frame: TransformFrame | None = None,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         return self.scene._transform(
@@ -97,7 +103,7 @@ class Bound2D(BoundItem[T]):
         frame: TransformFrame | None = None,
         anchor=None,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         delta = None if by is None else as_vec2(by, name="by")
@@ -118,7 +124,7 @@ class Bound2D(BoundItem[T]):
         path,
         *,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
         samples: int = 256,
         tolerance: float = 1e-3,
@@ -140,7 +146,7 @@ class Bound2D(BoundItem[T]):
         frame: TransformFrame | None = None,
         about: Point2 | None = None,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         pivot = None if about is None else as_vec2(about, name="about")
@@ -161,7 +167,7 @@ class Bound2D(BoundItem[T]):
         frame: TransformFrame | None = None,
         about: Point2 | None = None,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         pivot = None if about is None else as_vec2(about, name="about")
@@ -183,7 +189,7 @@ class Bound2D(BoundItem[T]):
         scale: Scale2 = 1.0,
         shear: Point2 = (0.0, 0.0),
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         """Animate to one complete affine pose.
@@ -201,7 +207,7 @@ class Bound2D(BoundItem[T]):
         provider,
         *,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         return self.scene._transform_function(
@@ -213,7 +219,7 @@ class Bound2D(BoundItem[T]):
         *,
         to: float,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         return self.scene._opacity_to(self.raw, to, duration=duration, easing=easing, at=at)
@@ -221,7 +227,7 @@ class Bound2D(BoundItem[T]):
     def fade_in(
         self,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         return self.scene._fade_in(self.raw, duration=duration, easing=easing, at=at)
@@ -229,7 +235,7 @@ class Bound2D(BoundItem[T]):
     def fade_out(
         self,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         return self.scene._fade_out(self.raw, duration=duration, easing=easing, at=at)
@@ -248,7 +254,7 @@ class BoundObject2D(Bound2D[T]):
     def create(
         self,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         return self.scene._create(self.raw, duration=duration, easing=easing, at=at)
@@ -260,7 +266,7 @@ class BoundObject2D(Bound2D[T]):
         stroke=_UNSET,
         stroke_width: float | None = None,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         """Animate selected visual style fields while preserving omitted fields."""
@@ -292,7 +298,7 @@ class BoundObject2D(Bound2D[T]):
                     if stroke_width is not None
                     else current.stroke.width
                     if current.stroke is not None
-                    else DEFAULT_STROKE_WIDTH
+                    else _default_stroke_width()
                 )
                 next_stroke = StrokeStyle(stroke, width)
 
@@ -304,7 +310,7 @@ class BoundObject2D(Bound2D[T]):
         *,
         to: float,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         return self.scene._trim_to(self.raw, to, duration=duration, easing=easing, at=at)
@@ -321,7 +327,7 @@ class BoundVector2D(Bound2D[T]):
         *,
         to,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         return self.scene._morph_vector(self.raw, to, duration=duration, easing=easing, at=at)
@@ -329,7 +335,7 @@ class BoundVector2D(Bound2D[T]):
     def create(
         self,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         return self.scene._create(self.raw, duration=duration, easing=easing, at=at)
@@ -346,7 +352,7 @@ class BoundBatch2D(Bound2D[T]):
         *,
         to,
         duration: float | None = None,
-        easing: Easing = Easing.SMOOTHSTEP,
+        easing: Easing | None = None,
         at: float = 0.0,
     ):
         return self.scene._batch_to(self.raw, to, duration=duration, easing=easing, at=at)
@@ -394,7 +400,7 @@ class Bound3D(BoundItem[T]):
         to=None,
         frame=None,
         duration: float | None = None,
-        easing=Easing.SMOOTHSTEP,
+        easing=None,
         at=0.0,
     ):
         return self.scene._transform(
@@ -407,22 +413,18 @@ class Bound3D(BoundItem[T]):
             at=at,
         )
 
-    def transform_function(
-        self, provider, *, duration: float | None = None, easing=Easing.SMOOTHSTEP, at=0.0
-    ):
+    def transform_function(self, provider, *, duration: float | None = None, easing=None, at=0.0):
         return self.scene._transform_function(
             self.raw, provider, duration=duration, easing=easing, at=at
         )
 
-    def opacity(
-        self, *, to: float, duration: float | None = None, easing=Easing.SMOOTHSTEP, at=0.0
-    ):
+    def opacity(self, *, to: float, duration: float | None = None, easing=None, at=0.0):
         return self.scene._opacity_to(self.raw, to, duration=duration, easing=easing, at=at)
 
-    def fade_in(self, duration: float | None = None, easing=Easing.SMOOTHSTEP, at=0.0):
+    def fade_in(self, duration: float | None = None, easing=None, at=0.0):
         return self.scene._fade_in(self.raw, duration=duration, easing=easing, at=at)
 
-    def fade_out(self, duration: float | None = None, easing=Easing.SMOOTHSTEP, at=0.0):
+    def fade_out(self, duration: float | None = None, easing=None, at=0.0):
         return self.scene._fade_out(self.raw, duration=duration, easing=easing, at=at)
 
 
@@ -444,7 +446,7 @@ class BoundValue(BoundItem[T]):
     def current(self) -> float:
         return float(self.scene._authored_get(self.raw, "value"))
 
-    def value(self, *, to: float, duration: float | None = None, easing=Easing.SMOOTHSTEP, at=0.0):
+    def value(self, *, to: float, duration: float | None = None, easing=None, at=0.0):
         return self.scene._value_to(self.raw, to, duration=duration, easing=easing, at=at)
 
     def at(self, time: float) -> float:

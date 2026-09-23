@@ -197,7 +197,7 @@ export function sceneFromIR(ir,renderer,{proceduralQuality={resolution:.22,minWi
 
 export async function createSceneFromIR(canvas,ir,{wasmURL=DEFAULT_WASM_URL,wasm=null,renderer={},observeResize=true,...options}={}){
   const target=typeof canvas==='string'?document.querySelector(canvas):canvas;if(!target||typeof target.getContext!=='function')throw new TypeError('createSceneFromIR requires a canvas element or selector');
-  const engine=wasm??await ZanimWasm.load(wasmURL),scene=sceneFromIR(ir,new CanvasRenderer(target,engine,{unitSize:Number(ir.canvas?.unit_size??renderer.unitSize??90),...renderer}),options);
+  const engine=wasm??await ZanimWasm.load(wasmURL),scene=sceneFromIR(ir,new CanvasRenderer(target,engine,{unitSize:Number(ir.canvas?.unit_size??renderer.unitSize??90),...(ir.canvas?.background==null?{}:{background:colorCSS(ir.canvas.background)}),...renderer}),options);
   if(observeResize&&typeof ResizeObserver!=='undefined'){scene._resizeObserver=new ResizeObserver(()=>scene.render());scene._resizeObserver.observe(target);}scene.render();return scene;
 }
 
@@ -242,7 +242,7 @@ export function sceneToIR(scene,{sampleTransformFunctions=false,sampleDynamicPro
   for(const clip of scene.valueClips)clips.push({kind:'value',target:idMap.get(clip.value),start:clip.start,duration:clip.end-clip.start,easing:easingName(clip.easing),before:clip.before,after:clip.after});
   for(const x of scene.interpolations){clips.push({kind:'interpolation',start:x.start,duration:x.end-x.start,easing:easingName(x.easing),source:objectSnapshotToIR(x.source,x.sourceState),target:objectSnapshotToIR(x.target,x.targetState)});}
   clips.sort((a,b)=>a.start-b.start);
-  return {format:SCENE_IR_FORMAT,version:SCENE_IR_VERSION,canvas:{width:scene.renderer?.canvas?.width??1280,height:scene.renderer?.canvas?.height??720,unit_size:scene.renderer?.baseUnitSize??90},fps:scene.fps,duration:scene.duration,objects,values:valueRecords,resources,clips,meta:{portable:true,sampled_dynamic_objects:sampledDynamicObjects}};
+  return {format:SCENE_IR_FORMAT,version:SCENE_IR_VERSION,canvas:{width:scene.renderer?.canvas?.width??1280,height:scene.renderer?.canvas?.height??720,unit_size:scene.renderer?.baseUnitSize??90,background:colorArray(scene.renderer?.background??'#000000')},fps:scene.fps,duration:scene.duration,objects,values:valueRecords,resources,clips,meta:{portable:true,sampled_dynamic_objects:sampledDynamicObjects}};
 }
 
 export function validateSceneIR(ir){if(!ir||ir.format!==SCENE_IR_FORMAT||Number(ir.version)!==SCENE_IR_VERSION)throw new TypeError(`unsupported Zanim Scene IR ${ir?.format??'<missing>'} v${ir?.version??'?'}`);if(!ir.canvas||!Array.isArray(ir.objects)||!Array.isArray(ir.resources)||!Array.isArray(ir.clips))throw new TypeError('invalid Zanim Scene IR structure');return ir;}

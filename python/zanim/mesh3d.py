@@ -102,7 +102,7 @@ def cube_mesh(side: float = 2.0) -> TriangleMesh:
 def Box3D(
     size: Vec3 = Vec3(2.0, 2.0, 2.0),
     *,
-    color: Color = Color(104, 184, 255),
+    color: Color | None = None,
     transform: Transform3D | SE3 | None = None,
     position: Vec3 | tuple[float, float, float] | None = None,
     rotation: SO3 | None = None,
@@ -110,6 +110,10 @@ def Box3D(
 ) -> MeshObject3D:
     if size.x <= 0 or size.y <= 0 or size.z <= 0:
         raise ValueError("box dimensions must be positive")
+    if color is None:
+        from .theme import get_theme
+
+        color = get_theme().mesh3d_color
     return MeshObject3D(
         unit_box_mesh(),
         transform=_resolve_transform3d(
@@ -127,7 +131,7 @@ def Box3D(
 def Cube3D(
     side: float = 2.0,
     *,
-    color: Color = Color(104, 184, 255),
+    color: Color | None = None,
     transform: Transform3D | SE3 | None = None,
     position: Vec3 | tuple[float, float, float] | None = None,
     rotation: SO3 | None = None,
@@ -151,7 +155,7 @@ def Surface3D(
     x_range: tuple[float, float] = (-3.0, 3.0),
     y_range: tuple[float, float] = (-3.0, 3.0),
     resolution: tuple[int, int] = (81, 81),
-    color: Color = Color(82, 196, 150),
+    color: Color | None = None,
     transform: Transform3D | SE3 | None = None,
     position: Vec3 | tuple[float, float, float] | None = None,
     rotation: SO3 | None = None,
@@ -165,6 +169,11 @@ def Surface3D(
         raise ValueError("surface ranges must be increasing")
     if nx < 2 or ny < 2:
         raise ValueError("surface resolution must be at least 2x2")
+
+    if color is None:
+        from .theme import get_theme
+
+        color = get_theme().mesh3d_color
 
     dx = (x1 - x0) / (nx - 1)
     dy = (y1 - y0) / (ny - 1)

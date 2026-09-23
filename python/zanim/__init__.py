@@ -14,11 +14,11 @@ from .batch import BatchObject2D, CircleSet, DynamicBatchObject2D, LineSet, Rect
 from .boolean import Difference, Exclusion, Intersection, Union
 from .camera import Camera2D
 from .camera3d import Camera3D
+from .config import ZanimConfig, apply_config, load_config
 from .constants import (
     BLACK,
     BLUE,
     CYAN,
-    DEFAULT_STROKE_WIDTH,
     DEGREES,
     DOWN,
     GRAY,
@@ -103,6 +103,7 @@ from .space import (
 )
 from .space3d import SE3, SO3, Transform3D, Vec3
 from .svg import load_svg
+from .theme import MANIM, Theme, get_theme, register_theme, set_theme, theme_named, use_theme
 from .timeline import Easing
 from .typst import Math, Text
 from .value import ScalarValue
@@ -112,6 +113,16 @@ from .vector_field import DynamicVectorField, VectorField
 __all__ = [
     "__version__",
     "Scene",
+    "Theme",
+    "MANIM",
+    "get_theme",
+    "register_theme",
+    "theme_named",
+    "set_theme",
+    "use_theme",
+    "ZanimConfig",
+    "load_config",
+    "apply_config",
     "SceneViewport",
     "Exclusion",
     "Difference",
@@ -172,7 +183,6 @@ __all__ = [
     "PI",
     "TAU",
     "DEGREES",
-    "DEFAULT_STROKE_WIDTH",
     "Vec2",
     "Transform2D",
     "SE2",

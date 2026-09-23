@@ -1,5 +1,6 @@
 import { VectorObject2D } from './core.js';
 import { vectorDocumentFromSvg } from './svg.js';
+import { getTheme } from './theme.js';
 
 const EMPTY_DOCUMENT=Object.freeze({width:1,height:1,group_count:0,paths:[]});
 let configuredCompiler=null;
@@ -31,9 +32,10 @@ export class Typst extends VectorObject2D {
   }
 }
 export class Math extends Typst {
-  constructor(source,{fontSize=48,color='#ffffff',compiler=null,__zanimCompiledSvg=null,...options}={}){
+  constructor(source,options={}){
+    const theme=getTheme(),{fontSize=theme.math.fontSize,color=theme.math.color,compiler=null,__zanimCompiledSvg=null,...rest}=options;
     const resolvedCompiler=compiler??configuredCompiler;
-    super(source,{...options,__zanimCompiledSvg,compiler:resolvedCompiler?async(payload,context)=>resolvedCompiler({kind:'math',source:payload.source,font_size:Number(fontSize),color},context):null});
+    super(source,{...rest,__zanimCompiledSvg,compiler:resolvedCompiler?async(payload,context)=>resolvedCompiler({kind:'math',source:payload.source,font_size:Number(fontSize),color},context):null});
     this.fontSize=Number(fontSize);this.color=color;this._webRuntimeOnly='math';
   }
 }

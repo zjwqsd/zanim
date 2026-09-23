@@ -188,7 +188,17 @@ class Object2D(SceneObject2D):
 
         style_sugar = fill is not _UNSET or stroke is not _UNSET or stroke_width is not None
         if not style_sugar:
-            resolved_style = Style()
+            from .theme import get_theme
+
+            defaults = get_theme().style
+            resolved_style = Style(
+                fill=defaults.fill,
+                stroke=(
+                    None
+                    if defaults.stroke is None
+                    else StrokeStyle(defaults.stroke, defaults.stroke_width)
+                ),
+            )
         else:
             resolved_fill = None if fill is _UNSET else fill
             resolved_stroke = None if stroke is _UNSET else stroke
@@ -198,7 +208,12 @@ class Object2D(SceneObject2D):
                 raise TypeError("stroke must be Color or None")
             if resolved_stroke is None and stroke_width is not None:
                 raise ValueError("stroke_width requires an explicit stroke color")
-            width = DEFAULT_STROKE_WIDTH if stroke_width is None else float(stroke_width)
+            if stroke_width is None:
+                from .theme import get_theme
+
+                width = get_theme().style.stroke_width
+            else:
+                width = float(stroke_width)
             resolved_style = Style(
                 fill=resolved_fill,
                 stroke=None if resolved_stroke is None else StrokeStyle(resolved_stroke, width),

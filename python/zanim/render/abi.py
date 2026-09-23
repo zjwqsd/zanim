@@ -9,7 +9,7 @@ from ..errors import NativeError
 
 _ROOT = Path(__file__).resolve().parents[3]
 _NATIVE_DIR = Path(__file__).resolve().parents[1] / "_native"
-ABI_VERSION = 3
+ABI_VERSION = 4
 
 
 class WireObject(ctypes.Structure):
@@ -272,6 +272,7 @@ def load_library() -> ctypes.CDLL:
         ctypes.c_uint32,
         ctypes.c_uint32,
         ctypes.c_double,
+        ctypes.c_uint32,
         ctypes.POINTER(WireDrawItem),
         ctypes.c_uint32,
         ctypes.POINTER(WireObject),
@@ -294,6 +295,7 @@ def load_library() -> ctypes.CDLL:
         ctypes.c_uint32,
         ctypes.c_uint32,
         ctypes.c_double,
+        ctypes.c_uint32,
         ctypes.POINTER(WireDrawItem),
         ctypes.c_uint32,
         ctypes.POINTER(WireObject),

@@ -73,6 +73,14 @@ _TState = TypeVar("_TState")
 RenderableObject = Object2D | BatchObject2D | VectorObject2D | RasterObject2D | InfiniteObject2D
 SceneObject = RenderableObject | Group | Camera2D
 SceneItem = SceneObject | MeshObject3D | Group3D | ScalarValue | AudioObject
+
+
+def _default_fps() -> int:
+    from .theme import get_theme
+
+    return int(get_theme().canvas.fps)
+
+
 InitialSnapshot = (
     ObjectSnapshot
     | BatchSnapshot
@@ -121,7 +129,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
     """Deterministic authoring scene with one registry and one private scheduler."""
 
     canvas: Canvas = field(default_factory=Canvas)
-    fps: int = 60
+    fps: int = field(default_factory=_default_fps)
     _timeline: Timeline = field(default_factory=Timeline, init=False, repr=False)
     camera: Camera2D = field(default_factory=Camera2D)
     camera3d: Camera3D = field(default_factory=Camera3D)
@@ -181,11 +189,7 @@ class Scene(_SceneAuthoring, _SceneEvaluator):
         self.camera3d._bind_scene(self)
 
     def _camera3d_to(self, target: Camera3DState, *, duration=None, easing=None, at: float = 0.0):
-        from .timeline import Easing
-
-        resolved_easing = Easing.SMOOTHSTEP if easing is None else easing
-        if not isinstance(resolved_easing, Easing):
-            raise TypeError("camera3d easing must be Easing")
+        resolved_easing = self._timeline._resolve_easing(easing)
         clip = self._timeline.add_camera3d(
             self._camera3d_authored, target, duration, resolved_easing, at
         )
