@@ -120,7 +120,7 @@ assert.equal(sceneToIR(callback,{sampleTransformFunctions:true}).clips.find(c=>c
 
 const fakeCtx={save(){},restore(){},setTransform(){},stroke(){},fill(){},beginPath(){},moveTo(){},lineTo(){},rect(){},arc(){},ellipse(){},translate(){},transform(){},fillText(){},setLineDash(){},globalAlpha:1};
 let pathBuildCount=0;
-globalThis.Path2D??=class{constructor(){pathBuildCount++;}moveTo(){}lineTo(){}rect(){}arc(){}closePath(){}bezierCurveTo(){}};
+globalThis.Path2D??=class{constructor(){pathBuildCount++;}moveTo(){}lineTo(){}rect(){}arc(){}ellipse(){}closePath(){}bezierCurveTo(){}addPath(){}};
 const fakeRenderer={canvas:{width:640,height:360},ctx:fakeCtx,baseUnitSize:80,unitSize:80,dpr:1,resize(){},clear(){},time:0,toDevice(x,y){return[x,y]}};
 const roundtrip=sceneFromIR(parsed,fakeRenderer),roundtripSquare=roundtrip.objects.find(o=>o instanceof Square);
 assert.ok(Math.abs(roundtrip.stateAt(roundtripSquare,1.5).transform.tx-.5)<1e-12);

@@ -337,6 +337,55 @@ export class SceneViewport extends ZObject {
 function withObjectContext(renderer,obj,fn){const ctx=renderer.ctx;ctx.save();ctx.globalAlpha*=Math.max(0,Math.min(1,obj.opacity));fn(ctx);ctx.restore();}
 function applyPoint(m,p){return m.apply(p[0],p[1]);}
 
+function pathTransformInit(m){return {a:m.xx,b:m.yx,c:m.xy,d:m.yy,e:m.tx,f:m.ty};}
+const transformedPathCache=new WeakMap();
+function transformedPath(path,m){
+  const key=[m.xx,m.xy,m.yx,m.yy,m.tx,m.ty];
+  const cached=transformedPathCache.get(path);
+  if(cached&&cached.key.every((value,i)=>value===key[i]))return cached.path;
+  const out=new Path2D();out.addPath(path,pathTransformInit(m));transformedPathCache.set(path,{key,path:out});return out;
+}
+function canvasBasisTransform(renderer){const u=renderer.unitSize,ox=renderer.canvas.width*.5,oy=renderer.canvas.height*.5;return new Transform2D(u,0,0,-u,ox,oy);}
+function deviceTransform(renderer,rendered){return canvasBasisTransform(renderer).mul(rendered);}
+function setDeviceCanvasTransform(ctx){ctx.setTransform(1,0,0,1,0,0);}
+function setCanvasBasisTransform(renderer,ctx){setWorldCanvasTransform(renderer,ctx,Transform2D.identity());}
+function strokePath(renderer,ctx,path,rendered,{width,worldStroke=true,points=null,totalLength=null,reveal=1,closed=false}={}){
+  const clipped=clamp01(reveal);
+  if(clipped<=0)return;
+  ctx.save();
+  let drawn,total=totalLength;
+  if(worldStroke){
+    // A stroke is visual style, not ribbon geometry. Apply every authored
+    // object/group/camera transform to the centerline first, then stroke it.
+    // Only the canvas logical-unit basis affects the final visual thickness.
+    drawn=transformedPath(path,rendered);
+    setCanvasBasisTransform(renderer,ctx);
+    ctx.lineWidth=width;
+    if(total!=null)total=transformedPolylineLength(points,rendered,total,closed);
+  }else{
+    // Explicit device-space escape hatch: width is CSS pixels.
+    const device=deviceTransform(renderer,rendered);
+    drawn=transformedPath(path,device);
+    setDeviceCanvasTransform(ctx);
+    ctx.lineWidth=width*renderer.dpr;
+    if(total!=null)total=transformedPolylineLength(points,device,total,closed);
+  }
+  if(clipped<.999999&&total!=null&&total>0){ctx.setLineDash([total,total]);ctx.lineDashOffset=total*(1-clipped);}
+  ctx.stroke(drawn);
+  ctx.restore();
+}
+function transformedPolylineLength(points,m,fallback,closed=false){
+  if(!points||points.length<2)return fallback;
+  const first=m.apply(points[0][0],points[0][1]);let total=0,prev=first;
+  for(let i=1;i<points.length;i++){const q=m.apply(points[i][0],points[i][1]);total+=Math.hypot(q[0]-prev[0],q[1]-prev[1]);prev=q;}
+  if(closed)total+=Math.hypot(first[0]-prev[0],first[1]-prev[1]);
+  return total;
+}
+function strokeViewPath(renderer,ctx,path,{width,worldStroke=true}={}){
+  // Infinite geometry is already clipped/resolved in camera/view coordinates.
+  return strokePath(renderer,ctx,path,Transform2D.identity(),{width,worldStroke});
+}
+
 function clamp01(value){return Math.max(0,Math.min(1,value));}
 export function lerpNumber(a,b,t){return a+(b-a)*t;}
 function lerpPoint(a,b,t){return [lerpNumber(a[0],b[0],t),lerpNumber(a[1],b[1],t)];}
@@ -463,14 +512,17 @@ export class PolylineInterpolation extends ZObject {
   draw(r,parent=Transform2D.identity()){
     const raw=this.end<=this.start?1:(r.time-this.start)/(this.end-this.start),t=this.easing(clamp01(raw)),pts=this.a.map((p,i)=>[lerpNumber(p[0],this.b[i][0],t),lerpNumber(p[1],this.b[i][1],t)]),path=new Path2D();
     path.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)path.lineTo(pts[i][0],pts[i][1]);
-    const transform=Transform2D.lerp(this.source.transform,this.target.transform,t),ctx=r.ctx,stroke=lerpColorValue(this.source.stroke,this.target.stroke,t),fill=lerpColorValue(this.source.fill,this.target.fill,t),width=lerpNumber(this.source.width,this.target.width,t),opacity=lerpNumber(this.source.opacity,this.target.opacity,t);
-    ctx.save();ctx.globalAlpha*=clamp01(opacity);setWorldCanvasTransform(r,ctx,parent.mul(transform));ctx.lineJoin='round';ctx.lineCap='round';if(fill){ctx.fillStyle=fill;ctx.fill(path);}if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=(this.source.worldStroke&&this.target.worldStroke)?width:width*r.dpr/r.unitSize;ctx.stroke(path);}ctx.restore();
+    const transform=Transform2D.lerp(this.source.transform,this.target.transform,t),rendered=parent.mul(transform),ctx=r.ctx,stroke=lerpColorValue(this.source.stroke,this.target.stroke,t),fill=lerpColorValue(this.source.fill,this.target.fill,t),width=lerpNumber(this.source.width,this.target.width,t),opacity=lerpNumber(this.source.opacity,this.target.opacity,t),worldStroke=this.source.worldStroke&&this.target.worldStroke;
+    ctx.save();ctx.globalAlpha*=clamp01(opacity);ctx.lineJoin='round';ctx.lineCap='round';
+    if(fill){setWorldCanvasTransform(r,ctx,rendered);ctx.fillStyle=fill;ctx.fill(path);}
+    if(stroke){ctx.strokeStyle=stroke;strokePath(r,ctx,path,rendered,{width,worldStroke,points:pts});}
+    ctx.restore();
   }
 }
 
 export class Line extends ZObject {
   constructor(start=[-1,0],end=[1,0],{stroke=WHITE,width=null,strokeWidth=null,...rest}={}){super(rest);this.start=start;this.end=end;this.stroke=stroke;const useWorld=strokeWidth!=null||width==null;this.width=strokeWidth??width??DEFAULT_STROKE_WIDTH;this.worldStroke=useWorld;}
-  draw(r,parent){const m=this.world(parent);withObjectContext(r,this,ctx=>{const a=r.toDevice(...applyPoint(m,this.start)),b=r.toDevice(...applyPoint(m,this.end));ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.strokeStyle=this.stroke;ctx.lineWidth=this.worldStroke?this.width*r.unitSize:this.width*r.dpr;ctx.stroke();});}
+  draw(r,parent){const m=this.world(parent),path=new Path2D();path.moveTo(...this.start);path.lineTo(...this.end);withObjectContext(r,this,ctx=>{ctx.strokeStyle=this.stroke;ctx.lineCap='round';strokePath(r,ctx,path,m,{width:this.width,worldStroke:this.worldStroke,points:[this.start,this.end]});});}
 }
 export class Polyline extends ZObject {
   constructor(points,{stroke=WHITE,width=null,strokeWidth=null,closed=false,fill=null,lineJoin='round',lineCap='round',miterLimit=10,reveal=undefined,trim=undefined,...rest}={}){super(rest);this._points=points;this.stroke=stroke;const useWorld=strokeWidth!=null||width==null;this.width=strokeWidth??width??DEFAULT_STROKE_WIDTH;this.worldStroke=useWorld;this.closed=closed;this.fill=fill;this.lineJoin=lineJoin;this.lineCap=lineCap;this.miterLimit=miterLimit;this.reveal=trim??reveal??1;this._path=null;this._totalLength=0;}
@@ -482,10 +534,10 @@ export class Polyline extends ZObject {
   invalidate(){this._path=null;return this;}
   _buildPath(){const path=new Path2D();let total=0;if(this.points.length){path.moveTo(this.points[0][0],this.points[0][1]);for(let i=1;i<this.points.length;i++){const a=this.points[i-1],b=this.points[i];total+=Math.hypot(b[0]-a[0],b[1]-a[1]);path.lineTo(b[0],b[1]);}if(this.closed){const a=this.points[this.points.length-1],b=this.points[0];total+=Math.hypot(b[0]-a[0],b[1]-a[1]);path.closePath();}}this._totalLength=total;return this._path=path;}
   draw(r,parent){if(!this.points.length)return;const path=this._path??this._buildPath(),m=this.world(parent),ctx=r.ctx,reveal=Math.max(0,Math.min(1,scalarAt(this.reveal,r.time)));
-    ctx.save();ctx.globalAlpha*=Math.max(0,Math.min(1,this.opacity));setWorldCanvasTransform(r,ctx,m);ctx.lineJoin=this.lineJoin;ctx.lineCap=this.lineCap;ctx.miterLimit=this.miterLimit;
-    if(this.fill&&reveal>=.999999){ctx.fillStyle=this.fill;ctx.fill(path);}
+    ctx.save();ctx.globalAlpha*=Math.max(0,Math.min(1,this.opacity));ctx.lineJoin=this.lineJoin;ctx.lineCap=this.lineCap;ctx.miterLimit=this.miterLimit;
+    if(this.fill&&reveal>=.999999){setWorldCanvasTransform(r,ctx,m);ctx.fillStyle=this.fill;ctx.fill(path);}
     const trimStroke=this.stroke??(reveal<.999999?this.fill:null),trimWidth=this.stroke?this.width:.035,trimWorld=this.stroke?this.worldStroke:true;
-    if(trimStroke&&reveal>0){ctx.strokeStyle=trimStroke;ctx.lineWidth=trimWorld?trimWidth:trimWidth*r.dpr/r.unitSize;if(reveal<.999999&&this._totalLength>0){ctx.setLineDash([this._totalLength,this._totalLength]);ctx.lineDashOffset=this._totalLength*(1-reveal);}ctx.stroke(path);}
+    if(trimStroke&&reveal>0){ctx.strokeStyle=trimStroke;strokePath(r,ctx,path,m,{width:trimWidth,worldStroke:trimWorld,points:this.points,totalLength:this._totalLength,reveal,closed:this.closed});}
     ctx.restore();}
 }
 
@@ -549,7 +601,7 @@ export class RegularPolygon extends Polygon { constructor(sides=6,radius=1,{phas
 export class Circle extends ZObject {
   constructor(radius=1,{fill='rgba(96,166,255,.72)',stroke=WHITE,width=null,strokeWidth=null,reveal=undefined,trim=undefined,...rest}={}){super(rest);this.radius=radius;this.fill=fill;this.stroke=stroke;const useWorld=strokeWidth!=null||width==null;this.width=strokeWidth??width??DEFAULT_STROKE_WIDTH;this.worldStroke=useWorld;this.reveal=trim??reveal??1;}
   get trim(){return this.reveal;} set trim(value){this.reveal=value;}
-  draw(r,parent){const m=this.world(parent),reveal=clamp01(scalarAt(this.reveal,r.time));withObjectContext(r,this,ctx=>{const c=r.toDevice(...m.apply(0,0));const ex=m.vector(this.radius,0),ey=m.vector(0,this.radius);const rx=Math.hypot(...ex)*r.unitSize,ry=Math.hypot(...ey)*r.unitSize;const angle=Math.atan2(ex[1],ex[0]);ctx.beginPath();ctx.ellipse(c[0],c[1],Math.max(.01,rx),Math.max(.01,ry),-angle,0,TAU*reveal);if(this.fill&&reveal>=.999999){ctx.fillStyle=this.fill;ctx.fill();}const trimStroke=this.stroke??(reveal<.999999?this.fill:null),trimWidth=this.stroke?this.width:.035;if(trimStroke&&reveal>0){ctx.strokeStyle=trimStroke;ctx.lineWidth=(this.stroke&& !this.worldStroke)?trimWidth*r.dpr:trimWidth*r.unitSize;ctx.stroke();}});}
+  draw(r,parent){const m=this.world(parent),reveal=clamp01(scalarAt(this.reveal,r.time)),path=new Path2D();path.arc(0,0,Math.max(.0001,this.radius),0,TAU*reveal);withObjectContext(r,this,ctx=>{if(this.fill&&reveal>=.999999){setWorldCanvasTransform(r,ctx,m);ctx.fillStyle=this.fill;ctx.fill(path);}const trimStroke=this.stroke??(reveal<.999999?this.fill:null),trimWidth=this.stroke?this.width:.035,trimWorld=this.stroke?this.worldStroke:true;if(trimStroke&&reveal>0){ctx.strokeStyle=trimStroke;strokePath(r,ctx,path,m,{width:trimWidth,worldStroke:trimWorld});}});}
 }
 export class SurroundingRectangle extends Rectangle {
   constructor(target,{buff=.1,color=YELLOW,...options}={}){
@@ -562,12 +614,12 @@ export class SurroundingRectangle extends Rectangle {
 export class Ellipse extends ZObject {
   constructor(radiusX=1,radiusY=.6,{fill='rgba(96,166,255,.72)',stroke=WHITE,width=null,strokeWidth=null,reveal=undefined,trim=undefined,...rest}={}){super(rest);this.radiusX=radiusX;this.radiusY=radiusY;this.fill=fill;this.stroke=stroke;const useWorld=strokeWidth!=null||width==null;this.width=strokeWidth??width??DEFAULT_STROKE_WIDTH;this.worldStroke=useWorld;this.reveal=trim??reveal??1;}
   get trim(){return this.reveal;} set trim(value){this.reveal=value;}
-  draw(r,parent){const m=this.world(parent),reveal=clamp01(scalarAt(this.reveal,r.time)),ctx=r.ctx;ctx.save();ctx.globalAlpha*=clamp01(this.opacity);setWorldCanvasTransform(r,ctx,m);ctx.beginPath();ctx.ellipse(0,0,Math.max(.0001,this.radiusX),Math.max(.0001,this.radiusY),0,0,TAU*reveal);if(this.fill&&reveal>=.999999){ctx.fillStyle=this.fill;ctx.fill();}const trimStroke=this.stroke??(reveal<.999999?this.fill:null),trimWidth=this.stroke?this.width:.035;if(trimStroke&&reveal>0){ctx.strokeStyle=trimStroke;ctx.lineWidth=this.worldStroke?trimWidth:trimWidth*r.dpr/r.unitSize;ctx.stroke();}ctx.restore();}
+  draw(r,parent){const m=this.world(parent),reveal=clamp01(scalarAt(this.reveal,r.time)),ctx=r.ctx,path=new Path2D();path.ellipse(0,0,Math.max(.0001,this.radiusX),Math.max(.0001,this.radiusY),0,0,TAU*reveal);ctx.save();ctx.globalAlpha*=clamp01(this.opacity);if(this.fill&&reveal>=.999999){setWorldCanvasTransform(r,ctx,m);ctx.fillStyle=this.fill;ctx.fill(path);}const trimStroke=this.stroke??(reveal<.999999?this.fill:null),trimWidth=this.stroke?this.width:.035,trimWorld=this.stroke?this.worldStroke:true;if(trimStroke&&reveal>0){ctx.strokeStyle=trimStroke;strokePath(r,ctx,path,m,{width:trimWidth,worldStroke:trimWorld});}ctx.restore();}
 }
 export class Arc extends ZObject {
   constructor(radius=1,startAngle=0,sweepAngle=Math.PI/2,{stroke=WHITE,width=null,strokeWidth=null,reveal=undefined,trim=undefined,...rest}={}){super(rest);this.radius=radius;this.startAngle=startAngle;this.sweepAngle=sweepAngle;this.stroke=stroke;const useWorld=strokeWidth!=null||width==null;this.width=strokeWidth??width??DEFAULT_STROKE_WIDTH;this.worldStroke=useWorld;this.reveal=trim??reveal??1;}
   get trim(){return this.reveal;} set trim(value){this.reveal=value;}
-  draw(r,parent){const m=this.world(parent),reveal=clamp01(scalarAt(this.reveal,r.time));if(reveal<=0)return;const ctx=r.ctx;ctx.save();ctx.globalAlpha*=clamp01(this.opacity);setWorldCanvasTransform(r,ctx,m);ctx.beginPath();ctx.arc(0,0,Math.max(.0001,this.radius),this.startAngle,this.startAngle+this.sweepAngle*reveal,this.sweepAngle<0);ctx.strokeStyle=this.stroke;ctx.lineWidth=this.worldStroke?this.width:this.width*r.dpr/r.unitSize;ctx.stroke();ctx.restore();}
+  draw(r,parent){const m=this.world(parent),reveal=clamp01(scalarAt(this.reveal,r.time));if(reveal<=0)return;const ctx=r.ctx,path=new Path2D();path.arc(0,0,Math.max(.0001,this.radius),this.startAngle,this.startAngle+this.sweepAngle*reveal,this.sweepAngle<0);ctx.save();ctx.globalAlpha*=clamp01(this.opacity);ctx.strokeStyle=this.stroke;strokePath(r,ctx,path,m,{width:this.width,worldStroke:this.worldStroke});ctx.restore();}
 }
 export class Dot extends Circle { constructor(point=[0,0],{radius=.08,color=WHITE,...opts}={}){super(radius,{fill:color,stroke:null,transform:Transform2D.translation(...point),...opts});} }
 export class Arrow extends Line {
@@ -576,14 +628,15 @@ export class Arrow extends Line {
     if(this.buff<0)throw new RangeError('Arrow buff must be >= 0');
   }
   draw(r,parent){
-    const m=this.world(parent),rawA=applyPoint(m,this.start),rawB=applyPoint(m,this.end),dx=rawB[0]-rawA[0],dy=rawB[1]-rawA[1],length=Math.hypot(dx,dy);
+    const m=this.world(parent),dx=this.end[0]-this.start[0],dy=this.end[1]-this.start[1],length=Math.hypot(dx,dy);
     if(length<=1e-12)return;
     const ux=dx/length,uy=dy/length,nx=-uy,ny=ux,buff=Math.min(this.buff,length*.49);
-    const a=[rawA[0]+ux*buff,rawA[1]+uy*buff],b=[rawB[0]-ux*buff,rawB[1]-uy*buff],renderedLength=Math.max(1e-9,length-2*buff);
-    const tl=Math.min(this.tipLength,renderedLength*.25),tw=Math.min(this.tipWidth,tl),base=[b[0]-ux*tl,b[1]-uy*tl],left=[base[0]+nx*tw*.5,base[1]+ny*tw*.5],right=[base[0]-nx*tw*.5,base[1]-ny*tw*.5];
+    const a=[this.start[0]+ux*buff,this.start[1]+uy*buff],b=[this.end[0]-ux*buff,this.end[1]-uy*buff],renderedLength=Math.max(1e-9,length-2*buff);
+    const tl=Math.min(this.tipLength,renderedLength*.25),tw=Math.min(this.tipWidth,tl),base=[b[0]-ux*tl,b[1]-uy*tl],left=[base[0]+nx*tw*.5,base[1]+ny*tw*.5],right=[base[0]-nx*tw*.5,base[1]-ny*tw*.5],shaft=new Path2D(),tip=new Path2D();
+    shaft.moveTo(...a);shaft.lineTo(...base);tip.moveTo(...b);tip.lineTo(...left);tip.lineTo(...right);tip.closePath();
     withObjectContext(r,this,ctx=>{
-      ctx.beginPath();ctx.moveTo(...r.toDevice(...a));ctx.lineTo(...r.toDevice(...base));ctx.strokeStyle=this.stroke;ctx.lineWidth=this.worldStroke?this.width*r.unitSize:this.width*r.dpr;ctx.lineCap='round';ctx.stroke();
-      ctx.beginPath();ctx.moveTo(...r.toDevice(...b));ctx.lineTo(...r.toDevice(...left));ctx.lineTo(...r.toDevice(...right));ctx.closePath();ctx.fillStyle=this.stroke;ctx.fill();
+      ctx.strokeStyle=this.stroke;ctx.lineCap='round';strokePath(r,ctx,shaft,m,{width:this.width,worldStroke:this.worldStroke,points:[a,base]});
+      setWorldCanvasTransform(r,ctx,m);ctx.fillStyle=this.stroke;ctx.fill(tip);
     });
   }
 }
@@ -607,8 +660,8 @@ export class VectorObject2D extends ZObject {
   }
   draw(r,parent=Transform2D.identity()){
     const paths=this._paths??this._build(),m=this.world(parent),ctx=r.ctx,reveal=clamp01(scalarAt(this.reveal,r.time)),groups=this.document.group_count??1;
-    ctx.save();setWorldCanvasTransform(r,ctx,m);
-    for(const entry of paths){const alpha=vectorGroupAlpha(reveal,groups,entry.group??0)*clamp01(this.opacity);if(alpha<=0)continue;ctx.save();ctx.globalAlpha*=alpha;if(entry.fill){ctx.fillStyle=this.tint??entry.fill;ctx.fill(entry.path);}if(entry.stroke){ctx.strokeStyle=this.tint??entry.stroke.color;ctx.lineWidth=entry.stroke.width;ctx.stroke(entry.path);}ctx.restore();}
+    ctx.save();
+    for(const entry of paths){const alpha=vectorGroupAlpha(reveal,groups,entry.group??0)*clamp01(this.opacity);if(alpha<=0)continue;ctx.save();ctx.globalAlpha*=alpha;if(entry.fill){setWorldCanvasTransform(r,ctx,m);ctx.fillStyle=this.tint??entry.fill;ctx.fill(entry.path);}if(entry.stroke){ctx.strokeStyle=this.tint??entry.stroke.color;strokePath(r,ctx,entry.path,m,{width:entry.stroke.width,worldStroke:true});}ctx.restore();}
     ctx.restore();
   }
 }
@@ -804,11 +857,11 @@ export class Exclusion extends BooleanShape { constructor(first,second,options={
 function clipInfiniteLine(width,height,unitSize,p,d){const hx=width/(2*unitSize),hy=height/(2*unitSize);let t0=-Infinity,t1=Infinity;for(const [pv,dv,lo,hi] of [[p[0],d[0],-hx,hx],[p[1],d[1],-hy,hy]]){if(Math.abs(dv)<1e-12){if(pv<lo||pv>hi)return null;continue;}let a=(lo-pv)/dv,b=(hi-pv)/dv;if(a>b)[a,b]=[b,a];t0=Math.max(t0,a);t1=Math.min(t1,b);if(t0>t1)return null;}return [[p[0]+d[0]*t0,p[1]+d[1]*t0],[p[0]+d[0]*t1,p[1]+d[1]*t1]];}
 export class InfiniteLine extends ZObject {
   constructor(point=[0,0],direction=[1,0],{stroke=WHITE,width=null,strokeWidth=null,...rest}={}){super(rest);this.point=point;this.direction=direction;this.stroke=stroke;const useWorld=strokeWidth!=null||width==null;this.width=strokeWidth??width??DEFAULT_STROKE_WIDTH;this.worldStroke=useWorld;}
-  draw(r,parent){const m=this.world(parent),p=m.apply(...this.point),d=m.vector(...this.direction),seg=clipInfiniteLine(r.canvas.width,r.canvas.height,r.unitSize,p,d);if(!seg)return;withObjectContext(r,this,ctx=>{ctx.beginPath();ctx.moveTo(...r.toDevice(...seg[0]));ctx.lineTo(...r.toDevice(...seg[1]));ctx.strokeStyle=this.stroke;ctx.lineWidth=this.worldStroke?this.width*r.unitSize:this.width*r.dpr;ctx.stroke();});}
+  draw(r,parent){const m=this.world(parent),p=m.apply(...this.point),d=m.vector(...this.direction),seg=clipInfiniteLine(r.canvas.width,r.canvas.height,r.unitSize,p,d);if(!seg)return;withObjectContext(r,this,ctx=>{const path=new Path2D();path.moveTo(...seg[0]);path.lineTo(...seg[1]);ctx.strokeStyle=this.stroke;strokeViewPath(r,ctx,path,{width:this.width,worldStroke:this.worldStroke});});}
 }
 export class InfiniteGrid extends ZObject {
   constructor({step=.5,stroke='rgba(115,135,175,.42)',width=null,strokeWidth=null,...rest}={}){super(rest);this.step=step;this.stroke=stroke;const useWorld=strokeWidth!=null||width==null;this.width=strokeWidth??width??(2/90);this.worldStroke=useWorld;}
-  draw(r,parent){const t=this.world(parent),segments=r.wasm.resolveGrid(r.canvas.width,r.canvas.height,r.unitSize,this.step,t.linear);withObjectContext(r,this,ctx=>{ctx.beginPath();for(let i=0;i<segments.length;i+=4){const a=r.toDevice(segments[i]+t.tx,segments[i+1]+t.ty),b=r.toDevice(segments[i+2]+t.tx,segments[i+3]+t.ty);ctx.moveTo(...a);ctx.lineTo(...b);}ctx.strokeStyle=this.stroke;ctx.lineWidth=this.worldStroke?this.width*r.unitSize:this.width*r.dpr;ctx.stroke();});}
+  draw(r,parent){const t=this.world(parent),segments=r.wasm.resolveGrid(r.canvas.width,r.canvas.height,r.unitSize,this.step,t.linear);withObjectContext(r,this,ctx=>{const path=new Path2D();for(let i=0;i<segments.length;i+=4){path.moveTo(segments[i]+t.tx,segments[i+1]+t.ty);path.lineTo(segments[i+2]+t.tx,segments[i+3]+t.ty);}ctx.strokeStyle=this.stroke;strokeViewPath(r,ctx,path,{width:this.width,worldStroke:this.worldStroke});});}
 }
 export class NumberPlane extends ZObject {
   constructor({step=1,fadedLineRatio=4,backgroundColor='#236B8E',axisColor=WHITE,backgroundStrokeWidth=2/90,fadedStrokeWidth=1/90,axisStrokeWidth=2/90,...rest}={}){
@@ -844,7 +897,7 @@ export class CachedBatch2D extends ZObject {
 // compiled once and reused under a changing affine CTM, so animation cost is
 // proportional to style groups/draw calls rather than primitive count in JS.
 export class CircleSet extends CachedBatch2D {
-  constructor(items=[],{fill=BLUE,stroke=null,width=1,worldStroke=false,...rest}={}){super(items,rest);this.fill=fill;this.stroke=stroke;this.width=width;this.worldStroke=worldStroke;}
+  constructor(items=[],{fill=BLUE,stroke=null,width=DEFAULT_STROKE_WIDTH,worldStroke=true,...rest}={}){super(items,rest);this.fill=fill;this.stroke=stroke;this.width=width;this.worldStroke=worldStroke;}
   _build(){
     const fills=new Map(),strokes=new Map();
     for(const item of this.items){const [x,y,rad]=item,fill=item[3]??this.fill,stroke=item[4]??this.stroke,width=item[5]??this.width;if(fill){let path=fills.get(fill);if(!path)fills.set(fill,path=new Path2D());path.moveTo(x+rad,y);path.arc(x,y,rad,0,TAU);}if(stroke){const key=`${stroke}\u0000${width}`;let group=strokes.get(key);if(!group)strokes.set(key,group={color:stroke,width,path:new Path2D()});group.path.moveTo(x+rad,y);group.path.arc(x,y,rad,0,TAU);}}
@@ -852,13 +905,13 @@ export class CircleSet extends CachedBatch2D {
   }
   draw(r,parent){
     const cache=this._cache??this._build(),m=this.world(parent),ctx=r.ctx;
-    ctx.save();ctx.globalAlpha*=Math.max(0,Math.min(1,this.opacity));setWorldCanvasTransform(r,ctx,m);
-    for(const [color,path] of cache.fills){ctx.fillStyle=color;ctx.fill(path);}for(const group of cache.strokes){ctx.strokeStyle=group.color;ctx.lineWidth=this.worldStroke?group.width:group.width*r.dpr/r.unitSize;ctx.stroke(group.path);}
+    ctx.save();ctx.globalAlpha*=Math.max(0,Math.min(1,this.opacity));
+    for(const [color,path] of cache.fills){setWorldCanvasTransform(r,ctx,m);ctx.fillStyle=color;ctx.fill(path);}for(const group of cache.strokes){ctx.strokeStyle=group.color;strokePath(r,ctx,group.path,m,{width:group.width,worldStroke:this.worldStroke});}
     ctx.restore();
   }
 }
 export class LineSet extends CachedBatch2D {
-  constructor(items=[],{stroke=WHITE,width=1,worldStroke=false,...rest}={}){super(items,rest);this.stroke=stroke;this.width=width;this.worldStroke=worldStroke;}
+  constructor(items=[],{stroke=WHITE,width=DEFAULT_STROKE_WIDTH,worldStroke=true,...rest}={}){super(items,rest);this.stroke=stroke;this.width=width;this.worldStroke=worldStroke;}
   _build(){
     const groups=new Map();
     for(const item of this.items){const [x0,y0,x1,y1]=item,color=item[4]??this.stroke,w=item[5]??this.width,key=`${color}\u0000${w}`;let group=groups.get(key);if(!group)groups.set(key,group={color,width:w,path:new Path2D()});group.path.moveTo(x0,y0);group.path.lineTo(x1,y1);}
@@ -866,13 +919,13 @@ export class LineSet extends CachedBatch2D {
   }
   draw(r,parent){
     const groups=this._cache??this._build(),m=this.world(parent),ctx=r.ctx;
-    ctx.save();ctx.globalAlpha*=Math.max(0,Math.min(1,this.opacity));setWorldCanvasTransform(r,ctx,m);
-    for(const group of groups){ctx.strokeStyle=group.color;ctx.lineWidth=this.worldStroke?group.width:group.width*r.dpr/r.unitSize;ctx.stroke(group.path);}
+    ctx.save();ctx.globalAlpha*=Math.max(0,Math.min(1,this.opacity));
+    for(const group of groups){ctx.strokeStyle=group.color;strokePath(r,ctx,group.path,m,{width:group.width,worldStroke:this.worldStroke});}
     ctx.restore();
   }
 }
 export class RectSet extends CachedBatch2D {
-  constructor(items=[],{fill=BLUE,stroke=null,width=1,worldStroke=false,...rest}={}){super(items,rest);this.fill=fill;this.stroke=stroke;this.width=width;this.worldStroke=worldStroke;}
+  constructor(items=[],{fill=BLUE,stroke=null,width=DEFAULT_STROKE_WIDTH,worldStroke=true,...rest}={}){super(items,rest);this.fill=fill;this.stroke=stroke;this.width=width;this.worldStroke=worldStroke;}
   _build(){
     const fills=new Map(),strokes=new Map();
     for(const item of this.items){const [x,y,w,h]=item,fill=item[4]??this.fill,stroke=item[5]??this.stroke,width=item[6]??this.width;if(fill){let path=fills.get(fill);if(!path)fills.set(fill,path=new Path2D());path.rect(x-w*.5,y-h*.5,w,h);}if(stroke){const key=`${stroke}\u0000${width}`;let group=strokes.get(key);if(!group)strokes.set(key,group={color:stroke,width,path:new Path2D()});group.path.rect(x-w*.5,y-h*.5,w,h);}}
@@ -880,8 +933,8 @@ export class RectSet extends CachedBatch2D {
   }
   draw(r,parent){
     const cache=this._cache??this._build(),m=this.world(parent),ctx=r.ctx;
-    ctx.save();ctx.globalAlpha*=Math.max(0,Math.min(1,this.opacity));setWorldCanvasTransform(r,ctx,m);
-    for(const [color,path] of cache.fills){ctx.fillStyle=color;ctx.fill(path);}for(const group of cache.strokes){ctx.strokeStyle=group.color;ctx.lineWidth=this.worldStroke?group.width:group.width*r.dpr/r.unitSize;ctx.stroke(group.path);}
+    ctx.save();ctx.globalAlpha*=Math.max(0,Math.min(1,this.opacity));
+    for(const [color,path] of cache.fills){setWorldCanvasTransform(r,ctx,m);ctx.fillStyle=color;ctx.fill(path);}for(const group of cache.strokes){ctx.strokeStyle=group.color;strokePath(r,ctx,group.path,m,{width:group.width,worldStroke:this.worldStroke});}
     ctx.restore();
   }
 }
@@ -970,7 +1023,7 @@ function sampleDynamicBatch(object,time){
   if(items!==object._items){object._items=items;object._cache=null;}
 }
 export class DynamicLineSet extends LineSet {
-  constructor(provider,opts={}){super([],{width:DEFAULT_STROKE_WIDTH,worldStroke:true,...opts});this.provider=provider;}
+  constructor(provider,opts={}){super([],opts);this.provider=provider;}
   draw(r,parent){sampleDynamicBatch(this,r.time);super.draw(r,parent);}
 }
 export class DynamicCircleSet extends CircleSet {
@@ -991,11 +1044,16 @@ export class FourierEpicycles extends ZObject {
     super(rest);this.terms=normalizeFourierTerms(terms);if(!this.terms.length)throw new RangeError('FourierEpicycles requires terms');if(!(drawDuration>0))throw new RangeError('drawDuration must be positive');this.startTime=Number(startTime);this.drawDuration=Number(drawDuration);this.circleSamples=Math.max(3,Math.round(circleSamples));this.traceSamples=Math.max(2,Math.round(traceSamples));this.visualIndices=visualIndices?[...visualIndices]:this.terms.map((term,i)=>term.frequency!==0&&Math.hypot(term.re,term.im)>2e-4?i:-1).filter(i=>i>=0);this.circleColor=circleColor;this.circleWidth=Number(circleWidth);this.arrowColor=arrowColor;this.traceColor=traceColor;this.traceWidth=Number(traceWidth);this.tipColor=tipColor;this.tipRadius=Number(tipRadius);this.tipSides=Math.max(3,Math.round(tipSides));this._fullTrace=Array.from({length:this.traceSamples},(_,i)=>fourierChain(this.terms,i/(this.traceSamples-1)).at(-1));
   }
   phaseAt(time){return clamp01((Number(time)-this.startTime)/this.drawDuration);}
-  draw(r,parent=Transform2D.identity()){const phase=this.phaseAt(r.time),chain=fourierChain(this.terms,phase),ctx=r.ctx,m=this.world(parent);ctx.save();ctx.globalAlpha*=clamp01(this.opacity);setWorldCanvasTransform(r,ctx,m);ctx.lineJoin='round';ctx.lineCap='round';
-    ctx.beginPath();for(const index of this.visualIndices){const center=chain[index],radius=Math.hypot(this.terms[index].re,this.terms[index].im);for(let i=0;i<=this.circleSamples;i++){const a=TAU*i/this.circleSamples,x=center[0]+radius*Math.cos(a),y=center[1]+radius*Math.sin(a);i?ctx.lineTo(x,y):ctx.moveTo(x,y);}}ctx.strokeStyle=this.circleColor;ctx.lineWidth=this.circleWidth;ctx.stroke();
-    ctx.beginPath();for(const index of this.visualIndices){const pts=fourierArrow(chain[index],chain[index+1]);ctx.moveTo(...pts[0]);for(let i=1;i<pts.length;i++)ctx.lineTo(...pts[i]);ctx.closePath();}ctx.fillStyle=this.arrowColor;ctx.fill();
-    const end=Math.max(1,Math.min(this.traceSamples-1,roundHalfEven(phase*(this.traceSamples-1))));ctx.beginPath();ctx.moveTo(...this._fullTrace[0]);for(let i=1;i<=end;i++)ctx.lineTo(...this._fullTrace[i]);ctx.strokeStyle=this.traceColor;ctx.lineWidth=this.traceWidth;ctx.stroke();
-    const tip=chain.at(-1);ctx.beginPath();for(let i=0;i<this.tipSides;i++){const a=TAU*i/this.tipSides,x=tip[0]+this.tipRadius*Math.cos(a),y=tip[1]+this.tipRadius*Math.sin(a);i?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.closePath();ctx.fillStyle=this.tipColor;ctx.fill();ctx.restore();}
+  draw(r,parent=Transform2D.identity()){
+    const phase=this.phaseAt(r.time),chain=fourierChain(this.terms,phase),ctx=r.ctx,m=this.world(parent);
+    ctx.save();ctx.globalAlpha*=clamp01(this.opacity);ctx.lineJoin='round';ctx.lineCap='round';
+    const circles=new Path2D();
+    for(const index of this.visualIndices){const center=chain[index],radius=Math.hypot(this.terms[index].re,this.terms[index].im);for(let i=0;i<=this.circleSamples;i++){const a=TAU*i/this.circleSamples,x=center[0]+radius*Math.cos(a),y=center[1]+radius*Math.sin(a);i?circles.lineTo(x,y):circles.moveTo(x,y);}}
+    ctx.strokeStyle=this.circleColor;strokePath(r,ctx,circles,m,{width:this.circleWidth,worldStroke:true});
+    const arrows=new Path2D();for(const index of this.visualIndices){const pts=fourierArrow(chain[index],chain[index+1]);arrows.moveTo(...pts[0]);for(let i=1;i<pts.length;i++)arrows.lineTo(...pts[i]);arrows.closePath();}setWorldCanvasTransform(r,ctx,m);ctx.fillStyle=this.arrowColor;ctx.fill(arrows);
+    const end=Math.max(1,Math.min(this.traceSamples-1,roundHalfEven(phase*(this.traceSamples-1)))),trace=new Path2D();trace.moveTo(...this._fullTrace[0]);for(let i=1;i<=end;i++)trace.lineTo(...this._fullTrace[i]);ctx.strokeStyle=this.traceColor;strokePath(r,ctx,trace,m,{width:this.traceWidth,worldStroke:true,points:this._fullTrace.slice(0,end+1)});
+    const tip=chain.at(-1),tipPath=new Path2D();for(let i=0;i<this.tipSides;i++){const a=TAU*i/this.tipSides,x=tip[0]+this.tipRadius*Math.cos(a),y=tip[1]+this.tipRadius*Math.sin(a);i?tipPath.lineTo(x,y):tipPath.moveTo(x,y);}tipPath.closePath();setWorldCanvasTransform(r,ctx,m);ctx.fillStyle=this.tipColor;ctx.fill(tipPath);ctx.restore();
+  }
 }
 
 export class FractalField extends ZObject {
@@ -1056,7 +1114,7 @@ function normalizeGeometry(object,count=8){
 }
 export class PrimitiveInterpolation extends ZObject {
   constructor(source,target,start,end,easing){super({zIndex:Math.max(source.zIndex,target.zIndex)});this.source={geometry:normalizeGeometry(source,8),transform:cloneTransform(source.transform),style:snapshotStyle(source),opacity:source.opacity};this.target={geometry:normalizeGeometry(target,8),transform:cloneTransform(target.transform),style:snapshotStyle(target),opacity:target.opacity};if(this.source.geometry.closed!==this.target.geometry.closed)throw new Error('interpolation topology mismatch');this.start=start;this.end=end;this.easing=easing;}
-  draw(r,parent=Transform2D.identity()){const raw=this.end<=this.start?1:(r.time-this.start)/(this.end-this.start),t=this.easing(clamp01(raw)),a=this.source.geometry.segments,b=this.target.geometry.segments,path=new Path2D();for(let i=0;i<a.length;i++){const seg={p0:lerpPoint(a[i].p0,b[i].p0,t),p1:lerpPoint(a[i].p1,b[i].p1,t),p2:lerpPoint(a[i].p2,b[i].p2,t),p3:lerpPoint(a[i].p3,b[i].p3,t)};if(i===0)path.moveTo(...seg.p0);path.bezierCurveTo(...seg.p1,...seg.p2,...seg.p3);}if(this.source.geometry.closed)path.closePath();const transform=Transform2D.lerp(this.source.transform,this.target.transform,t),style=lerpStyleState(this.source.style,this.target.style,t),opacity=lerpNumber(this.source.opacity,this.target.opacity,t),ctx=r.ctx;ctx.save();ctx.globalAlpha*=clamp01(opacity);setWorldCanvasTransform(r,ctx,parent.mul(transform));if(style?.fill){ctx.fillStyle=style.fill;ctx.fill(path);}if(style?.stroke){ctx.strokeStyle=style.stroke;ctx.lineWidth=style.worldStroke?style.width:style.width*r.dpr/r.unitSize;ctx.stroke(path);}ctx.restore();}
+  draw(r,parent=Transform2D.identity()){const raw=this.end<=this.start?1:(r.time-this.start)/(this.end-this.start),t=this.easing(clamp01(raw)),a=this.source.geometry.segments,b=this.target.geometry.segments,path=new Path2D();for(let i=0;i<a.length;i++){const seg={p0:lerpPoint(a[i].p0,b[i].p0,t),p1:lerpPoint(a[i].p1,b[i].p1,t),p2:lerpPoint(a[i].p2,b[i].p2,t),p3:lerpPoint(a[i].p3,b[i].p3,t)};if(i===0)path.moveTo(...seg.p0);path.bezierCurveTo(...seg.p1,...seg.p2,...seg.p3);}if(this.source.geometry.closed)path.closePath();const transform=Transform2D.lerp(this.source.transform,this.target.transform,t),rendered=parent.mul(transform),style=lerpStyleState(this.source.style,this.target.style,t),opacity=lerpNumber(this.source.opacity,this.target.opacity,t),ctx=r.ctx;ctx.save();ctx.globalAlpha*=clamp01(opacity);if(style?.fill){setWorldCanvasTransform(r,ctx,rendered);ctx.fillStyle=style.fill;ctx.fill(path);}if(style?.stroke){ctx.strokeStyle=style.stroke;strokePath(r,ctx,path,rendered,{width:style.width,worldStroke:style.worldStroke});}ctx.restore();}
 }
 export function snapshotStyle(o){
   if(!('fill' in o)&&!('stroke' in o)&&!('width' in o))return null;

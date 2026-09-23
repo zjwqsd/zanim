@@ -5,11 +5,15 @@ globalThis.Path2D=class{
   constructor(){this.points=[];paths.push(this);}
   moveTo(...p){this.points.push(p);}
   bezierCurveTo(...p){this.points.push(p);}
+  lineTo(...p){this.points.push(p);}
+  arc(){}
+  ellipse(){}
+  addPath(){}
   closePath(){}
 };
 const scene=Scene.headless();
-const a=scene.add(new Square(1,{fill:'#60a6ff'}));
-const b=scene.add(new Circle(.7,{fill:'#ff975c'}));
+const a=scene.add(new Square(1,{fill:'#60a6ff',stroke:null}));
+const b=scene.add(new Circle(.7,{fill:'#ff975c',stroke:null}));
 const transient=scene.interpolate(a,b,{duration:1,easing:Easing.LINEAR});
 const ctx={globalAlpha:1,save(){},restore(){},setTransform(){},fill(){},stroke(){}};
 const renderer={ctx,canvas:{width:800,height:600},unitSize:100,dpr:1,time:.5};

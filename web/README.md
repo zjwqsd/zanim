@@ -66,6 +66,12 @@ Formula source, `fontSize` and `color` are intentionally build-time static. Use 
 
 `configureTypstCompiler(...)` remains available for explicit development integrations. Python Preview uses it to point Web Preview at Python's `/api/typst`; production apps normally use the Vite-precompiled SVG path.
 
+## Stroke semantics
+
+A stroke is visual style around a centerline, not ribbon geometry. Zanim therefore applies object, group, and camera transforms to the path first and strokes the resulting path afterwards. Ordinary `strokeWidth` does **not** change when an object is scaled, sheared, nested under a scaled group, or viewed through a zoomed camera. This matches Python Zanim and Manim's default non-scaling stroke behavior.
+
+`DEFAULT_STROKE_WIDTH` is `4 / 90` logical canvas units, which renders as four CSS pixels at the canonical `unitSize=90`. Batch primitives use the same default and semantics as ordinary paths. A device-pixel stroke remains available as an explicit low-level escape hatch (`width` on path primitives or `worldStroke:false` on batches); it is not the default geometry/style model.
+
 ## Dynamic vector morphs
 
 `prepareVectorMorph(source, target)` builds stable glyph/path correspondence between two `VectorDocument`s. `DynamicVectorObject2D` can then sample that plan from absolute time, so Typst text and other vector artwork can morph while remaining random-access rather than accumulating updater state. Matched groups interpolate cubic geometry directly; inserted/removed groups grow or shrink locally with opacity.
