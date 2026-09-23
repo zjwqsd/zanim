@@ -611,7 +611,7 @@ test "web 3D rasterizer produces visible triangle" {
     for (0..16) |i| web3d_models[i] = if (i % 5 == 0) 1 else 0;
     web3d_colors[0] = 0x60a6ffff;
     web3d_opacities[0] = 1;
-    const count = renderWeb3D(96, 54, 1, 0, 0, 3, 0, 0, 0, 0, 1, 0, 45, 0.05, 100, 0, 0);
+    const count = renderWeb3D(96, 54, 1, 0, 0, 3, 0, 0, 0, 0, 1, 0, 45, 0.05, 100, 0, 0, 0, 0.35, 0.82, 0.48, 0.24, 0.76);
     try std.testing.expectEqual(@as(u32, 96 * 54), count);
     var visible = false;
     for (web3d_pixels[3 .. count * 4]) |alpha| {
