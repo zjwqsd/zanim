@@ -465,37 +465,38 @@ pub fn combine(
     return buildContours(allocator, boundary.items, epsilon);
 }
 
-fn polygonShape(points: []const Vec2) Shape {
-    const ends = &[_]u32{@intCast(points.len)};
-    return .{ .points = points, .contour_ends = ends };
+fn polygonShape(points: []const Vec2, contour_ends: []const u32) Shape {
+    return .{ .points = points, .contour_ends = contour_ends };
 }
 
 test "vector boolean overlapping rectangles" {
     const allocator = std.testing.allocator;
     const a = [_]Vec2{
         .{ .x = -2, .y = -1 }, .{ .x = 1, .y = -1 },
-        .{ .x = 1, .y = 1 }, .{ .x = -2, .y = 1 },
+        .{ .x = 1, .y = 1 },   .{ .x = -2, .y = 1 },
     };
     const b = [_]Vec2{
         .{ .x = -1, .y = -2 }, .{ .x = 2, .y = -2 },
-        .{ .x = 2, .y = 2 }, .{ .x = -1, .y = 2 },
+        .{ .x = 2, .y = 2 },   .{ .x = -1, .y = 2 },
     };
+    const a_ends = [_]u32{a.len};
+    const b_ends = [_]u32{b.len};
 
-    var inter = try combine(allocator, polygonShape(&a), polygonShape(&b), .intersection, 1e-9);
+    var inter = try combine(allocator, polygonShape(&a, &a_ends), polygonShape(&b, &b_ends), .intersection, 1e-9);
     defer inter.deinit(allocator);
     try std.testing.expectEqual(@as(usize, 1), inter.contour_ends.len);
     try std.testing.expect(inter.points.len >= 4);
 
-    var uni = try combine(allocator, polygonShape(&a), polygonShape(&b), .union_, 1e-9);
+    var uni = try combine(allocator, polygonShape(&a, &a_ends), polygonShape(&b, &b_ends), .union_, 1e-9);
     defer uni.deinit(allocator);
     try std.testing.expectEqual(@as(usize, 1), uni.contour_ends.len);
     try std.testing.expect(uni.points.len >= 8);
 
-    var diff = try combine(allocator, polygonShape(&a), polygonShape(&b), .difference, 1e-9);
+    var diff = try combine(allocator, polygonShape(&a, &a_ends), polygonShape(&b, &b_ends), .difference, 1e-9);
     defer diff.deinit(allocator);
     try std.testing.expectEqual(@as(usize, 1), diff.contour_ends.len);
 
-    var xor = try combine(allocator, polygonShape(&a), polygonShape(&b), .exclusion, 1e-9);
+    var xor = try combine(allocator, polygonShape(&a, &a_ends), polygonShape(&b, &b_ends), .exclusion, 1e-9);
     defer xor.deinit(allocator);
     try std.testing.expectEqual(@as(usize, 2), xor.contour_ends.len);
 }
@@ -504,13 +505,15 @@ test "vector boolean disjoint union yields two contours" {
     const allocator = std.testing.allocator;
     const a = [_]Vec2{
         .{ .x = -3, .y = -1 }, .{ .x = -1, .y = -1 },
-        .{ .x = -1, .y = 1 }, .{ .x = -3, .y = 1 },
+        .{ .x = -1, .y = 1 },  .{ .x = -3, .y = 1 },
     };
     const b = [_]Vec2{
         .{ .x = 1, .y = -1 }, .{ .x = 3, .y = -1 },
-        .{ .x = 3, .y = 1 }, .{ .x = 1, .y = 1 },
+        .{ .x = 3, .y = 1 },  .{ .x = 1, .y = 1 },
     };
-    var result = try combine(allocator, polygonShape(&a), polygonShape(&b), .union_, 1e-9);
+    const a_ends = [_]u32{a.len};
+    const b_ends = [_]u32{b.len};
+    var result = try combine(allocator, polygonShape(&a, &a_ends), polygonShape(&b, &b_ends), .union_, 1e-9);
     defer result.deinit(allocator);
     try std.testing.expectEqual(@as(usize, 2), result.contour_ends.len);
 }
@@ -531,13 +534,15 @@ test "difference containment emits outer contour and hole with opposite orientat
     const allocator = std.testing.allocator;
     const outer = [_]Vec2{
         .{ .x = -3, .y = -3 }, .{ .x = 3, .y = -3 },
-        .{ .x = 3, .y = 3 }, .{ .x = -3, .y = 3 },
+        .{ .x = 3, .y = 3 },   .{ .x = -3, .y = 3 },
     };
     const inner = [_]Vec2{
         .{ .x = -1, .y = -1 }, .{ .x = 1, .y = -1 },
-        .{ .x = 1, .y = 1 }, .{ .x = -1, .y = 1 },
+        .{ .x = 1, .y = 1 },   .{ .x = -1, .y = 1 },
     };
-    var result = try combine(allocator, polygonShape(&outer), polygonShape(&inner), .difference, 1e-9);
+    const outer_ends = [_]u32{outer.len};
+    const inner_ends = [_]u32{inner.len};
+    var result = try combine(allocator, polygonShape(&outer, &outer_ends), polygonShape(&inner, &inner_ends), .difference, 1e-9);
     defer result.deinit(allocator);
     try std.testing.expectEqual(@as(usize, 2), result.contour_ends.len);
     const first_end: usize = @intCast(result.contour_ends[0]);
@@ -551,14 +556,15 @@ test "identical polygons deduplicate coincident boundaries" {
     const allocator = std.testing.allocator;
     const square = [_]Vec2{
         .{ .x = -1, .y = -1 }, .{ .x = 1, .y = -1 },
-        .{ .x = 1, .y = 1 }, .{ .x = -1, .y = 1 },
+        .{ .x = 1, .y = 1 },   .{ .x = -1, .y = 1 },
     };
-    var uni = try combine(allocator, polygonShape(&square), polygonShape(&square), .union_, 1e-9);
+    const square_ends = [_]u32{square.len};
+    var uni = try combine(allocator, polygonShape(&square, &square_ends), polygonShape(&square, &square_ends), .union_, 1e-9);
     defer uni.deinit(allocator);
     try std.testing.expectEqual(@as(usize, 1), uni.contour_ends.len);
     try std.testing.expectEqual(@as(usize, 4), uni.points.len);
 
-    var diff = try combine(allocator, polygonShape(&square), polygonShape(&square), .difference, 1e-9);
+    var diff = try combine(allocator, polygonShape(&square, &square_ends), polygonShape(&square, &square_ends), .difference, 1e-9);
     defer diff.deinit(allocator);
     try std.testing.expectEqual(@as(usize, 0), diff.contour_ends.len);
     try std.testing.expectEqual(@as(usize, 0), diff.points.len);
@@ -568,13 +574,15 @@ test "disjoint intersection is empty" {
     const allocator = std.testing.allocator;
     const a = [_]Vec2{
         .{ .x = -3, .y = -1 }, .{ .x = -1, .y = -1 },
-        .{ .x = -1, .y = 1 }, .{ .x = -3, .y = 1 },
+        .{ .x = -1, .y = 1 },  .{ .x = -3, .y = 1 },
     };
     const b = [_]Vec2{
         .{ .x = 1, .y = -1 }, .{ .x = 3, .y = -1 },
-        .{ .x = 3, .y = 1 }, .{ .x = 1, .y = 1 },
+        .{ .x = 3, .y = 1 },  .{ .x = 1, .y = 1 },
     };
-    var result = try combine(allocator, polygonShape(&a), polygonShape(&b), .intersection, 1e-9);
+    const a_ends = [_]u32{a.len};
+    const b_ends = [_]u32{b.len};
+    var result = try combine(allocator, polygonShape(&a, &a_ends), polygonShape(&b, &b_ends), .intersection, 1e-9);
     defer result.deinit(allocator);
     try std.testing.expectEqual(@as(usize, 0), result.contour_ends.len);
 }
