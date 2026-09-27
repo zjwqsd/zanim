@@ -2,12 +2,12 @@
 
 Browser runtime and TypeScript authoring API for Zanim.
 
-> **Release status:** `0.1.0-beta.1` is a pre-1.0 public beta. Random-access scene semantics are stable enough for real projects, but API names may still evolve in 0.x releases.
+> **Release status:** `0.1.0-beta.2` is a pre-1.0 public beta. Random-access scene semantics are stable enough for real projects, but API names may still evolve in 0.x releases.
 
 ## Install
 
 ```bash
-npm install @zanim/web@0.1.0-beta.1
+npm install @zanim/web@0.1.0-beta.2
 ```
 
 For build-time `Math` / `Typst` authoring, also install Vite 5+ and enable `@zanim/web/vite`. Vite is an optional peer dependency; runtime-only consumers do not need it.

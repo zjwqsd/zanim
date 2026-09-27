@@ -181,6 +181,8 @@ def capture_runtime_source(path: str | Path):
     No source AST, source text, line span, or clip call-site data is retained.
     """
     resolved = Path(path).resolve()
+    source_name = str(resolved)
+    source_basename = resolved.name
     capture = _RuntimeSourceCapture(resolved, {})
     previous = sys.getprofile()
 
@@ -189,12 +191,18 @@ def capture_runtime_source(path: str | Path):
             previous(frame, event, arg)
         if event != "return":
             return
-        try:
-            current = Path(frame.f_code.co_filename).resolve()
-        except OSError:
-            return
-        if current != resolved:
-            return
+        filename = frame.f_code.co_filename
+        if filename != source_name:
+            # Profiling receives a return event for every Python function in
+            # the process. Only resolve a path when it could name this script
+            # (for instance through a symlink).
+            if not filename.endswith(source_basename):
+                return
+            try:
+                if Path(filename).resolve() != resolved:
+                    return
+            except OSError:
+                return
         if frame.f_code.co_name in {"setup", "construct"} and isinstance(
             frame.f_locals.get("self"), Scene
         ):

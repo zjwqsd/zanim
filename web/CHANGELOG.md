@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-beta.2 - 2026-09-27
+
+- Added configurable Manim-style themes and runtime theme switching.
+- Unified non-scaling stroke behavior with the native renderer.
+- Expanded vector, viewport, and 3D rendering support.
+- Updated authoring/runtime behavior to match the current Python release candidate.
+
 ## 0.1.0-beta.1 - 2026-09-20
 
 First public beta of `@zanim/web`.

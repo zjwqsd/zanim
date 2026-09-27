@@ -5,7 +5,7 @@ Zanim is intentionally pre-1.0. Python and Web use independent version streams.
 Current release candidates:
 
 - Python: `zanim 0.7.0rc2`
-- Web: `@zanim/web 0.1.0-beta.1`
+- Web: `@zanim/web 0.1.0-beta.2`
 
 ## One-time registry setup
 
@@ -59,8 +59,8 @@ A real tarball should contain the JS sources/types, WASM runtime, README, CHANGE
 Publish with an independent Web tag matching `web/package.json`:
 
 ```bash
-git tag web-v0.1.0-beta.1
-git push origin web-v0.1.0-beta.1
+git tag web-v0.1.0-beta.2
+git push origin web-v0.1.0-beta.2
 ```
 
-The `Publish Web` workflow validates the tag/package version before `npm publish --provenance`. Prerelease versions such as `0.1.0-beta.1` use the npm `beta` dist-tag; non-prerelease 0.x versions use `latest`.
+The `Publish Web` workflow validates the tag/package version before `npm publish --provenance`. Prerelease versions such as `0.1.0-beta.2` use the npm `beta` dist-tag; non-prerelease 0.x versions use `latest`.
